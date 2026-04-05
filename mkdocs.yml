@@ -1,0 +1,45 @@
+site_name: operator
+site_description: Public documentation for the operator CLI and library
+repo_name: operator
+docs_dir: docs
+strict: true
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/_scripts/gen_reference_pages.py
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_source: false
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Docs:
+      - Overview: README.md
+      - Quickstart: quickstart.md
+      - How-to:
+          - Run your first operation: how-to/run-first-operation.md
+          - Resume and inspect operations: how-to/resume-and-inspect.md
+      - Reference:
+          - CLI: reference/cli.md
+          - Configuration: reference/config.md
+          - Python API:
+              - Overview: reference/python/overview.md
+              - Package root: reference/python/agent_operator.md
+              - Protocols: reference/python/protocols.md
+              - Domain models: reference/python/domain.md
+              - Runtime utilities: reference/python/runtime.md
+              - ACP: reference/python/acp.md
+              - Adapters: reference/python/adapters.md
+      - Integrations: integrations.md

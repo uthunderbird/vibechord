@@ -1,0 +1,3858 @@
+from __future__ import annotations
+
+import json
+import threading
+import time
+from pathlib import Path
+
+import anyio
+from typer.testing import CliRunner
+
+from agent_operator.cli.main import _format_live_snapshot, app
+from agent_operator.domain import (
+    AgentSessionHandle,
+    AgentTurnBrief,
+    ArtifactRecord,
+    AttentionRequest,
+    AttentionStatus,
+    AttentionType,
+    BackgroundRunHandle,
+    BackgroundRunStatus,
+    CommandTargetScope,
+    DecisionMemo,
+    ExecutionBudget,
+    FocusKind,
+    FocusState,
+    InvolvementLevel,
+    IterationBrief,
+    MemoryEntry,
+    MemoryFreshness,
+    MemoryScope,
+    MemorySourceRef,
+    OperationBrief,
+    OperationCommand,
+    OperationCommandType,
+    OperationGoal,
+    OperationOutcome,
+    OperationPolicy,
+    OperationState,
+    OperationStatus,
+    PolicyApplicability,
+    PolicyCategory,
+    PolicyEntry,
+    RunEvent,
+    RunEventKind,
+    RunMode,
+    RuntimeHints,
+    SchedulerState,
+    SessionRecord,
+    SessionRecordStatus,
+    StoredControlIntent,
+    TaskState,
+    TaskStatus,
+    TraceRecord,
+)
+from agent_operator.runtime import (
+    FileOperationCommandInbox,
+    FileOperationStore,
+    FilePolicyStore,
+    FileTraceStore,
+    FileWakeupInbox,
+    JsonlEventSink,
+)
+
+runner = CliRunner()
+
+
+def state_settings(
+    *,
+    allowed_agents: list[str] | None = None,
+    involvement_level: InvolvementLevel = InvolvementLevel.AUTO,
+    max_iterations: int = 100,
+    timeout_seconds: int | None = None,
+    metadata: dict[str, object] | None = None,
+    max_task_retries: int = 2,
+    operator_message_window: int = 3,
+) -> dict[str, object]:
+    """Build split operation-state settings for CLI tests."""
+
+    return {
+        "policy": OperationPolicy(
+            allowed_agents=list(allowed_agents or []),
+            involvement_level=involvement_level,
+        ),
+        "execution_budget": ExecutionBudget(
+            max_iterations=max_iterations,
+            timeout_seconds=timeout_seconds,
+            max_task_retries=max_task_retries,
+        ),
+        "runtime_hints": RuntimeHints(
+            operator_message_window=operator_message_window,
+            metadata=dict(metadata or {}),
+        ),
+    }
+
+
+def _read_control_intent(tmp_path: Path) -> StoredControlIntent:
+    path = next((tmp_path / "commands").glob("*.json"))
+    return StoredControlIntent.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _read_control_intents(tmp_path: Path) -> list[StoredControlIntent]:
+    return [
+        StoredControlIntent.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in sorted((tmp_path / "commands").glob("*.json"))
+    ]
+
+
+def _seed_operation(tmp_path: Path) -> str:
+    operation_id = "op-cli-1"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    trace_store = FileTraceStore(runs_dir)
+    event_sink = JsonlEventSink(tmp_path, operation_id)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(
+                objective="Test objective",
+                harness_instructions="Use swarm when unclear.",
+            ),
+            **state_settings(),
+            status=OperationStatus.COMPLETED,
+            final_summary="Completed successfully.",
+            tasks=[
+                TaskState(
+                    task_id="task-1",
+                    title="Primary objective",
+                    goal="Test objective",
+                    definition_of_done="Return the final report.",
+                    status=TaskStatus.COMPLETED,
+                    brain_priority=100,
+                    effective_priority=100,
+                    assigned_agent="codex_acp",
+                    linked_session_id="session-1",
+                    memory_refs=["memory-1"],
+                    artifact_refs=["artifact-1"],
+                )
+            ],
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-1",
+                        session_name="repo-audit",
+                    )
+                )
+            ],
+            artifacts=[
+                ArtifactRecord(
+                    artifact_id="artifact-1",
+                    kind="final_note",
+                    producer="codex_acp",
+                    task_id="task-1",
+                    session_id="session-1",
+                    content="Returned two integration points with a concise final note.",
+                    raw_ref=str(tmp_path / "artifact-1.md"),
+                )
+            ],
+            memory_entries=[
+                MemoryEntry(
+                    memory_id="memory-1",
+                    scope=MemoryScope.TASK,
+                    scope_id="task-1",
+                    summary=(
+                        "The repo's strongest extension points are the ACP adapter and "
+                        "runtime events."
+                    ),
+                    freshness=MemoryFreshness.CURRENT,
+                    source_refs=[MemorySourceRef(kind="artifact", ref_id="artifact-1")],
+                )
+            ],
+        )
+        outcome = OperationOutcome(
+            operation_id=operation_id,
+            status=OperationStatus.COMPLETED,
+            summary="Completed successfully.",
+        )
+        await store.save_operation(state)
+        await store.save_outcome(outcome)
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                objective_brief="Test objective",
+                harness_brief="Use swarm when unclear.",
+                latest_outcome_brief="Completed successfully.",
+            )
+        )
+        await trace_store.append_iteration_brief(
+            operation_id,
+            IterationBrief(
+                iteration=1,
+                operator_intent_brief="Operator asked the agent to inspect the repo.",
+                assignment_brief="Asked codex_acp to inspect the repo.",
+                result_brief="Returned two integration points.",
+                status_brief="Operation completed.",
+            ),
+        )
+        await trace_store.append_agent_turn_brief(
+            operation_id,
+            AgentTurnBrief(
+                operation_id=operation_id,
+                iteration=1,
+                agent_key="codex_acp",
+                session_id="session-1",
+                session_display_name="repo-audit [codex_acp]",
+                assignment_brief="Asked codex_acp to inspect the repo.",
+                result_brief="Returned two integration points.",
+                status="success",
+                raw_log_refs=[str(tmp_path / "raw.log")],
+            ),
+        )
+        await trace_store.save_decision_memo(
+            operation_id,
+            DecisionMemo(
+                operation_id=operation_id,
+                iteration=1,
+                decision_context_summary="Root task ready.",
+                chosen_action="start_agent",
+                rationale="Need repo inspection.",
+            ),
+        )
+        await trace_store.append_trace_record(
+            operation_id,
+            TraceRecord(
+                operation_id=operation_id,
+                iteration=1,
+                category="iteration",
+                title="Iteration 1",
+                summary="Operator asked the agent to inspect the repo.",
+            ),
+        )
+        await trace_store.write_report(
+            operation_id,
+            "# Operation op-cli-1\n\nStatus: completed\nObjective: Test objective\n"
+            "Harness Instructions: Use swarm when unclear.\nGoal Input Mode: structured\n\n"
+            "## Summary\n\nCompleted successfully.\n\n"
+            "## Tasks\n\n"
+            "- Primary objective [completed] priority=100 agent=codex_acp session=session-1\n"
+            "  goal: Test objective\n"
+            "  done: Return the final report.\n"
+            "  memory_refs: memory-1\n"
+            "  artifact_refs: artifact-1\n\n"
+            "## Current Memory\n\n"
+            "- memory-1 [task:task-1] The repo's strongest extension points are the ACP "
+            "adapter and runtime events.\n\n"
+            "## Artifacts\n\n"
+            "- artifact-1 [final_note] producer=codex_acp task=task-1 session=session-1\n"
+            "  content: Returned two integration points with a concise final note.\n",
+        )
+        await event_sink.emit(
+            RunEvent(
+                event_type="operation.cycle_finished",
+                operation_id=operation_id,
+                iteration=1,
+            
+                category="trace",
+            )
+        )
+        inbox = FileWakeupInbox(tmp_path / "wakeups")
+        await inbox.enqueue(
+            RunEvent(
+                event_type="background_run.completed",
+                kind=RunEventKind.WAKEUP,
+                operation_id=operation_id,
+                iteration=1,
+                session_id="session-1",
+                dedupe_key="run-1:completed",
+                payload={"run_id": "run-1"},
+            )
+        )
+        background_dir = tmp_path / "background" / "runs"
+        background_dir.mkdir(parents=True, exist_ok=True)
+        run = BackgroundRunHandle(
+            run_id="run-1",
+            operation_id=operation_id,
+            adapter_key="codex_acp",
+            session_id="session-1",
+            iteration=1,
+            status=BackgroundRunStatus.RUNNING,
+        )
+        (background_dir / "run-1.json").write_text(run.model_dump_json(indent=2), encoding="utf-8")
+
+    anyio.run(_seed)
+    return operation_id
+
+
+def _seed_operation_with_context(tmp_path: Path) -> str:
+    operation_id = "op-cli-context"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(
+                objective="Ship the feature",
+                harness_instructions="Use swarm when strategic direction is unclear.",
+                success_criteria=["Tests pass", "Docs updated"],
+                metadata={
+                    "project_profile_name": "femtobot",
+                    "policy_scope": "profile:femtobot",
+                    "resolved_project_profile": {
+                        "profile_name": "femtobot",
+                        "cwd": "/tmp/femtobot",
+                        "default_agents": ["codex_acp"],
+                        "harness_instructions": "Continue most of the time.",
+                        "success_criteria": ["Tests pass", "Docs updated"],
+                        "max_iterations": 12,
+                        "involvement_level": "unattended",
+                        "overrides": ["harness"],
+                    },
+                },
+            ),
+            **state_settings(
+                allowed_agents=["codex_acp"],
+                max_iterations=12,
+            ),
+            involvement_level="collaborative",
+            status=OperationStatus.RUNNING,
+            scheduler_state=SchedulerState.ACTIVE,
+            active_policies=[
+                PolicyEntry(
+                    policy_id="policy-1",
+                    project_scope="profile:femtobot",
+                    title="Manual testing debt",
+                    category=PolicyCategory.TESTING,
+                    rule_text="Document manual-only verification in MANUAL_TESTING_REQUIRED.md.",
+                    rationale="Keeps unresolved checks visible.",
+                )
+            ],
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-context",
+                        session_name="feature-slice",
+                    ),
+                    status=SessionRecordStatus.RUNNING,
+                    waiting_reason="Agent is applying the selected slice.",
+                )
+            ],
+            attention_requests=[
+                AttentionRequest(
+                    attention_id="attention-context",
+                    operation_id=operation_id,
+                    attention_type=AttentionType.POLICY_GAP,
+                    status=AttentionStatus.OPEN,
+                    blocking=False,
+                    title="Testing policy gap",
+                    question="Should manual-only checks always be recorded?",
+                    target_scope=CommandTargetScope.OPERATION,
+                    target_id=operation_id,
+                )
+            ],
+        )
+        state.current_focus = FocusState.model_validate(
+            {
+                "kind": "session",
+                "target_id": "session-context",
+                "mode": "blocking",
+                "blocking_reason": "Waiting for the current attached turn.",
+                "interrupt_policy": "terminal_only",
+                "resume_policy": "replan",
+            }
+        )
+        state.runtime_hints.metadata["run_mode"] = "attached"
+        state.runtime_hints.metadata["available_agent_descriptors"] = [
+            {
+                "key": "codex_acp",
+                "display_name": "Codex via ACP",
+                "capabilities": [
+                    {"name": "acp", "description": "ACP session over stdio"},
+                    {"name": "follow_up", "description": "Can resume prior Codex sessions"},
+                    {"name": "read_files", "description": "Can read repository files."},
+                    {"name": "run_shell_commands", "description": "Can run shell commands."},
+                ],
+                "supports_follow_up": True,
+                "supports_cancellation": True,
+                "metadata": {},
+            }
+        ]
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    return operation_id
+
+
+def _seed_dashboard_operation(tmp_path: Path) -> tuple[str, Path]:
+    operation_id = "op-cli-dashboard"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    trace_store = FileTraceStore(runs_dir)
+    event_sink = JsonlEventSink(tmp_path / "events" / "events.jsonl")
+    command_inbox = FileOperationCommandInbox(tmp_path / "commands")
+    codex_home = tmp_path / "codex-home"
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(
+                objective="Ship the dashboard slice",
+                harness_instructions="Keep the dashboard thin over persisted truth.",
+                metadata={
+                    "project_profile_name": "operator",
+                    "policy_scope": "profile:operator",
+                    "resolved_project_profile": {
+                        "profile_name": "operator",
+                        "cwd": "/tmp/operator",
+                        "default_agents": ["codex_acp", "claude_acp"],
+                    },
+                },
+            ),
+            **state_settings(
+                allowed_agents=["codex_acp", "claude_acp"],
+                max_iterations=10,
+            ),
+            involvement_level="collaborative",
+            status=OperationStatus.RUNNING,
+            scheduler_state=SchedulerState.ACTIVE,
+            current_focus=FocusState(
+                kind=FocusKind.SESSION,
+                target_id="session-dashboard",
+                mode="blocking",
+                blocking_reason="Waiting on the current attached turn.",
+            ),
+            active_policies=[
+                PolicyEntry(
+                    policy_id="policy-dashboard",
+                    project_scope="profile:operator",
+                    title="Manual checks stay visible",
+                    category=PolicyCategory.TESTING,
+                    rule_text="Write human-only checks to MANUAL_TESTING_REQUIRED.md.",
+                )
+            ],
+            tasks=[
+                TaskState(
+                    task_id="task-dashboard",
+                    title="Implement dashboard command",
+                    goal="Add a live operation workbench.",
+                    definition_of_done="Users can inspect one operation in a single surface.",
+                    status=TaskStatus.RUNNING,
+                    brain_priority=90,
+                    effective_priority=90,
+                    assigned_agent="codex_acp",
+                    linked_session_id="session-dashboard",
+                ),
+                TaskState(
+                    task_id="task-docs",
+                    title="Update ADR and architecture docs",
+                    goal="Keep the source-of-truth docs aligned.",
+                    definition_of_done="ADR and architecture text mention the dashboard surface.",
+                    status=TaskStatus.READY,
+                    brain_priority=70,
+                    effective_priority=70,
+                    assigned_agent="claude_acp",
+                ),
+            ],
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-dashboard",
+                        session_name="dashboard-workbench",
+                    ),
+                    status=SessionRecordStatus.RUNNING,
+                    waiting_reason="Rendering the control-plane workbench.",
+                    bound_task_ids=["task-dashboard"],
+                )
+            ],
+            attention_requests=[
+                AttentionRequest(
+                    attention_id="attention-dashboard",
+                    operation_id=operation_id,
+                    attention_type=AttentionType.NOVEL_STRATEGIC_FORK,
+                    status=AttentionStatus.OPEN,
+                    blocking=False,
+                    title="Choose dashboard landing surface",
+                    question="Should the first dashboard be operation-first or fleet-first?",
+                    target_scope=CommandTargetScope.OPERATION,
+                    target_id=operation_id,
+                )
+            ],
+        )
+        state.runtime_hints.metadata["run_mode"] = "attached"
+        state.runtime_hints.metadata["available_agent_descriptors"] = [
+            {
+                "key": "codex_acp",
+                "display_name": "Codex via ACP",
+                "capabilities": [
+                    {"name": "acp", "description": "ACP session over stdio"},
+                    {"name": "follow_up", "description": "Can resume prior Codex sessions"},
+                    {"name": "read_files", "description": "Can read repository files."},
+                    {"name": "write_files", "description": "Can create new files."},
+                    {"name": "run_shell_commands", "description": "Can run shell commands."},
+                ],
+                "supports_follow_up": True,
+                "supports_cancellation": True,
+                "metadata": {},
+            },
+            {
+                "key": "claude_acp",
+                "display_name": "Claude Code via ACP",
+                "capabilities": [
+                    {"name": "acp", "description": "ACP session over stdio"},
+                    {"name": "follow_up", "description": "Can resume Claude ACP sessions"},
+                    {"name": "read_files", "description": "Can read repository files."},
+                    {"name": "grep_search", "description": "Can search repository text."},
+                ],
+                "supports_follow_up": True,
+                "supports_cancellation": True,
+                "metadata": {},
+            },
+        ]
+        await store.save_operation(state)
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Dashboard slice is still in progress.",
+            )
+        )
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                objective_brief="Ship the dashboard slice",
+                focus_brief="session:session-dashboard",
+                latest_outcome_brief="Dashboard slice is still in progress.",
+            )
+        )
+        await event_sink.emit(
+            RunEvent(
+                event_type="brain.decision.made",
+                operation_id=operation_id,
+                iteration=2,
+                payload={
+                    "action_type": "start_agent",
+                    "target_agent": "codex_acp",
+                    "rationale": "Need a cohesive live workbench surface.",
+                },
+            
+                category="trace",
+            )
+        )
+        await event_sink.emit(
+            RunEvent(
+                event_type="agent.invocation.started",
+                operation_id=operation_id,
+                iteration=2,
+                session_id="session-dashboard",
+                payload={
+                    "adapter_key": "codex_acp",
+                    "session_name": "dashboard-workbench",
+                },
+            
+                category="trace",
+            )
+        )
+        await command_inbox.enqueue(
+            OperationCommand(
+                operation_id=operation_id,
+                command_type=OperationCommandType.PAUSE_OPERATOR,
+                target_scope=CommandTargetScope.OPERATION,
+                target_id=operation_id,
+            )
+        )
+        await command_inbox.enqueue(
+            OperationCommand(
+                operation_id=operation_id,
+                command_type=OperationCommandType.INJECT_OPERATOR_MESSAGE,
+                target_scope=CommandTargetScope.OPERATION,
+                target_id=operation_id,
+                payload={"text": "Favor the thinnest honest slice."},
+            )
+        )
+        session_dir = codex_home / "sessions" / "2026" / "03" / "30"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        transcript = session_dir / "rollout-session-dashboard.jsonl"
+        transcript.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "timestamp": "2026-03-30T08:00:00Z",
+                            "type": "event_msg",
+                            "payload": {
+                                "type": "agent_message",
+                                "phase": "analysis",
+                                "message": "Inspecting the persisted control-plane surfaces.",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "timestamp": "2026-03-30T08:00:05Z",
+                            "type": "event_msg",
+                            "payload": {
+                                "type": "task_complete",
+                                "last_agent_message": "Prepared the dashboard workbench plan.",
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    anyio.run(_seed)
+    return operation_id, codex_home
+
+
+def _seed_running_operation_with_terminal_background_run(tmp_path: Path) -> str:
+    operation_id = "op-cli-running"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    trace_store = FileTraceStore(runs_dir)
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Running objective"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-running",
+                        session_name="stale-session",
+                    )
+                )
+            ],
+        )
+        state.current_focus = FocusState.model_validate(
+            {
+                "kind": "session",
+                "target_id": "session-running",
+                "mode": "blocking",
+                "blocking_reason": "Waiting for the background agent turn to complete.",
+                "interrupt_policy": "terminal_only",
+                "resume_policy": "replan",
+            }
+        )
+        await store.save_operation(state)
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Operation is waiting on a background agent turn.",
+            )
+        )
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                objective_brief="Running objective",
+                blocker_brief="Waiting on a background agent turn.",
+            )
+        )
+        await inbox.enqueue(
+            RunEvent(
+                event_type="background_run.completed",
+                kind=RunEventKind.WAKEUP,
+                operation_id=operation_id,
+                iteration=1,
+                session_id="session-running",
+                dedupe_key="run-stale:completed",
+                payload={"run_id": "run-stale"},
+            )
+        )
+        background_dir = tmp_path / "background" / "runs"
+        background_dir.mkdir(parents=True, exist_ok=True)
+        run = BackgroundRunHandle(
+            run_id="run-stale",
+            operation_id=operation_id,
+            adapter_key="codex_acp",
+            session_id="session-running",
+            iteration=1,
+            status=BackgroundRunStatus.COMPLETED,
+        )
+        (background_dir / "run-stale.json").write_text(
+            run.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+    anyio.run(_seed)
+    return operation_id
+
+
+def _seed_paused_operation(tmp_path: Path) -> str:
+    operation_id = "op-cli-paused"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    trace_store = FileTraceStore(runs_dir)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Paused objective"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            scheduler_state=SchedulerState.PAUSED,
+        )
+        await store.save_operation(state)
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Operation is paused.",
+            )
+        )
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                objective_brief="Paused objective",
+                blocker_brief="Operator is paused.",
+                scheduler_state=SchedulerState.PAUSED,
+            )
+        )
+
+    anyio.run(_seed)
+    return operation_id
+
+
+def _seed_claude_headless_operation(tmp_path: Path) -> tuple[str, Path]:
+    operation_id = "op-cli-claude-log"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    log_path = tmp_path / ".operator" / "claude" / "session-claude.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Inspect the Claude transcript"),
+            **state_settings(),
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="claude_acp",
+                        session_id="session-claude",
+                        session_name="claude-headless",
+                        metadata={"log_path": str(log_path)},
+                    )
+                )
+            ],
+        )
+        await store.save_operation(state)
+
+    log_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:51.288Z",
+                        "type": "system",
+                        "subtype": "init",
+                        "cwd": "/repo",
+                        "model": "claude-sonnet-4-6",
+                        "tools": ["Bash", "Read", "Write"],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:53.288Z",
+                        "type": "user",
+                        "message": {
+                            "content": [{"type": "text", "text": "Inspect the repository."}]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:55.288Z",
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "Reviewing the runtime seam."}]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:57.288Z",
+                        "type": "tool_use",
+                        "name": "Bash",
+                        "input": {"command": "git status --short", "description": "check repo"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:59.288Z",
+                        "type": "tool_use",
+                        "name": "Bash",
+                        "input": {
+                            "command": "cp design/VISION.md ../backup/",
+                            "with_escalated_permissions": True,
+                            "justification": "Need to preserve the canonical vision copy.",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:57:01.288Z",
+                        "type": "result",
+                        "subtype": "success",
+                        "result": "Drafted the Claude log parser plan.",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    anyio.run(_seed)
+    return operation_id, log_path
+
+
+def _seed_blocked_attention_operation(tmp_path: Path) -> tuple[str, str]:
+    operation_id = "op-cli-attention"
+    attention_id = "attention-1"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Need human answer"),
+            **state_settings(),
+            status=OperationStatus.NEEDS_HUMAN,
+            attention_requests=[
+                AttentionRequest(
+                    attention_id=attention_id,
+                    operation_id=operation_id,
+                    attention_type=AttentionType.QUESTION,
+                    status=AttentionStatus.OPEN,
+                    blocking=True,
+                    title="Clarification required",
+                    question="Which environment should be used?",
+                    target_scope=CommandTargetScope.OPERATION,
+                    target_id=operation_id,
+                )
+            ],
+        )
+        state.current_focus = FocusState.model_validate(
+            {
+                "kind": "attention_request",
+                "target_id": attention_id,
+                "mode": "blocking",
+                "blocking_reason": "Which environment should be used?",
+                "interrupt_policy": "material_wakeup",
+                "resume_policy": "replan",
+            }
+        )
+        await store.save_operation(state)
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.NEEDS_HUMAN,
+                summary="Blocked on attention request.",
+            )
+        )
+
+    anyio.run(_seed)
+    return operation_id, attention_id
+
+
+def _seed_command(tmp_path: Path, operation_id: str) -> None:
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+
+    async def _seed() -> None:
+        await inbox.enqueue(
+            OperationCommand(
+                operation_id=operation_id,
+                command_type=OperationCommandType.INJECT_OPERATOR_MESSAGE,
+                target_scope=CommandTargetScope.OPERATION,
+                target_id=operation_id,
+                payload={"text": "Use swarm when strategic direction is unclear."},
+            )
+        )
+
+    anyio.run(_seed)
+
+
+def _seed_project_profile(tmp_path: Path, *, name: str = "femtobot") -> None:
+    projects_dir = tmp_path / "profiles"
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    (projects_dir / f"{name}.yaml").write_text(
+        "\n".join(
+            [
+                f"name: {name}",
+                "cwd: /tmp/femtobot",
+                "default_agents:",
+                "  - codex_acp",
+                "default_harness_instructions: Continue most of the time.",
+                "default_success_criteria:",
+                "  - backlog stays above 100",
+                "default_max_iterations: 12",
+                "default_involvement_level: unattended",
+                "adapter_settings:",
+                "  codex_acp:",
+                "    command: npm exec --yes @zed-industries/codex-acp --",
+                "    approval_policy: never",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _seed_agenda_operations(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    trace_store = FileTraceStore(runs_dir)
+
+    async def _seed() -> None:
+        blocked = OperationState(
+            operation_id="op-agenda-blocked",
+            goal=OperationGoal(
+                objective="Choose deployment target",
+                metadata={
+                    "project_profile_name": "femtobot",
+                    "policy_scope": "profile:femtobot",
+                },
+            ),
+            **state_settings(),
+            status=OperationStatus.NEEDS_HUMAN,
+            final_summary="Waiting for approval.",
+            attention_requests=[
+                AttentionRequest(
+                    attention_id="attention-deploy",
+                    operation_id="op-agenda-blocked",
+                    attention_type=AttentionType.APPROVAL_REQUEST,
+                    status=AttentionStatus.OPEN,
+                    title="Approve staging deploy",
+                    question="Should the operator deploy to staging now?",
+                    blocking=True,
+                    target_scope=CommandTargetScope.OPERATION,
+                )
+            ],
+        )
+        blocked.current_focus = FocusState.model_validate(
+            {
+                "kind": "attention_request",
+                "target_id": "attention-deploy",
+                "mode": "blocking",
+                "blocking_reason": "Waiting for deployment approval.",
+            }
+        )
+        paused = OperationState(
+            operation_id="op-agenda-paused",
+            goal=OperationGoal(
+                objective="Refactor the release script",
+                metadata={
+                    "project_profile_name": "femtobot",
+                    "policy_scope": "profile:femtobot",
+                },
+            ),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            scheduler_state=SchedulerState.PAUSED,
+        )
+        active = OperationState(
+            operation_id="op-agenda-active",
+            goal=OperationGoal(
+                objective="Audit the billing worker",
+                metadata={
+                    "project_profile_name": "opsbot",
+                    "policy_scope": "profile:opsbot",
+                },
+            ),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            tasks=[
+                TaskState(
+                    task_id="task-active",
+                    title="Inspect worker retries",
+                    goal="Audit the billing worker",
+                    definition_of_done="Summarize retry risks.",
+                    status=TaskStatus.READY,
+                )
+            ],
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-active",
+                        session_name="billing-worker",
+                    ),
+                    status=SessionRecordStatus.RUNNING,
+                )
+            ],
+        )
+        completed = OperationState(
+            operation_id="op-agenda-completed",
+            goal=OperationGoal(
+                objective="Summarize last week's incidents",
+                metadata={
+                    "project_profile_name": "femtobot",
+                    "policy_scope": "profile:femtobot",
+                },
+            ),
+            **state_settings(),
+            status=OperationStatus.COMPLETED,
+            final_summary="Incident summary complete.",
+        )
+        await store.save_operation(blocked)
+        await store.save_operation(paused)
+        await store.save_operation(active)
+        await store.save_operation(completed)
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id="op-agenda-blocked",
+                status=OperationStatus.NEEDS_HUMAN,
+                objective_brief="Choose deployment target",
+                focus_brief="attention_request:attention-deploy",
+                blocker_brief="Waiting for deployment approval.",
+            )
+        )
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id="op-agenda-paused",
+                status=OperationStatus.RUNNING,
+                scheduler_state=SchedulerState.PAUSED,
+                objective_brief="Refactor the release script",
+                latest_outcome_brief="Operator is paused.",
+            )
+        )
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id="op-agenda-active",
+                status=OperationStatus.RUNNING,
+                objective_brief="Audit the billing worker",
+                focus_brief="session:session-active",
+                latest_outcome_brief="Inspecting retry paths.",
+            )
+        )
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id="op-agenda-completed",
+                status=OperationStatus.COMPLETED,
+                objective_brief="Summarize last week's incidents",
+                latest_outcome_brief="Incident summary complete.",
+            )
+        )
+
+    anyio.run(_seed)
+
+
+def test_list_default_is_human_readable_brief(tmp_path: Path, monkeypatch) -> None:
+    _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["list"])
+
+    assert result.exit_code == 0
+    assert "[completed]" in result.stdout
+    assert "Test objective" in result.stdout
+    assert "op-cli-1" in result.stdout
+    assert '"operation_id"' not in result.stdout
+
+
+def test_list_json_emits_machine_readable_objects(tmp_path: Path, monkeypatch) -> None:
+    _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["list", "--json"])
+
+    assert result.exit_code == 0
+    assert '"operation_id"' in result.stdout
+    assert '"status"' in result.stdout
+    assert '"objective_brief"' in result.stdout
+
+
+def test_history_default_reads_committed_ledger(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "operator-history.jsonl").write_text(
+        (
+            '{"op_id":"op-hist-1","goal":"Fix flaky tests","profile":"default",'
+            '"started":"2026-04-03T10:00:00Z","ended":"2026-04-03T11:00:00Z",'
+            '"status":"completed","stop_reason":"explicit_success"}\n'
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["history"])
+
+    assert result.exit_code == 0
+    assert "op-hist-1 COMPLETED Fix flaky tests [reason=explicit_success]" in result.stdout
+
+
+def test_history_json_and_last_reference(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "operator-history.jsonl").write_text(
+        "\n".join(
+            [
+                '{"op_id":"op-hist-1","goal":"First","profile":"default","started":"2026-04-03T10:00:00Z","ended":"2026-04-03T11:00:00Z","status":"failed","stop_reason":"iteration_limit_exhausted"}',
+                '{"op_id":"op-hist-2","goal":"Second","profile":"default","started":"2026-04-03T12:00:00Z","ended":"2026-04-03T13:00:00Z","status":"completed","stop_reason":"explicit_success"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["history", "last", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload) == 1
+    assert payload[0]["op_id"] == "op-hist-2"
+    assert payload[0]["stop_reason"] == "explicit_success"
+
+
+def test_history_reports_when_committed_ledger_is_disabled(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "operator-profile.yaml").write_text(
+        "name: default\nhistory_ledger: false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["history"])
+
+    assert result.exit_code == 0
+    assert "Committed history ledger is disabled for this project." in result.stdout
+
+
+def test_agenda_groups_attention_active_and_recent_operations(tmp_path: Path, monkeypatch) -> None:
+    _seed_agenda_operations(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["agenda", "--all"])
+
+    assert result.exit_code == 0
+    assert "Needs attention:" in result.stdout
+    assert "op-agenda-blocked [needs_human] Choose deployment target" in result.stdout
+    assert "attention=1" in result.stdout
+    assert "attention: [approval_request] Approve staging deploy" in result.stdout
+    assert "scheduler=paused" in result.stdout
+    assert "Active:" in result.stdout
+    assert "op-agenda-active [running] Audit the billing worker" in result.stdout
+    assert "tasks=1 sessions=1" in result.stdout
+    assert "Recent:" in result.stdout
+    assert "op-agenda-completed [completed] Summarize last week's incidents" in result.stdout
+
+
+def test_agenda_json_can_filter_by_project(tmp_path: Path, monkeypatch) -> None:
+    _seed_agenda_operations(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["agenda", "--project", "femtobot", "--json"])
+
+    assert result.exit_code == 0
+    assert '"total_operations": 3' in result.stdout
+    assert '"operation_id": "op-agenda-blocked"' in result.stdout
+    assert '"operation_id": "op-agenda-paused"' in result.stdout
+    assert '"operation_id": "op-agenda-active"' not in result.stdout
+    assert '"recent": []' in result.stdout
+
+
+def test_fleet_once_renders_cross_operation_dashboard(tmp_path: Path, monkeypatch) -> None:
+    _seed_agenda_operations(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["fleet", "--all", "--once"])
+
+    assert result.exit_code == 0
+    assert "Fleet Dashboard" in result.stdout
+    assert "needs_attention=2 active=1 recent=1" in result.stdout
+    assert "status_mix=running=2, completed=1, needs_human=1" in result.stdout
+    assert "scheduler_mix=active=3, paused=1" in result.stdout
+    assert "involvement_mix=auto=4" in result.stdout
+    assert "op-agenda-blocked" in result.stdout
+    assert "op-agenda-active" in result.stdout
+    assert "op-agenda-completed" in result.stdout
+    assert "operator dashboard op-agenda-blocked" in result.stdout
+
+
+def test_no_args_non_tty_renders_fleet_snapshot_when_operations_exist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _seed_agenda_operations(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Fleet Dashboard" in result.stdout
+    assert "op-agenda-blocked" in result.stdout
+
+
+def test_no_args_non_tty_falls_back_to_help_when_no_operations_exist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.stdout
+    assert "fleet" in result.stdout
+
+
+def test_fleet_json_can_filter_by_project(tmp_path: Path, monkeypatch) -> None:
+    _seed_agenda_operations(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["fleet", "--project", "femtobot", "--json"])
+
+    assert result.exit_code == 0
+    assert '"project": "femtobot"' in result.stdout
+    assert '"total_operations": 3' in result.stdout
+    assert '"mix"' in result.stdout
+    assert '"status_counts"' in result.stdout
+    assert '"operation_id": "op-agenda-blocked"' in result.stdout
+    assert '"operation_id": "op-agenda-paused"' in result.stdout
+    assert '"operation_id": "op-agenda-active"' not in result.stdout
+    assert '"control_hints"' in result.stdout
+
+
+def test_default_help_hides_debug_commands(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "debug" not in result.stdout
+    assert "resume" not in result.stdout
+    assert "trace" not in result.stdout
+    assert "inspect" not in result.stdout
+    assert "codex-log" not in result.stdout
+    assert "claude-log" not in result.stdout
+
+
+def test_debug_help_lists_hidden_runtime_commands(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["debug"])
+
+    assert result.exit_code == 0
+    assert "resume" in result.stdout
+    assert "tick" in result.stdout
+    assert "recover" in result.stdout
+    assert "trace" in result.stdout
+    assert "inspect" in result.stdout
+
+
+def test_help_all_reveals_hidden_debug_commands(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["--help", "--all"])
+
+    assert result.exit_code == 0
+    assert "debug" in result.stdout
+    assert "smoke" in result.stdout
+    assert "Hidden Commands:" in result.stdout
+    assert "resume" in result.stdout
+    assert "tick" in result.stdout
+    assert "daemon" in result.stdout
+    assert "recover" in result.stdout
+    assert "wakeups" in result.stdout
+    assert "sessions" in result.stdout
+    assert "command" in result.stdout
+    assert "context" in result.stdout
+    assert "trace" in result.stdout
+    assert "inspect" in result.stdout
+
+
+def test_fleet_surfaces_resume_hint_for_runtime_alert_operations(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id = "op-fleet-runtime-alert"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    trace_store = FileTraceStore(runs_dir)
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Recover the stale background run"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+        )
+        await store.save_operation(state)
+        await trace_store.save_operation_brief(
+            OperationBrief(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                objective_brief="Recover the stale background run",
+                latest_outcome_brief="Background reconciliation is pending.",
+            )
+        )
+        await inbox.enqueue(
+            RunEvent(
+                event_type="background_run.completed",
+                kind=RunEventKind.WAKEUP,
+                operation_id=operation_id,
+                iteration=1,
+                dedupe_key="run-stale:completed",
+                payload={"run_id": "run-stale"},
+            )
+        )
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["fleet", "--once"])
+
+    assert result.exit_code == 0
+    assert "Needs Attention (1)" in result.stdout
+    assert "operator resume op-fleet-runtime-alert" in result.stdout
+
+
+def test_run_with_attach_session_requires_attach_agent(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: project",
+                "default_objective: continue work",
+                "cwd: .",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(app, ["run", "continue work", "--attach-session", "sess-1"])
+
+    assert result.exit_code != 0
+    assert "--attach-agent is required" in (result.stdout + result.stderr)
+
+
+
+
+def test_inspect_default_is_brief_first(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    _seed_command(tmp_path, operation_id)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["inspect", operation_id])
+
+    assert result.exit_code == 0
+    assert "Objective" in result.stdout
+    assert "Report:" in result.stdout
+    assert "Commands:" in result.stdout
+    assert "Trace:" not in result.stdout
+    assert "Decision memos:" not in result.stdout
+    assert "Events:" not in result.stdout
+
+
+def test_inspect_full_shows_forensic_details(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["inspect", operation_id, "--full"])
+
+    assert result.exit_code == 0
+    assert "Trace:" in result.stdout
+    assert "Decision memos:" in result.stdout
+    assert "Events:" in result.stdout
+    assert "Iteration 1" in result.stdout
+    assert "start_agent" in result.stdout
+    assert "operation.cycle_finished" in result.stdout
+
+
+def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    _seed_command(tmp_path, operation_id)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["inspect", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"brief"' in result.stdout
+    assert '"report"' in result.stdout
+    assert '"commands"' in result.stdout
+    assert '"durable_truth"' in result.stdout
+    assert '"tasks"' in result.stdout
+    assert '"memory"' in result.stdout
+    assert '"artifacts"' in result.stdout
+    assert '"trace_records"' not in result.stdout
+
+
+def test_inspect_full_json_includes_forensic_arrays(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["inspect", operation_id, "--json", "--full"])
+
+    assert result.exit_code == 0
+    assert '"trace_records"' in result.stdout
+    assert '"decision_memos"' in result.stdout
+    assert '"events"' in result.stdout
+
+
+def test_report_prints_report_body(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["report", operation_id])
+
+    assert result.exit_code == 0
+    assert "# Operation op-cli-1" in result.stdout
+    assert "Harness Instructions: Use swarm when unclear." in result.stdout
+    assert "Goal Input Mode: structured" in result.stdout
+    assert "Completed successfully." in result.stdout
+    assert "## Tasks" in result.stdout
+    assert "## Current Memory" in result.stdout
+    assert "## Artifacts" in result.stdout
+
+
+def test_report_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["report", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"operation_id": "op-cli-1"' in result.stdout
+    assert '"brief"' in result.stdout
+    assert '"outcome"' in result.stdout
+    assert '"report"' in result.stdout
+    assert '"durable_truth"' in result.stdout
+    assert '"task_counts": "completed=1"' in result.stdout
+    assert '"memory"' in result.stdout
+    assert '"artifacts"' in result.stdout
+
+
+def test_context_command_prints_effective_control_plane_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id = _seed_operation_with_context(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["context", operation_id])
+
+    assert result.exit_code == 0
+    assert "Operation op-cli-context" in result.stdout
+    assert "Goal:" in result.stdout
+    assert "Harness: Use swarm when strategic direction is unclear." in result.stdout
+    assert "Runtime:" in result.stdout
+    assert "Run mode: attached" in result.stdout
+    assert "Current focus: session:session-context mode=blocking" in result.stdout
+    assert "Active session: session-context [codex_acp] status=running name=feature-slice" in (
+        result.stdout
+    )
+    assert "Agent capabilities:" in result.stdout
+    assert (
+        "codex_acp (Codex via ACP): capabilities=acp, follow_up, read_files, run_shell_commands"
+        in result.stdout
+    )
+    assert "follow_up=yes" in result.stdout
+    assert "Project context:" in result.stdout
+    assert "Profile: femtobot" in result.stdout
+    assert "Policy scope: profile:femtobot" in result.stdout
+    assert "Resolved cwd: /tmp/femtobot" in result.stdout
+    assert "CLI/profile overrides: harness" in result.stdout
+    assert "Active policy:" in result.stdout
+    assert "policy-1 [testing] Manual testing debt" in result.stdout
+    assert "applies: all operations in this project scope" in result.stdout
+    assert "matched_by: global policy" in result.stdout
+
+
+def test_context_command_json_emits_effective_context_payload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id = _seed_operation_with_context(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["context", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"operation_id": "op-cli-context"' in result.stdout
+    assert '"run_mode": "attached"' in result.stdout
+    assert '"profile_name": "femtobot"' in result.stdout
+    assert '"policy_scope": "profile:femtobot"' in result.stdout
+    assert '"available_agent_descriptors"' in result.stdout
+    assert '"display_name": "Codex via ACP"' in result.stdout
+    assert '"name": "read_files"' in result.stdout
+    assert '"active_policies"' in result.stdout
+    assert '"policy_id": "policy-1"' in result.stdout
+    assert '"applicability_summary": "all operations in this project scope"' in result.stdout
+    assert '"match_reasons": [' in result.stdout
+    assert '"open_attention"' in result.stdout
+
+
+def test_dashboard_command_prints_human_readable_workbench(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id, codex_home = _seed_dashboard_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["dashboard", operation_id, "--once", "--codex-home", str(codex_home)],
+    )
+
+    assert result.exit_code == 0
+    assert f"Operation Dashboard: {operation_id}" in result.stdout
+    assert "status=running scheduler=active run_mode=attached involvement=collaborative" in (
+        result.stdout
+    )
+    assert "Control Context" in result.stdout
+    assert "agent: codex_acp | follow_up=yes" in result.stdout
+    assert "write_files, run_shell_commands" in result.stdout
+    assert "agent: claude_acp | follow_up=yes" in result.stdout
+    assert "read_files, grep_search" in result.stdout
+    assert "Recent Commands" in result.stdout
+    assert "pause_operator" in result.stdout
+    assert "Codex Log" in result.stdout
+    assert "Prepared the dashboard workbench plan." in result.stdout
+    assert "Control Hints" in result.stdout
+    assert f"operator interrupt {operation_id}" in result.stdout
+
+
+def test_dashboard_command_json_emits_machine_readable_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id, codex_home = _seed_dashboard_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["dashboard", operation_id, "--json", "--codex-home", str(codex_home)],
+    )
+
+    assert result.exit_code == 0
+    assert f'"operation_id": "{operation_id}"' in result.stdout
+    assert '"recent_commands"' in result.stdout
+    assert '"control_hints"' in result.stdout
+    assert '"codex_log"' in result.stdout
+    assert '"available_agent_descriptors"' in result.stdout
+    assert '"key": "claude_acp"' in result.stdout
+    assert '"attention_type": "novel_strategic_fork"' in result.stdout
+    assert '"command_type": "pause_operator"' in result.stdout
+
+
+def test_tasks_command_prints_human_readable_task_graph(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["tasks", operation_id])
+
+    assert result.exit_code == 0
+    assert "Tasks:" in result.stdout
+    assert "Primary objective [completed]" in result.stdout
+    assert "memory_refs: memory-1" in result.stdout
+    assert "artifact_refs: artifact-1" in result.stdout
+
+
+def test_tasks_command_json_emits_tasks_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["tasks", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"tasks"' in result.stdout
+    assert '"task_id": "task-1"' in result.stdout
+
+
+def test_memory_command_defaults_to_current_entries(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["memory", operation_id])
+
+    assert result.exit_code == 0
+    assert "Memory:" in result.stdout
+    assert "memory-1 [task:task-1] current" in result.stdout
+    assert "sources: artifact:artifact-1" in result.stdout
+
+
+def test_memory_command_json_emits_memory_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["memory", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"memory_entries"' in result.stdout
+    assert '"memory_id": "memory-1"' in result.stdout
+
+
+def test_artifacts_command_prints_human_readable_artifacts(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["artifacts", operation_id])
+
+    assert result.exit_code == 0
+    assert "Artifacts:" in result.stdout
+    assert "artifact-1 [final_note] producer=codex_acp" in result.stdout
+    assert "raw_ref:" in result.stdout
+
+
+def test_artifacts_command_json_emits_artifact_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["artifacts", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"artifacts"' in result.stdout
+    assert '"artifact_id": "artifact-1"' in result.stdout
+
+
+def test_trace_default_shows_forensic_sections(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["trace", operation_id])
+
+    assert result.exit_code == 0
+    assert "Trace:" in result.stdout
+    assert "Decision memos:" in result.stdout
+    assert "Events:" in result.stdout
+    assert "Raw log refs:" in result.stdout
+    assert "Iteration 1" in result.stdout
+    assert "start_agent" in result.stdout
+
+
+def test_inspect_surfaces_runtime_alert_for_unreconciled_background_completion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_running_operation_with_terminal_background_run(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["inspect", operation_id])
+
+    assert result.exit_code == 0
+    assert "alert=" in result.stdout or "alert:" in result.stdout
+    assert "pending reconciliation" in result.stdout
+
+
+def test_list_surfaces_runtime_alert_for_unreconciled_background_completion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _seed_running_operation_with_terminal_background_run(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["list"])
+
+    assert result.exit_code == 0
+    assert "alert=" in result.stdout
+    assert "pending reconciliation" in result.stdout
+
+
+def test_trace_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    _seed_command(tmp_path, operation_id)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["trace", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"trace_records"' in result.stdout
+    assert '"decision_memos"' in result.stdout
+    assert '"events"' in result.stdout
+    assert '"raw_log_refs"' in result.stdout
+    assert '"commands"' in result.stdout
+
+
+def test_log_prints_condensed_human_readable_codex_events(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    codex_home = tmp_path / "codex-home"
+    session_dir = codex_home / "sessions" / "2026" / "03" / "20"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    transcript = session_dir / "rollout-2026-03-20T22-56-00-session-1.jsonl"
+    entries = [
+        {
+            "timestamp": "2026-03-20T17:56:51.288Z",
+            "type": "session_meta",
+            "payload": {"id": "session-1", "cwd": "/repo", "model_provider": "openai"},
+        },
+        {
+            "timestamp": "2026-03-20T17:56:51.289Z",
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "Continue."},
+        },
+        {
+            "timestamp": "2026-03-20T17:56:52.885Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "agent_message",
+                "message": "Investigating the next card.",
+                "phase": "commentary",
+            },
+        },
+        {
+            "timestamp": "2026-03-20T17:56:57.330Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": '{"cmd":"git status --short","workdir":"/repo"}',
+            },
+        },
+        {
+            "timestamp": "2026-03-20T17:57:57.330Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": (
+                    '{"cmd":"cp file ../personal/x","sandbox_permissions":"require_escalated",'
+                    '"justification":"Need to sync canonical docs"}'
+                ),
+            },
+        },
+        {
+            "timestamp": "2026-03-20T17:58:57.330Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "task_complete",
+                "turn_id": "turn-1",
+                "last_agent_message": "Blocked on external docs sync.",
+            },
+        },
+    ]
+    transcript.write_text(
+        "\n".join(json.dumps(item, ensure_ascii=False) for item in entries) + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["log", operation_id, "--agent", "codex", "--codex-home", str(codex_home), "--limit", "10"],
+    )
+
+    assert result.exit_code == 0
+    assert "# Codex log for operation op-cli-1" in result.stdout
+    assert "Session session-1 started in /repo via openai" in result.stdout
+    assert "[user] Continue." in result.stdout
+    assert "[agent/commentary] Investigating the next card." in result.stdout
+    assert "[tool] exec_command: git status --short" in result.stdout
+    assert "[escalation] Escalation requested: Need to sync canonical docs" in result.stdout
+    assert "[task] Task completed: Blocked on external docs sync." in result.stdout
+
+
+def test_log_json_emits_machine_readable_codex_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    codex_home = tmp_path / "codex-home"
+    session_dir = codex_home / "sessions" / "2026" / "03" / "20"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    transcript = session_dir / "rollout-2026-03-20T22-56-00-session-1.jsonl"
+    transcript.write_text(
+        '{"timestamp":"2026-03-20T17:56:51.289Z","type":"event_msg","payload":{"type":"user_message","message":"Continue."}}\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["log", operation_id, "--agent", "codex", "--codex-home", str(codex_home), "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert '"operation_id": "op-cli-1"' in result.stdout
+    assert '"session_id": "session-1"' in result.stdout
+    assert '"agent": "codex"' in result.stdout
+    assert '"category": "user"' in result.stdout
+
+
+def test_log_prints_condensed_human_readable_claude_events(tmp_path: Path, monkeypatch) -> None:
+    operation_id, log_path = _seed_claude_headless_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["log", operation_id, "--agent", "claude", "--limit", "10"])
+
+    assert result.exit_code == 0
+    assert "# Claude log for operation op-cli-claude-log" in result.stdout
+    assert f"# file={log_path}" in result.stdout
+    assert "[session] Session started in /repo | model=claude-sonnet-4-6 | tools=3" in (
+        result.stdout
+    )
+    assert "[user] Inspect the repository." in result.stdout
+    assert "[assistant] Reviewing the runtime seam." in result.stdout
+    assert "[tool] Bash: git status --short" in result.stdout
+    assert "[escalation] Escalation requested: Need to preserve the canonical vision copy." in (
+        result.stdout
+    )
+    assert "[task] Task completed: Drafted the Claude log parser plan." in result.stdout
+
+
+def test_log_json_emits_machine_readable_claude_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id, _ = _seed_claude_headless_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["log", operation_id, "--agent", "claude", "--json"])
+
+    assert result.exit_code == 0
+    assert '"operation_id": "op-cli-claude-log"' in result.stdout
+    assert '"session_id": "session-claude"' in result.stdout
+    assert '"agent": "claude"' in result.stdout
+    assert '"category": "assistant"' in result.stdout
+    assert '"category": "escalation"' in result.stdout
+
+
+def test_wakeups_default_shows_pending_and_claimed(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["wakeups", operation_id])
+
+    assert result.exit_code == 0
+    assert "Pending wakeups:" in result.stdout
+    assert "background_run.completed" in result.stdout
+
+
+def test_sessions_json_shows_sessions_and_background_runs(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["sessions", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"sessions"' in result.stdout
+    assert '"background_runs"' in result.stdout
+    assert '"run-1"' in result.stdout
+
+
+def test_pause_command_enqueues_pause_operator(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["pause", operation_id])
+
+    assert result.exit_code == 0
+    assert "enqueued: pause_operator" in result.stdout
+    record = _read_control_intent(tmp_path)
+    assert record.operation_id == operation_id
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PAUSE_OPERATOR
+
+
+def test_status_command_prints_human_readable_summary(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["status", operation_id])
+
+    assert result.exit_code == 0
+    assert "status: completed" in result.stdout
+    assert "objective: Test objective" in result.stdout
+
+
+def test_status_brief_prints_single_line_summary(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["status", operation_id, "--brief"])
+
+    assert result.exit_code == 0
+    assert f"{operation_id} COMPLETED" in result.stdout
+    assert "iter=" in result.stdout
+
+
+def test_status_shows_action_line_when_attention_is_open(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["status", operation_id])
+
+    assert result.exit_code == 0
+    assert (
+        f"→ Action required: operator answer {operation_id} {attention_id} --text '...'"
+        in result.stdout
+    )
+
+
+def test_cancel_requires_confirmation_by_default(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def cancel(self, operation_id: str, *, session_id=None, run_id=None):
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.CANCELLED,
+                summary="Cancelled operation.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["cancel", operation_id], input="n\n")
+
+    assert result.exit_code == 0
+    assert "Cancel operation" in result.stdout
+    assert "cancelled" in result.stdout
+
+
+def test_cancel_yes_skips_confirmation(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def cancel(self, operation_id: str, *, session_id=None, run_id=None):
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.CANCELLED,
+                summary="Cancelled operation.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["cancel", operation_id, "--yes"])
+
+    assert result.exit_code == 0
+    assert "cancelled: Cancelled operation." in result.stdout
+
+
+def test_message_command_enqueues_operator_message(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["message", operation_id, "Use swarm before deciding."])
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.INJECT_OPERATOR_MESSAGE
+    assert record.command.payload["text"] == "Use swarm before deciding."
+
+
+def test_attention_command_shows_attention_requests(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["attention", operation_id])
+
+    assert result.exit_code == 0
+    assert "Attention requests:" in result.stdout
+    assert attention_id in result.stdout
+    assert "Clarification required" in result.stdout
+
+
+def test_attention_command_shows_context_and_options(tmp_path: Path, monkeypatch) -> None:
+    operation_id = "op-cli-policy-gap"
+    store = FileOperationStore(tmp_path / "runs")
+    state = OperationState(
+        operation_id=operation_id,
+        goal=OperationGoal(objective="Set the testing workflow"),
+        **state_settings(),
+        attention_requests=[
+            AttentionRequest(
+                attention_id="attention-policy-gap",
+                operation_id=operation_id,
+                attention_type=AttentionType.POLICY_GAP,
+                title="Testing policy is missing",
+                question="Should manual-only checks always be recorded?",
+                context_brief="No active testing policy covers manual-only verification.",
+                suggested_options=[
+                    "Always record them in MANUAL_TESTING_REQUIRED.md.",
+                    "Only record them for release-facing work.",
+                ],
+            )
+        ],
+    )
+    anyio.run(store.save_operation, state)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["attention", operation_id])
+
+    assert result.exit_code == 0
+    assert "type=policy_gap" in result.stdout
+    assert "context: No active testing policy covers manual-only verification." in result.stdout
+    assert "options: Always record them in MANUAL_TESTING_REQUIRED.md." in result.stdout
+
+
+def test_attention_command_shows_novel_strategic_fork_type(tmp_path: Path, monkeypatch) -> None:
+    operation_id = "op-cli-fork"
+    store = FileOperationStore(tmp_path / "runs")
+    state = OperationState(
+        operation_id=operation_id,
+        goal=OperationGoal(objective="Choose a release strategy"),
+        **state_settings(),
+        attention_requests=[
+            AttentionRequest(
+                attention_id="attention-fork",
+                operation_id=operation_id,
+                attention_type=AttentionType.NOVEL_STRATEGIC_FORK,
+                title="Release strategy fork needs a decision",
+                question="Should the repo adopt staged releases or continuous deployment?",
+                context_brief="Current project policy does not set a default release strategy.",
+                suggested_options=[
+                    "Adopt staged releases with explicit cut windows.",
+                    "Keep continuous deployment with stronger rollback guardrails.",
+                ],
+            )
+        ],
+    )
+    anyio.run(store.save_operation, state)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["attention", operation_id])
+
+    assert result.exit_code == 0
+    assert "type=novel_strategic_fork" in result.stdout
+    assert "Release strategy fork needs a decision" in result.stdout
+    assert "context: Current project policy does not set a default release strategy." in (
+        result.stdout
+    )
+
+
+def test_attention_command_json_emits_attention_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["attention", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert f'"attention_id": "{attention_id}"' in result.stdout
+    assert '"attention_requests"' in result.stdout
+
+
+def test_answer_command_enqueues_attention_answer(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def resume(self, operation_id: str, options=None) -> OperationOutcome:
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resumed after attention answer.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["answer", operation_id, attention_id, "--text", "Use staging."],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.ANSWER_ATTENTION_REQUEST
+    assert record.command.target_scope is CommandTargetScope.ATTENTION_REQUEST
+    assert record.command.target_id == attention_id
+    assert record.command.payload["text"] == "Use staging."
+
+
+def test_answer_command_can_enqueue_policy_promotion(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def resume(self, operation_id: str, options=None) -> OperationOutcome:
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resumed after attention answer.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "answer",
+            operation_id,
+            attention_id,
+            "--text",
+            "Use staging.",
+            "--promote",
+            "--policy-category",
+            "testing",
+            "--policy-objective-keyword",
+            "release",
+            "--policy-agent",
+            "codex_acp",
+            "--policy-rationale",
+            "Reusable release answers should become durable policy.",
+        ],
+    )
+
+    assert result.exit_code == 0
+    records = _read_control_intents(tmp_path)
+    records.sort(key=lambda item: item.submitted_at)
+    assert [item.command.command_type.value for item in records if item.command is not None] == [
+        OperationCommandType.ANSWER_ATTENTION_REQUEST.value,
+        OperationCommandType.RECORD_POLICY_DECISION.value,
+    ]
+    assert records[0].command is not None
+    assert records[1].command is not None
+    assert records[0].command.target_scope is CommandTargetScope.ATTENTION_REQUEST
+    assert records[0].command.target_id == attention_id
+    assert records[1].command.target_scope is CommandTargetScope.ATTENTION_REQUEST
+    assert records[1].command.target_id == attention_id
+    assert records[1].command.payload["category"] == "testing"
+    assert records[1].command.payload["objective_keywords"] == ["release"]
+    assert records[1].command.payload["agent_keys"] == ["codex_acp"]
+    assert (
+        records[1].command.payload["rationale"]
+        == "Reusable release answers should become durable policy."
+    )
+
+
+def test_command_enqueues_stop_operation(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["command", operation_id, "--type", "stop_operation"])
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.STOP_OPERATION
+    assert record.command.payload == {}
+
+
+def test_command_requires_text_for_patch_harness(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["command", operation_id, "--type", "patch_harness"])
+
+    assert result.exit_code != 0
+    rendered = result.stdout + result.stderr
+    assert "--text is required" in rendered
+
+
+def test_command_enqueues_patch_objective(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "command",
+            operation_id,
+            "--type",
+            "patch_objective",
+            "--text",
+            "Audit the release workflow and leave concrete next steps.",
+        ],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_OBJECTIVE
+    assert (
+        record.command.payload["text"]
+        == "Audit the release workflow and leave concrete next steps."
+    )
+
+
+def test_command_requires_success_criteria_for_patch_success_criteria(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["command", operation_id, "--type", "patch_success_criteria"])
+
+    assert result.exit_code != 0
+    rendered = result.stdout + result.stderr
+    assert "--success-criterion or --clear-success-criteria is required" in rendered
+
+
+def test_command_enqueues_patch_success_criteria(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "command",
+            operation_id,
+            "--type",
+            "patch_success_criteria",
+            "--success-criterion",
+            "Tests pass",
+            "--success-criterion",
+            "Docs updated",
+        ],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA
+    assert record.command.payload["success_criteria"] == ["Tests pass", "Docs updated"]
+
+
+def test_command_can_clear_success_criteria(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "command",
+            operation_id,
+            "--type",
+            "patch_success_criteria",
+            "--clear-success-criteria",
+        ],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA
+    assert record.command.payload["success_criteria"] == []
+
+
+def test_command_requires_allowed_agent_for_set_allowed_agents(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["command", operation_id, "--type", "set_allowed_agents"],
+    )
+
+    assert result.exit_code != 0
+    rendered = result.stdout + result.stderr
+    assert "--allowed-agent is required" in rendered
+
+
+def test_command_enqueues_set_allowed_agents(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "command",
+            operation_id,
+            "--type",
+            "set_allowed_agents",
+            "--allowed-agent",
+            "codex_acp",
+            "--allowed-agent",
+            "claude_acp",
+        ],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.SET_ALLOWED_AGENTS
+    assert record.command.payload["allowed_agents"] == ["codex_acp", "claude_acp"]
+
+
+def test_command_rejects_max_iterations_for_set_allowed_agents(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "command",
+            operation_id,
+            "--type",
+            "set_allowed_agents",
+            "--max-iterations",
+            "11",
+        ],
+    )
+
+    assert result.exit_code != 0
+    rendered = result.stdout + result.stderr
+    assert "--max-iterations is not supported" in rendered
+
+
+def test_command_rejects_mixed_allowed_agents_and_max_iterations(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "command",
+            operation_id,
+            "--type",
+            "set_allowed_agents",
+            "--allowed-agent",
+            "codex_acp",
+            "--max-iterations",
+            "14",
+        ],
+    )
+
+    assert result.exit_code != 0
+    rendered = result.stdout + result.stderr
+    assert "--max-iterations is not supported" in rendered
+
+
+def test_involvement_command_enqueues_level_change(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["involvement", operation_id, "--level", "approval_heavy"])
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.SET_INVOLVEMENT_LEVEL
+    assert record.command.payload["level"] == "approval_heavy"
+
+
+def test_project_list_inspect_and_resolve(tmp_path: Path, monkeypatch) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    listed = runner.invoke(app, ["project", "list"])
+    inspected = runner.invoke(app, ["project", "inspect", "femtobot", "--json"])
+    resolved = runner.invoke(app, ["project", "resolve", "femtobot", "--json"])
+
+    assert listed.exit_code == 0
+    assert "femtobot" in listed.stdout
+    assert inspected.exit_code == 0
+    assert '"default_harness_instructions": "Continue most of the time."' in inspected.stdout
+    assert resolved.exit_code == 0
+    assert '"profile_name": "femtobot"' in resolved.stdout
+    assert '"involvement_level": "unattended"' in resolved.stdout
+
+
+def test_init_creates_committed_project_profile_and_gitignore(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "operator"
+    nested = repo_root / "src"
+    nested.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+    monkeypatch.chdir(nested)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--objective",
+            "Prove the assigned theorem completely.",
+            "--agent",
+            "codex_acp",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["project_root"] == str(repo_root)
+    assert payload["profile_path"] == str(repo_root / "operator-profile.yaml")
+    assert (repo_root / "operator-profile.yaml").exists()
+    assert (repo_root / "operator-profiles").is_dir()
+    assert ".operator/" in (repo_root / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_project_create_writes_committed_named_profile(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "operator"
+    repo_root.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+    monkeypatch.chdir(repo_root)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "opsbot",
+            "--objective",
+            "Prove the assigned theorem completely.",
+            "--agent",
+            "codex_acp",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["profile_scope"] == "committed"
+    assert payload["profile_path"] == str(repo_root / "operator-profiles" / "opsbot.yaml")
+    assert (repo_root / "operator-profiles" / "opsbot.yaml").exists()
+
+
+def test_project_create_local_writes_to_operator_profiles(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "operator"
+    repo_root.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+    monkeypatch.chdir(repo_root)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "opsbot",
+            "--local",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["profile_scope"] == "local"
+    assert payload["profile_path"] == str(repo_root / ".operator" / "profiles" / "opsbot.yaml")
+    assert (repo_root / ".operator" / "profiles" / "opsbot.yaml").exists()
+
+
+def test_project_init_uses_repo_root_operator_dir_from_nested_git_checkout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "operator"
+    nested = repo_root / "src" / "agent_operator"
+    nested.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+    monkeypatch.chdir(nested)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(app, ["project", "create", "operator", "--local", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    expected_path = repo_root / ".operator" / "profiles" / "operator.yaml"
+    assert payload["profile_path"] == str(expected_path)
+    assert expected_path.exists()
+
+
+def test_project_init_writes_profile_and_emits_json(tmp_path: Path, monkeypatch) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "opsbot",
+            "--local",
+            "--cwd",
+            str(repo_dir),
+            "--path",
+            "src",
+            "--path",
+            "tests",
+            "--agent",
+            "codex_acp",
+            "--agent",
+            "claude_acp",
+            "--objective",
+            "Prove the assigned theorem completely.",
+            "--harness",
+            "Stay attached and use swarm when unclear.",
+            "--success-criterion",
+            "Leave a concise report.",
+            "--max-iterations",
+            "11",
+            "--involvement",
+            "collaborative",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["profile"]["name"] == "opsbot"
+    assert payload["profile"]["cwd"] == str(repo_dir)
+    assert payload["profile"]["paths"] == ["src", "tests"]
+    assert payload["profile"]["default_objective"] == "Prove the assigned theorem completely."
+    assert payload["profile"]["default_agents"] == ["codex_acp", "claude_acp"]
+    assert payload["profile"]["default_involvement_level"] == "collaborative"
+    written = (tmp_path / "profiles" / "opsbot.yaml").read_text(encoding="utf-8")
+    assert "name: opsbot" in written
+    assert f"cwd: {repo_dir}" in written
+    assert "- codex_acp" in written
+    assert "default_max_iterations: 11" in written
+
+
+def test_project_init_requires_force_to_overwrite(tmp_path: Path, monkeypatch) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    first = runner.invoke(app, ["project", "create", "femtobot", "--local"])
+    forced = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "femtobot",
+            "--local",
+            "--harness",
+            "Prefer attached execution.",
+            "--force",
+        ],
+    )
+
+    assert first.exit_code != 0
+    assert "already exists" in (first.stdout + first.stderr)
+    assert forced.exit_code == 0
+    written = (tmp_path / "profiles" / "femtobot.yaml").read_text(encoding="utf-8")
+    assert "default_harness_instructions: Prefer attached execution." in written
+
+
+def test_policy_record_list_inspect_and_revoke(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    recorded = runner.invoke(
+        app,
+        [
+            "policy",
+            "record",
+            operation_id,
+            "--title",
+            "Manual testing debt",
+            "--category",
+            "testing",
+            "--text",
+            "Document manual-only verification in MANUAL_TESTING_REQUIRED.md.",
+            "--objective-keyword",
+            "manual testing",
+            "--task-keyword",
+            "verify",
+            "--agent",
+            "codex_acp",
+            "--run-mode",
+            "attached",
+            "--when-involvement",
+            "auto",
+            "--rationale",
+            "Keeps unresolved human checks visible.",
+        ],
+    )
+
+    assert recorded.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.RECORD_POLICY_DECISION
+    assert record.command.payload["category"] == "testing"
+    assert record.command.payload["objective_keywords"] == ["manual testing"]
+    assert record.command.payload["task_keywords"] == ["verify"]
+    assert record.command.payload["agent_keys"] == ["codex_acp"]
+    assert record.command.payload["run_modes"] == ["attached"]
+    assert record.command.payload["involvement_levels"] == ["auto"]
+
+    revoke = runner.invoke(
+        app,
+        [
+            "policy",
+            "revoke",
+            operation_id,
+            "--policy",
+            "policy-123",
+            "--reason",
+            "Superseded by CI coverage.",
+        ],
+    )
+    assert revoke.exit_code == 0
+    records = _read_control_intents(tmp_path)
+    assert {
+        item.command.command_type.value for item in records if item.command is not None
+    } == {
+        OperationCommandType.RECORD_POLICY_DECISION.value,
+        OperationCommandType.REVOKE_POLICY_DECISION.value,
+    }
+
+
+def test_policy_record_allows_attention_promotion_without_title_or_text(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    recorded = runner.invoke(
+        app,
+        [
+            "policy",
+            "record",
+            operation_id,
+            "--attention",
+            "attention-123",
+            "--category",
+            "testing",
+        ],
+    )
+
+    assert recorded.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.RECORD_POLICY_DECISION
+    assert record.command.target_scope is CommandTargetScope.ATTENTION_REQUEST
+    assert record.command.target_id == "attention-123"
+    assert "title" not in record.command.payload or record.command.payload["title"] in {None, ""}
+    assert record.command.payload.get("text", "") == ""
+    assert record.command.payload["category"] == "testing"
+
+
+def test_policy_list_and_inspect(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FilePolicyStore(tmp_path / "policies")
+
+    async def _seed() -> None:
+        await store.save(
+            PolicyEntry(
+                policy_id="policy-1",
+                project_scope="profile:femtobot",
+                title="Manual testing debt",
+                category=PolicyCategory.TESTING,
+                rule_text="Document manual-only verification in MANUAL_TESTING_REQUIRED.md.",
+                applicability=PolicyApplicability(
+                    objective_keywords=["manual testing"],
+                    agent_keys=["codex_acp"],
+                    run_modes=[RunMode.ATTACHED],
+                    involvement_levels=[InvolvementLevel.AUTO],
+                ),
+                rationale="Keeps unresolved checks visible.",
+            )
+        )
+
+    anyio.run(_seed)
+
+    listed = runner.invoke(app, ["policy", "list", "--project", "femtobot", "--json"])
+    inspected = runner.invoke(app, ["policy", "inspect", "policy-1", "--json"])
+
+    assert listed.exit_code == 0
+    assert '"project_scope": "profile:femtobot"' in listed.stdout
+    assert '"policy_id": "policy-1"' in listed.stdout
+    assert '"applicability_summary"' in listed.stdout
+    assert '"objective_keywords": [' in listed.stdout
+    assert inspected.exit_code == 0
+    assert '"category": "testing"' in inspected.stdout
+    assert '"run_modes": [' in inspected.stdout
+
+
+def test_run_with_project_uses_profile_defaults_and_cli_overrides(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            captured["goal"] = goal
+            captured["policy"] = policy
+            captured["budget"] = budget
+            captured["runtime_hints"] = runtime_hints
+            captured["options"] = options
+            return OperationOutcome(
+                operation_id="op-project-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from project profile.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "Close open cards",
+            "--project",
+            "femtobot",
+            "--harness",
+            "Use swarm when unclear.",
+            "--involvement",
+            "collaborative",
+        ],
+    )
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    policy = captured["policy"]
+    budget = captured["budget"]
+    assert goal.harness_instructions == "Use swarm when unclear."
+    assert goal.success_criteria == ["backlog stays above 100"]
+    assert goal.metadata["project_profile_name"] == "femtobot"
+    assert goal.metadata["policy_scope"] == "profile:femtobot"
+    assert policy.allowed_agents == ["codex_acp"]
+    assert budget.max_iterations == 12
+    assert policy.involvement_level.value == "collaborative"
+
+
+def test_run_auto_discovers_operator_profile_yaml_from_cwd(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "operator"
+    project_dir.mkdir(parents=True)
+    profile_path = project_dir / "operator-profile.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "name: operator-local",
+                "cwd: .",
+                "default_objective: Prove the theorem.",
+                "default_agents:",
+                "  - codex_acp",
+                "default_harness_instructions: Stay attached.",
+                "default_success_criteria:",
+                "  - Leave a concise report.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            captured["goal"] = goal
+            return OperationOutcome(
+                operation_id="op-project-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from discovered project profile.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["run", "Close open cards"])
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    assert goal.objective == "Close open cards"
+    assert goal.metadata["project_profile_name"] == "operator-local"
+    assert goal.metadata["project_profile_source"] == "local_profile_file"
+    assert goal.metadata["project_profile_path"] == str(profile_path)
+    assert goal.metadata["data_dir_source"] == "cwd_default"
+
+
+def test_run_enters_free_mode_stub_when_no_profile_exists(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(app, ["run", "Close open cards"])
+
+    assert result.exit_code == 0
+    combined = result.stdout + result.stderr
+    assert "free_mode_stub" in combined
+    assert "operator-profile.yaml" in combined
+    assert "planned but not implemented yet" in combined
+
+
+def test_run_uses_profile_default_objective_when_cli_objective_is_omitted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "erdos-461"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: erdos-461",
+                "cwd: .",
+                "default_objective: Prove problem 461 completely.",
+                "default_agents:",
+                "  - claude_acp",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            captured["goal"] = goal
+            return OperationOutcome(
+                operation_id="op-project-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from discovered project profile.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["run"])
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    assert goal.objective == "Prove problem 461 completely."
+
+
+def test_run_prompts_for_objective_when_profile_has_no_default_objective(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "erdos-461"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "name: erdos-461\ncwd: .\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            captured["goal"] = goal
+            return OperationOutcome(
+                operation_id="op-project-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from prompted objective.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["run"], input="Prompted objective\n")
+
+    assert result.exit_code == 0
+    assert captured["goal"].objective == "Prompted objective"
+
+
+def test_project_inspect_reads_local_operator_profile_yaml(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "erdos-461"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: erdos-461",
+                "cwd: .",
+                "default_harness_instructions: Stay attached.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(app, ["project", "inspect"])
+
+    assert result.exit_code == 0
+    assert '"name": "erdos-461"' in result.stdout
+
+
+def test_project_resolve_reads_local_operator_profile_yaml(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "erdos-461"
+    project_dir.mkdir(parents=True)
+    profile_path = project_dir / "operator-profile.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "name: erdos-461",
+                "cwd: .",
+                "default_success_criteria:",
+                "  - Keep proof current.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(app, ["project", "resolve", "--json"])
+
+    assert result.exit_code == 0
+    assert '"profile_source": "local_profile_file"' in result.stdout
+    assert str(profile_path) in result.stdout
+
+
+def test_run_success_criteria_override_replaces_project_defaults(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            captured["goal"] = goal
+            captured["policy"] = policy
+            captured["budget"] = budget
+            captured["options"] = options
+            return OperationOutcome(
+                operation_id="op-project-run-success-override",
+                status=OperationStatus.RUNNING,
+                summary="Started from project profile.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "Close open cards",
+            "--project",
+            "femtobot",
+            "--success-criterion",
+            "CI stays green",
+            "--success-criterion",
+            "Backlog stays below 50",
+        ],
+    )
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    assert goal.success_criteria == ["CI stays green", "Backlog stays below 50"]
+    assert goal.metadata["resolved_project_profile"]["overrides"] == ["success_criteria"]
+
+
+def test_run_with_project_sets_policy_scope_in_goal_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            captured["goal"] = goal
+            return OperationOutcome(
+                operation_id="op-project-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from project profile.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["run", "Close open cards", "--project", "femtobot"])
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    assert goal.metadata["policy_scope"] == "profile:femtobot"
+
+
+def test_run_with_project_applies_profile_adapter_settings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            return OperationOutcome(
+                operation_id="op-project-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from project profile.",
+            )
+
+    def _fake_build_service(settings, event_sink=None):
+        captured["codex_command"] = settings.codex_acp.command
+        captured["codex_approval_policy"] = settings.codex_acp.approval_policy
+        return FakeService()
+
+    monkeypatch.setattr("agent_operator.cli.main.build_service", _fake_build_service)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "Close open cards",
+            "--project",
+            "femtobot",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["codex_command"] == "npm exec --yes @zed-industries/codex-acp --"
+    assert captured["codex_approval_policy"] == "never"
+
+
+def test_run_agent_flag_replaces_profile_default_agents(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            captured["policy"] = policy
+            return OperationOutcome(
+                operation_id="op-project-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from project profile.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "Close open cards",
+            "--project",
+            "femtobot",
+            "--agent",
+            "claude_acp",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["policy"].allowed_agents == ["claude_acp"]
+
+
+def test_run_streams_live_events_in_human_mode(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: project",
+                "default_objective: Close open cards",
+                "cwd: .",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    class FakeService:
+        def __init__(self, event_sink) -> None:
+            self._event_sink = event_sink
+
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            assert self._event_sink is not None
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="operation.started",
+                    operation_id=operation_id or "op-live-run",
+                    iteration=0,
+                    payload={"objective": goal.objective_text},
+                
+                    category="trace",
+                )
+            )
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="brain.decision.made",
+                    operation_id=operation_id or "op-live-run",
+                    iteration=1,
+                    payload={
+                        "action_type": "start_agent",
+                        "target_agent": "codex_acp",
+                        "rationale": "Need a repo-aware coding agent.",
+                    },
+                
+                    category="trace",
+                )
+            )
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="agent.invocation.started",
+                    operation_id=operation_id or "op-live-run",
+                    iteration=1,
+                    session_id="session-live-1",
+                    payload={
+                        "adapter_key": "codex_acp",
+                        "session_id": "session-live-1",
+                        "session_name": "repo-audit",
+                    },
+                
+                    category="trace",
+                )
+            )
+            return OperationOutcome(
+                operation_id=operation_id or "op-live-run",
+                status=OperationStatus.COMPLETED,
+                summary="Live run finished.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(event_sink),
+    )
+
+    result = runner.invoke(app, ["run", "Close open cards"])
+
+    assert result.exit_code == 0
+    assert "starting: Close open cards" in result.stdout
+    assert "[iter 1] decision: start_agent -> codex_acp" in result.stdout
+    assert "[iter 1] agent started: codex_acp session=session-live-1 name=repo-audit" in (
+        result.stdout
+    )
+    assert "completed: Live run finished." in result.stdout
+
+
+def test_run_json_streams_event_objects_and_outcome(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: project",
+                "default_objective: Close open cards",
+                "cwd: .",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    class FakeService:
+        def __init__(self, event_sink) -> None:
+            self._event_sink = event_sink
+
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+            
+        ):
+            assert self._event_sink is not None
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="operation.started",
+                    operation_id=operation_id or "op-live-json",
+                    iteration=0,
+                    payload={"objective": goal.objective_text},
+                
+                    category="trace",
+                )
+            )
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="evaluation.completed",
+                    operation_id=operation_id or "op-live-json",
+                    iteration=1,
+                    payload={
+                        "should_continue": False,
+                        "goal_satisfied": True,
+                        "summary": "Goal satisfied.",
+                    },
+                
+                    category="trace",
+                )
+            )
+            return OperationOutcome(
+                operation_id=operation_id or "op-live-json",
+                status=OperationStatus.COMPLETED,
+                summary="Structured live run finished.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(event_sink),
+    )
+
+    result = runner.invoke(app, ["run", "Close open cards", "--json"])
+
+    assert result.exit_code == 0
+    lines = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert lines[0]["type"] == "operation"
+    assert lines[1]["type"] == "event"
+    assert lines[1]["event"]["event_type"] == "operation.started"
+    assert lines[2]["event"]["event_type"] == "evaluation.completed"
+    assert lines[3]["type"] == "outcome"
+    assert lines[3]["outcome"]["summary"] == "Structured live run finished."
+
+
+def test_resume_streams_live_events(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        def __init__(self, event_sink) -> None:
+            self._event_sink = event_sink
+
+        async def resume(self, operation_id: str, *, options):
+            assert self._event_sink is not None
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="command.applied",
+                    operation_id=operation_id,
+                    iteration=2,
+                    payload={
+                        "command_type": "resume_operator",
+                        "status": "applied",
+                    },
+                
+                    category="trace",
+                )
+            )
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resume cycle finished.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(event_sink),
+    )
+
+    result = runner.invoke(app, ["resume", "op-resume-live"])
+
+    assert result.exit_code == 0
+    assert "[iter 2] command applied: resume_operator" in result.stdout
+    assert "running: Resume cycle finished." in result.stdout
+
+
+def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-watch-live"
+    session = AgentSessionHandle(
+        adapter_key="codex_acp",
+        session_id="session-watch-1",
+        session_name="repo-audit",
+    )
+    store = FileOperationStore(tmp_path / "runs")
+    event_sink = JsonlEventSink(tmp_path, operation_id)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Inspect the repo"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            sessions=[
+                SessionRecord(
+                    handle=session,
+                    status=SessionRecordStatus.RUNNING,
+                    waiting_reason="Inspecting the repository layout.",
+                )
+            ],
+            active_session=session,
+        )
+        await store.save_operation(state)
+        await event_sink.emit(
+            RunEvent(
+                event_type="operation.started",
+                operation_id=operation_id,
+                iteration=0,
+                payload={"objective": "Inspect the repo"},
+            
+                category="trace",
+            )
+        )
+        await event_sink.emit(
+            RunEvent(
+                event_type="agent.invocation.started",
+                operation_id=operation_id,
+                iteration=1,
+                session_id=session.session_id,
+                payload={
+                    "adapter_key": "codex_acp",
+                    "session_name": "repo-audit",
+                },
+            
+                category="trace",
+            )
+        )
+
+    anyio.run(_seed)
+
+    result_holder: dict[str, object] = {}
+
+    def _watch() -> None:
+        result_holder["result"] = runner.invoke(
+            app,
+            ["watch", operation_id, "--poll-interval", "0.05"],
+        )
+
+    thread = threading.Thread(target=_watch)
+    thread.start()
+    time.sleep(0.15)
+
+    async def _finish() -> None:
+        state = await store.load_operation(operation_id)
+        assert state is not None
+        state.status = OperationStatus.COMPLETED
+        state.final_summary = "Live attached watch completed."
+        state.sessions[0].status = SessionRecordStatus.COMPLETED
+        state.sessions[0].waiting_reason = "Repo inspection finished."
+        await store.save_operation(state)
+        await event_sink.emit(
+            RunEvent(
+                event_type="agent.invocation.completed",
+                operation_id=operation_id,
+                iteration=1,
+                session_id=session.session_id,
+                payload={
+                    "status": "success",
+                    "output_text": "Repo inspection finished.",
+                },
+            
+                category="trace",
+            )
+        )
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Live attached watch completed.",
+            )
+        )
+
+    anyio.run(_finish)
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    result = result_holder["result"]
+    assert result.exit_code == 0
+    assert "starting: Inspect the repo" in result.stdout
+    assert "[iter 1] agent started: codex_acp session=session-watch-1 name=repo-audit" in (
+        result.stdout
+    )
+    assert (
+        "state: running | scheduler=active | session=session-watch-1 | agent=codex_acp "
+        "| session_status=running | waiting=Inspecting the repository layout."
+    ) in result.stdout
+    assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
+    assert "completed: Live attached watch completed." in result.stdout
+
+
+def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:
+    snapshot = {
+        "status": "needs_human",
+        "scheduler_state": "active",
+        "open_attention_count": 1,
+        "attention_brief": "[policy_gap] Testing policy is missing",
+        "summary": "Blocked on attention request: Testing policy is missing.",
+    }
+
+    formatted = _format_live_snapshot(snapshot)
+
+    assert "attention=1:[policy_gap] Testing policy is missing" in formatted
+
+
+def test_unpause_resumes_paused_attached_operation(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_paused_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            assert options.run_mode.value == "attached"
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resumed attached operation.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["unpause", operation_id])
+
+    assert result.exit_code == 0
+    assert "enqueued: resume_operator" in result.stdout
+    assert "running: Resumed attached operation." in result.stdout
+
+
+def test_answer_resumes_blocked_attached_operation(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            assert options.run_mode.value == "attached"
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Replanned after attention answer.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["answer", operation_id, attention_id, "--text", "Use staging."],
+    )
+
+    assert result.exit_code == 0
+    assert "enqueued: answer_attention_request" in result.stdout
+    assert "running: Replanned after attention answer." in result.stdout
+
+
+def test_answer_without_attention_id_uses_oldest_blocking_attention(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id, _ = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Replanned after attention answer.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["answer", operation_id, "--text", "Use staging."],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.ANSWER_ATTENTION_REQUEST
+    assert record.command.target_scope is CommandTargetScope.ATTENTION_REQUEST
+    assert record.command.target_id is not None
+
+
+def test_answer_accepts_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
+    older_id, older_attention_id = _seed_blocked_attention_operation(tmp_path)
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    newer_id = "op-cli-attention-newer"
+    newer_attention_id = "attention-newer"
+
+    async def _seed_newer() -> None:
+        newer_state = OperationState(
+            operation_id=newer_id,
+            goal=OperationGoal(objective="Second blocked operation"),
+            **state_settings(),
+            status=OperationStatus.NEEDS_HUMAN,
+            attention_requests=[
+                AttentionRequest(
+                    attention_id=newer_attention_id,
+                    operation_id=newer_id,
+                    attention_type=AttentionType.APPROVAL_REQUEST,
+                    title="Approve prod deploy",
+                    question="Approve prod deploy?",
+                    target_scope=CommandTargetScope.OPERATION,
+                    target_id=newer_id,
+                    blocking=True,
+                    status=AttentionStatus.OPEN,
+                )
+            ],
+        )
+        newer_state.current_focus = FocusState.model_validate(
+            {
+                "kind": "attention_request",
+                "target_id": newer_attention_id,
+                "mode": "blocking",
+                "blocking_reason": "Waiting for approval.",
+                "interrupt_policy": "material_wakeup",
+                "resume_policy": "replan",
+            }
+        )
+        await store.save_operation(newer_state)
+
+    anyio.run(_seed_newer)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Replanned after attention answer.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["answer", "last", "--text", "Approved."])
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.operation_id == newer_id
+    assert record.command.target_id == newer_attention_id
+
+
+def test_interrupt_accepts_short_operation_prefix(tmp_path: Path, monkeypatch) -> None:
+    operation_id = "12345678-aaaa-bbbb-cccc-1234567890ab"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Interrupt by prefix"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-prefix",
+                        session_name="repo-audit",
+                    ),
+                    status=SessionRecordStatus.RUNNING,
+                )
+            ],
+            active_session=AgentSessionHandle(
+                adapter_key="codex_acp",
+                session_id="session-prefix",
+                session_name="repo-audit",
+            ),
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["interrupt", "12345678"])
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.STOP_AGENT_TURN
+    assert record.command.operation_id == operation_id
+
+
+def test_interrupt_enqueues_session_targeted_command(tmp_path: Path, monkeypatch) -> None:
+    operation_id = "op-cli-stop-turn"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Stop the current turn"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            active_session=AgentSessionHandle(
+                adapter_key="codex_acp",
+                session_id="session-stop-1",
+            ),
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-stop-1",
+                    ),
+                    status=SessionRecordStatus.RUNNING,
+                )
+            ],
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["interrupt", operation_id])
+
+    assert result.exit_code == 0
+    assert "enqueued: stop_agent_turn" in result.stdout
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+    commands = anyio.run(inbox.list, operation_id)
+    assert len(commands) == 1
+    assert commands[0].command_type is OperationCommandType.STOP_AGENT_TURN
+    assert commands[0].target_scope is CommandTargetScope.SESSION
+    assert commands[0].target_id == "session-stop-1"
+
+
+def test_interrupt_task_flag_resolves_bound_session(tmp_path: Path, monkeypatch) -> None:
+    """--task routes stop_turn to the session bound to that task."""
+    operation_id = "op-cli-stop-turn-task"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    task = TaskState(
+        task_id="task-adr066",
+        title="Task for stop_turn test",
+        goal="Test --task flag",
+        definition_of_done="Done.",
+        status=TaskStatus.RUNNING,
+    )
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Stop a specific task turn"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            tasks=[task],
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-task-bound",
+                    ),
+                    status=SessionRecordStatus.RUNNING,
+                    bound_task_ids=["task-adr066"],
+                )
+            ],
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    # Use the task UUID
+    result = runner.invoke(app, ["interrupt", operation_id, "--task", "task-adr066"])
+
+    assert result.exit_code == 0, result.output
+    assert "enqueued: stop_agent_turn" in result.stdout
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+    commands = anyio.run(inbox.list, operation_id)
+    assert len(commands) == 1
+    assert commands[0].target_id == "session-task-bound"
+
+
+def test_interrupt_task_flag_short_id_resolves(tmp_path: Path, monkeypatch) -> None:
+    """--task accepts the task-XXXX short display ID."""
+    operation_id = "op-cli-stop-turn-short"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    task = TaskState(
+        task_id="task-shortid-full",
+        title="Task for short ID test",
+        goal="Test short ID",
+        definition_of_done="Done.",
+        status=TaskStatus.RUNNING,
+        task_short_id="aabbccdd",
+    )
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Stop via short ID"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            tasks=[task],
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="codex_acp",
+                        session_id="session-short-bound",
+                    ),
+                    status=SessionRecordStatus.RUNNING,
+                    bound_task_ids=["task-shortid-full"],
+                )
+            ],
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    # Use the short display ID with prefix
+    result = runner.invoke(app, ["interrupt", operation_id, "--task", "task-aabbccdd"])
+
+    assert result.exit_code == 0, result.output
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+    commands = anyio.run(inbox.list, operation_id)
+    assert commands[0].target_id == "session-short-bound"
+
+
+def test_interrupt_task_flag_invalid_state_rejected(tmp_path: Path, monkeypatch) -> None:
+    """--task rejects with stop_turn_invalid_state when task is not RUNNING."""
+    operation_id = "op-cli-stop-turn-invalid"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    task = TaskState(
+        task_id="task-notrunning",
+        title="Completed task",
+        goal="Already done.",
+        definition_of_done="Done.",
+        status=TaskStatus.COMPLETED,
+    )
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Test invalid state"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            tasks=[task],
+            sessions=[],
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["interrupt", operation_id, "--task", "task-notrunning"])
+
+    assert result.exit_code != 0
+    assert "stop_turn_invalid_state" in result.output

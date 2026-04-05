@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check
+        language: system
+        types_or: [python]
+        pass_filenames: true
+      - id: mypy-changed-files
+        name: mypy changed files
+        entry: uv run mypy --follow-imports=silent
+        language: system
+        types_or: [python]
+        files: ^(src/agent_operator|tests)/.*\.py$
+        pass_filenames: true
+        stages: [manual]
+      - id: pytest-full
+        name: pytest full
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+        always_run: true
