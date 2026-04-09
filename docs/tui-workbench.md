@@ -42,6 +42,7 @@ Available keys:
 - `j` / `k` or arrow keys: move the selected operation
 - `Enter`: open the selected operation in the Level 1 operation view
 - `Tab`: jump to the next operation with an alert or open attention
+- `/`: start fleet filter input; match by operation id, objective, status, agent cue, project, or attention text
 - `p`: enqueue pause for the selected operation
 - `u`: enqueue unpause/resume for the selected operation
 - `s`: enqueue an operation-scoped stop-turn interrupt
@@ -53,6 +54,13 @@ Cancel confirmation:
 
 - `y`: confirm cancellation
 - any other key: abort cancellation
+
+Filter input:
+
+- type to update the fleet rows live
+- `Enter`: apply the current filter text
+- `Esc`: abort the edit and restore the previous filter
+- submit an empty filter to clear it
 
 ## Operation Level
 
@@ -152,3 +160,5 @@ Current limitations of the implemented UI:
   does not yet provide a richer attention picker or non-blocking attention response workflow.
 - Session drill-down depends on task-linked session data being present in the operation dashboard
   payload. Tasks without a linked session cannot open Level 2.
+- Filtering currently applies only at the fleet level. Operation, session, and forensic views do
+  not yet have independent filter modes.

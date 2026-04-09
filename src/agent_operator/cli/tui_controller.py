@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from .tui_models import (
     FleetWorkbenchState,
     dashboard_tasks,
+    filter_fleet_items,
     normalize_key,
     oldest_blocking_attention,
     oldest_task_blocking_attention,
@@ -56,7 +57,9 @@ class FleetWorkbenchController:
             if self.state.view_level == "session" and self.state.selected_timeline_event is not None
             else None
         )
-        items = payload_items(payload)
+        all_items = payload_items(payload)
+        self.state.all_items = all_items
+        items = filter_fleet_items(all_items, self.state.filter_query)
         self.state.items = items
         self.state.project = (
             payload.get("project")
@@ -73,7 +76,8 @@ class FleetWorkbenchController:
             self.state.selected_operation_payload = None
             self.state.selected_fleet_brief = None
             self.state.pending_confirmation = None
-            self.state.view_level = "fleet"
+            if self.state.view_level != "fleet":
+                self.state.view_level = "fleet"
             return
         if selected_operation_id is not None:
             for index, item in enumerate(items):
@@ -93,6 +97,8 @@ class FleetWorkbenchController:
 
     async def handle_key(self, key: str) -> bool:
         normalized = normalize_key(key)
+        if self.state.pending_filter_text is not None:
+            return await self._handle_filter_key(key, normalized)
         if self.state.pending_answer_operation_id is not None:
             return await self._handle_answer_key(key, normalized)
         if self.state.pending_confirmation is not None:
@@ -107,12 +113,18 @@ class FleetWorkbenchController:
             return False
         if normalized in {"up", "k"}:
             self._move_selection(-1)
+            await self._refresh_selected_fleet_state()
             return True
         if normalized in {"down", "j"}:
             self._move_selection(1)
+            await self._refresh_selected_fleet_state()
             return True
         if normalized == "tab":
             self._jump_to_next_blocking_attention()
+            await self._refresh_selected_fleet_state()
+            return True
+        if normalized == "/":
+            self._start_filter_input()
             return True
         if normalized == "a":
             await self._select_oldest_blocking_attention_for_scope()
@@ -145,6 +157,44 @@ class FleetWorkbenchController:
             self.state.pending_confirmation = selected.operation_id
             self.state.last_message = None
             return True
+        return True
+
+    async def _handle_filter_key(self, key: str, normalized: str) -> bool:
+        selected_operation_id = (
+            self.state.selected_item.operation_id if self.state.selected_item is not None else None
+        )
+        if key in {"\x1b", "\x03", "esc", "ctrl+c"}:
+            self.state.filter_query = self.state.pending_filter_restore_query
+            self.state.pending_filter_text = None
+            self._apply_filter(selected_operation_id)
+            await self._refresh_selected_fleet_state()
+            self.state.last_message = "Filter input aborted."
+            return True
+        if normalized == "enter":
+            committed = (self.state.pending_filter_text or "").strip()
+            self.state.filter_query = committed
+            self.state.pending_filter_text = None
+            self._apply_filter(selected_operation_id)
+            await self._refresh_selected_fleet_state()
+            self.state.last_message = (
+                f"Applied fleet filter: {committed}"
+                if committed
+                else "Cleared fleet filter."
+            )
+            return True
+        if key in {"\x7f", "\b"}:
+            if self.state.pending_filter_text:
+                self.state.pending_filter_text = self.state.pending_filter_text[:-1]
+            self.state.filter_query = self.state.pending_filter_text or ""
+            self._apply_filter(selected_operation_id)
+            await self._refresh_selected_fleet_state()
+            return True
+        if len(key) == 1 and key.isprintable():
+            current = self.state.pending_filter_text or ""
+            self.state.pending_filter_text = current + key
+            self.state.filter_query = self.state.pending_filter_text
+            self._apply_filter(selected_operation_id)
+            await self._refresh_selected_fleet_state()
         return True
 
     def render(self):
@@ -337,9 +387,23 @@ class FleetWorkbenchController:
         try:
             payload = await self._load_operation_payload(selected.operation_id)
         except Exception as exc:
+            current_operation_id = (
+                str(self.state.selected_operation_payload.get("operation_id"))
+                if isinstance(self.state.selected_operation_payload, dict)
+                else None
+            )
+            if current_operation_id != selected.operation_id:
+                self.state.selected_operation_payload = None
+                self.state.selected_fleet_brief = None
             self.state.last_message = f"Failed to refresh operation payload: {exc}"
             return
         self.state.selected_operation_payload = payload
+
+    async def _refresh_selected_fleet_state(self) -> None:
+        await self._refresh_selected_operation_payload()
+        self.state.selected_fleet_brief = (
+            self.state.selected_item.brief if self.state.selected_item is not None else None
+        )
 
     def _restore_selected_task(self, selected_task_id: str | None) -> None:
         tasks = dashboard_tasks(self.state.selected_operation_payload)
@@ -465,6 +529,29 @@ class FleetWorkbenchController:
         self.state.pending_answer_text = ""
         self.state.last_message = message
         self.state.pending_confirmation = None
+
+    def _start_filter_input(self) -> None:
+        self.state.pending_filter_restore_query = self.state.filter_query
+        self.state.pending_filter_text = self.state.filter_query
+        self.state.last_message = None
+        self.state.pending_confirmation = None
+
+    def _apply_filter(self, selected_operation_id: str | None) -> None:
+        self.state.items = filter_fleet_items(self.state.all_items, self.state.filter_query)
+        if not self.state.items:
+            self.state.selected_index = 0
+            self.state.selected_operation_payload = None
+            self.state.selected_fleet_brief = None
+            return
+        if selected_operation_id is not None:
+            for index, item in enumerate(self.state.items):
+                if item.operation_id == selected_operation_id:
+                    self.state.selected_index = index
+                    break
+            else:
+                self.state.selected_index = 0
+            return
+        self.state.selected_index = min(self.state.selected_index, len(self.state.items) - 1)
 
 
 def build_fleet_workbench_controller(

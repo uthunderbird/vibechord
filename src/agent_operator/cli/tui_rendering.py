@@ -73,10 +73,12 @@ def header_lines(state: FleetWorkbenchState) -> list[str]:
     if state.view_level == "session":
         lines.append(session_identity_text(state.selected_operation_payload, state.selected_task))
         return lines
-    lines.append(
-        (f"project={state.project}" if state.project is not None else "project=all")
-        + f"  operations={state.total_operations}"
+    scope = (f"project={state.project}" if state.project is not None else "project=all") + (
+        f"  operations={state.total_operations}"
     )
+    if state.filter_query:
+        scope += f"  filter={state.filter_query}"
+    lines.append(scope)
     return lines
 
 
@@ -135,7 +137,11 @@ def render_list_table(state: FleetWorkbenchState) -> Table:
             "-",
             "-",
             "-",
-            Text("No active operations. Run 'operator run [goal]' to start."),
+            Text(
+                "No operations match the current filter."
+                if state.filter_query
+                else "No active operations. Run 'operator run [goal]' to start."
+            ),
         )
         return table
     for index, item in enumerate(state.items):
@@ -514,6 +520,10 @@ def render_forensic_transcript_panel(state: FleetWorkbenchState) -> Text:
 
 def render_footer_text(state: FleetWorkbenchState) -> Text:
     selected = state.selected_item
+    if state.pending_filter_text is not None:
+        return Text(
+            f"fleet filter: {state.pending_filter_text}  Enter apply  Esc cancel  Backspace edit"
+        )
     if state.pending_answer_operation_id is not None:
         instruction = "Answer text: "
         return Text(
@@ -540,7 +550,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         )
     help_line = Text(
         "j/k or arrows move  Enter open  a answer  tab next-attention"
-        "  p pause  u unpause  s interrupt  c cancel  r refresh  q quit"
+        "  / filter  p pause  u unpause  s interrupt  c cancel  r refresh  q quit"
     )
     if selected is None:
         return help_line

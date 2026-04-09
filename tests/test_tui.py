@@ -10,7 +10,8 @@ from typer.testing import CliRunner
 
 import agent_operator.cli.main as cli_main
 from agent_operator.cli.tui import build_fleet_workbench_controller
-from agent_operator.cli.tui_models import dashboard_tasks, task_signal_text
+from agent_operator.cli.tui_models import FleetWorkbenchState, dashboard_tasks, task_signal_text
+from agent_operator.cli.tui_rendering import render_list_table
 
 runner = CliRunner()
 pytestmark = pytest.mark.anyio
@@ -107,6 +108,117 @@ async def test_fleet_workbench_tab_skips_nonblocking_attention() -> None:
     await controller.handle_key("\t")
     assert controller.state.selected_item is not None
     assert controller.state.selected_item.operation_id == "op-attn"
+
+
+async def test_fleet_filter_matches_operation_status_and_objective_fields() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("/")
+    for key in "running review":
+        await controller.handle_key(key)
+
+    assert controller.state.pending_filter_text == "running review"
+    assert [item.operation_id for item in controller.state.items] == ["op-nonblock"]
+
+    await controller.handle_key("\r")
+    assert controller.state.pending_filter_text is None
+    assert controller.state.filter_query == "running review"
+    assert controller.state.last_message == "Applied fleet filter: running review"
+
+
+async def test_fleet_filter_escape_restores_previous_query() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("/")
+    for key in "docs":
+        await controller.handle_key(key)
+    await controller.handle_key("\r")
+
+    assert [item.operation_id for item in controller.state.items] == ["op-done"]
+
+    await controller.handle_key("/")
+    await controller.handle_key("\x7f")
+    await controller.handle_key("r")
+
+    assert controller.state.pending_filter_text == "docr"
+    assert controller.state.items == []
+
+    await controller.handle_key("\x1b")
+    assert controller.state.pending_filter_text is None
+    assert controller.state.filter_query == "docs"
+    assert [item.operation_id for item in controller.state.items] == ["op-done"]
+    assert controller.state.last_message == "Filter input aborted."
+
+
+async def test_fleet_selection_refreshes_selected_operation_payload() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    assert controller.state.selected_operation_payload is not None
+    assert controller.state.selected_operation_payload["operation_id"] == "op-attn"
+
+    await controller.handle_key("j")
+
+    assert controller.state.selected_item is not None
+    assert controller.state.selected_item.operation_id == "op-run"
+    assert controller.state.selected_operation_payload is not None
+    assert controller.state.selected_operation_payload["operation_id"] == "op-run"
+
+
+async def test_live_fleet_filter_refreshes_selected_operation_payload() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("/")
+    for key in "docs":
+        await controller.handle_key(key)
+
+    assert controller.state.selected_item is not None
+    assert controller.state.selected_item.operation_id == "op-done"
+    assert controller.state.selected_operation_payload is not None
+    assert controller.state.selected_operation_payload["operation_id"] == "op-done"
+
+
+def test_filtered_empty_fleet_shows_filter_specific_message() -> None:
+    state = FleetWorkbenchState(filter_query="codex")
+    table = render_list_table(state)
+    console = Console(record=True, width=120, markup=False)
+    console.print(table)
+    assert "No operations match the current filter." in console.export_text(styles=False)
 
 
 async def test_fleet_workbench_cancel_requires_confirmation() -> None:
@@ -374,7 +486,10 @@ async def test_fleet_view_a_enters_answer_mode_and_dispatches_oldest_attention()
 
     async def _answer(operation_id: str, attention_id: str, text: str) -> str:
         answers.append((operation_id, attention_id, text))
-        return f"enqueued: answer_attention_request [operation={operation_id}:attention={attention_id}:text={text}]"
+        return (
+            "enqueued: answer_attention_request "
+            f"[operation={operation_id}:attention={attention_id}:text={text}]"
+        )
 
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
@@ -742,7 +857,7 @@ async def test_fleet_operation_payload_refresh_failure_is_non_fatal() -> None:
     async def _flaky_load_operation_payload(operation_id: str) -> dict[str, object] | None:
         nonlocal call_count
         call_count += 1
-        if call_count == 2:
+        if call_count == 3:
             raise RuntimeError("operation payload load failure")
         return await _load_operation_payload(operation_id)
 
@@ -774,10 +889,6 @@ async def test_fleet_operation_payload_refresh_failure_is_non_fatal() -> None:
 
 
 def test_empty_fleet_shows_guidance_message() -> None:
-    from agent_operator.cli.tui_rendering import render_list_table
-    from agent_operator.cli.tui_models import FleetWorkbenchState
-    from rich.console import Console
-
     state = FleetWorkbenchState()
     table = render_list_table(state)
     console = Console(record=True, width=120, markup=False)

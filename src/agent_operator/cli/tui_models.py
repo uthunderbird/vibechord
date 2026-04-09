@@ -166,6 +166,7 @@ class TimelineEventItem:
 
 @dataclass(slots=True)
 class FleetWorkbenchState:
+    all_items: list[FleetItem] = field(default_factory=list)
     items: list[FleetItem] = field(default_factory=list)
     selected_index: int = 0
     selected_operation_payload: dict[str, object] | None = None
@@ -182,6 +183,9 @@ class FleetWorkbenchState:
     operation_panel_mode: str = "detail"
     selected_timeline_index: int = 0
     session_panel_mode: str = "timeline"
+    filter_query: str = ""
+    pending_filter_text: str | None = None
+    pending_filter_restore_query: str = ""
 
     @property
     def selected_item(self) -> FleetItem | None:
@@ -249,6 +253,39 @@ def payload_items(payload: dict[str, object]) -> list[FleetItem]:
                     )
                 items.append(item)
     return items
+
+
+def filter_fleet_items(items: list[FleetItem], query: str) -> list[FleetItem]:
+    normalized = query.strip().lower()
+    if not normalized:
+        return list(items)
+    terms = [term for term in normalized.split() if term]
+    if not terms:
+        return list(items)
+    return [item for item in items if _fleet_item_matches_filter(item, terms)]
+
+
+def _fleet_item_matches_filter(item: FleetItem, terms: list[str]) -> bool:
+    haystack = " ".join(
+        value.lower()
+        for value in (
+            item.operation_id,
+            item.display_name,
+            item.state_label,
+            item.status,
+            item.scheduler_state,
+            item.agent_cue,
+            item.objective_brief,
+            item.focus_brief or "",
+            item.latest_outcome_brief or "",
+            item.blocker_brief or "",
+            item.runtime_alert or "",
+            item.project_profile_name or "",
+            " ".join(item.attention_briefs),
+        )
+        if value
+    )
+    return all(term in haystack for term in terms)
 
 
 def dashboard_tasks(payload: dict[str, object] | None) -> list[OperationTaskItem]:
