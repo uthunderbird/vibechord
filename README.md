@@ -53,9 +53,23 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 
 Runtime state is stored under `.operator/` in the project root.
 
+## TUI Workbench
+
+Launch the interactive fleet workbench from a real terminal:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator fleet
+```
+
+The implemented navigation path is `fleet -> operation -> session -> forensic`. Use `Enter` to
+drill down, `Esc` to go back, and the level-specific bindings to inspect tasks, timeline items, raw
+transcript/detail, and operation controls. For the current keymap, supported actions, and known
+limitations, see [TUI Workbench](docs/tui-workbench.md).
+
 ## Where to go next
 
 - [Quickstart](docs/quickstart.md)
+- [TUI Workbench](docs/tui-workbench.md)
 - [CLI reference](docs/reference/cli.md)
 - [Configuration reference](docs/reference/config.md)
 - [Integrations](docs/integrations.md)
