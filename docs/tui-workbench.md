@@ -91,6 +91,7 @@ selected task's session timeline. The right pane defaults to a split session scr
 Available keys:
 
 - `j` / `k` or arrow keys: move the selected timeline item
+- `a`: answer the oldest blocking attention for the current task
 - `Enter`: open the selected timeline item in the Level 3 forensic view
 - `r`: toggle the right pane between timeline detail and raw transcript
 - `Esc`: return to the operation view
@@ -123,6 +124,7 @@ The forensic view currently shows:
 Current interactive actions implemented in the workbench:
 
 - inspect fleet, operation, session, and forensic views
+- answer the oldest blocking attention in scope from fleet, operation, or session
 - jump to the next attention-bearing operation from fleet
 - refresh fleet and operation views
 - pause an operation
@@ -142,7 +144,7 @@ Current limitations of the implemented UI:
 - The session brief and timeline use normalized stored payload fields. They do not yet provide
   adapter-specific forensic formatting or rich per-event timestamps.
 - The forensic view is read-only. It does not add deeper per-event actions beyond back-navigation.
-- The workbench does not yet provide inline attention answering or response composition from the
-  fleet or operation views.
+- Inline attention answering currently targets the oldest blocking attention in scope. The workbench
+  does not yet provide a richer attention picker or non-blocking attention response workflow.
 - Session drill-down depends on task-linked session data being present in the operation dashboard
   payload. Tasks without a linked session cannot open Level 2.
