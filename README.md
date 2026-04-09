@@ -66,7 +66,9 @@ drill down, `Esc` to go back, and the level-specific bindings to inspect tasks, 
 transcript/detail, and operation controls. The session level now defaults to a compact live session
 screen with `Now`, `Wait`, `Attention`, `Latest output`, and selected-event detail; use `r` to
 switch to raw transcript, and use `a` from fleet, operation, or session to answer the oldest
-blocking attention in scope. For the current keymap, supported actions, and known limitations, see
+blocking attention in scope. `Enter` still drills into forensic even when a session has no raw
+transcript payload, falling back to event context plus an explicit empty-state message. For the
+current keymap, supported actions, and known limitations, see
 [TUI Workbench](docs/tui-workbench.md).
 
 ## Where to go next

@@ -9,7 +9,6 @@ from .tui_models import (
     oldest_blocking_attention,
     oldest_task_blocking_attention,
     payload_items,
-    raw_transcript_lines,
     session_timeline_events,
     tasks_with_blocking_attention,
 )
@@ -237,11 +236,6 @@ class FleetWorkbenchController:
         if key == "enter":
             if self.state.selected_timeline_event is None:
                 self.state.last_message = "No timeline item is selected."
-                return True
-            if not raw_transcript_lines(self.state.selected_operation_payload):
-                self.state.last_message = (
-                    "No raw transcript for selected session; staying on session timeline."
-                )
                 return True
             self.state.view_level = "forensic"
             self.state.last_message = None

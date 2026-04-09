@@ -104,7 +104,9 @@ Available keys:
 ## Forensic Level
 
 `Enter` on a selected session timeline item opens the Level 3 forensic view. This is a focused
-read-only drill-down over the selected timeline event.
+read-only drill-down over the selected timeline event. It opens even when the session has no raw
+transcript payload; in that case the forensic view still shows event context and an explicit `no
+raw transcript` message.
 
 Available keys:
 
@@ -117,7 +119,8 @@ The forensic view currently shows:
 - event type and iteration
 - task id and session id when present in the timeline payload
 - the selected event summary
-- the raw transcript/detail text currently available for the selected session payload
+- the raw transcript/detail text currently available for the selected session payload, or an
+  explicit empty-state message when none is available
 
 ## Supported Actions
 

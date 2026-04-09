@@ -122,6 +122,32 @@ async def test_session_view_a_dispatches_answer_for_current_task() -> None:
     assert controller.state.last_message == "answered op-run:att-1:ok"
 
 
+async def test_session_enter_opens_forensic_even_without_raw_transcript() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_without_transcript,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    assert controller.state.view_level == "forensic"
+    assert controller.state.last_message is None
+
+    console = Console(record=True, width=180, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+    assert "No raw transcript available for the selected session." in rendered
+
+
 async def _load_payload() -> dict[str, object]:
     return {
         "project": None,
@@ -217,6 +243,12 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
             ],
         },
     }
+
+
+async def _load_operation_payload_without_transcript(operation_id: str) -> dict[str, object]:
+    payload = await _load_operation_payload(operation_id)
+    payload["upstream_transcript"] = {"title": "No transcript", "events": []}
+    return payload
 
 
 async def _unexpected_action(operation_id: str) -> str:
