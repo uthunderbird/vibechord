@@ -281,6 +281,9 @@ class FleetWorkbenchController:
             self.state.view_level = "session"
             self.state.last_message = None
             return True
+        if key == "a":
+            await self._select_oldest_blocking_attention_for_current_task()
+            return True
         return True
 
     async def _handle_answer_key(self, key: str, normalized: str) -> bool:

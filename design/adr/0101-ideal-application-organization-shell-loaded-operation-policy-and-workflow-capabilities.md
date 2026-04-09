@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -228,3 +228,16 @@ it.
   universal command architecture is explicitly ruled out.
 - A separate builder/assembler layer remains an allowed later refinement, not a currently required
   architectural destination.
+
+## Later clarification
+
+This ADR remains the high-level target shape for the application layer.
+
+Later ADRs refine and operationalize parts of this target rather than replacing it:
+
+- [ADR 0102](./0102-explicit-operation-lifecycle-coordinator-above-loaded-operation.md)
+  narrows the lifecycle authority above `LoadedOperation`
+- [ADR 0104](./0104-top-application-control-layer-boundary-completion-after-shell-thinning.md)
+  clarifies the remaining top-layer completion route
+- [ADR 0121](./0121-application-submodule-organization-and-boundary-rules.md)
+  defines the submodule-family organization that this application shape should converge toward

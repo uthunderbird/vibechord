@@ -24,10 +24,11 @@ def test_build_service_uses_inprocess_supervisor_for_canonical_runtime() -> None
     assert isinstance(
         service._supervisor, InProcessAgentRunSupervisor
     )  # type: ignore[attr-defined]
-    assert service._attached_session_registry.keys() == [  # type: ignore[attr-defined]
+    assert set(service._attached_session_registry.keys()) == {  # type: ignore[attr-defined]
         "claude_acp",
         "codex_acp",
-    ]
+        "opencode_acp",
+    }
 
 
 def test_build_background_run_inspection_store_is_supported_cli_surface() -> None:

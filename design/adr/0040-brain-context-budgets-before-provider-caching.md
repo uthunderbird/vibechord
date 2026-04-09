@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Stale — partially absorbed into current prompting, not tracked as a separate ADR front
 
 ## Context
 
@@ -89,3 +89,16 @@ provider caching becomes materially more useful.
 - Follow-up: add limits for recent iterations, result excerpts, memory entries, and task/session
   inclusion.
 - Follow-up: only after that, evaluate provider-side caching hints such as prompt cache keys.
+
+## Later outcome
+
+The repository did move in the direction described here:
+
+- prompt construction now uses more explicit serializers and inclusion rules
+- recent-iteration shaping is more specialized than the earlier broad state-dump model
+
+But this ADR no longer names an active implementation front of its own.
+
+The repository has not pursued provider caching as a major standalone ADR wave, and the remaining
+prompt-budget work is now better understood as ordinary prompting/runtime evolution rather than as
+an open architectural fork that still needs separate closure.

@@ -148,6 +148,63 @@ async def test_session_enter_opens_forensic_even_without_raw_transcript() -> Non
     assert "No raw transcript available for the selected session." in rendered
 
 
+async def test_forensic_view_a_enters_answer_mode_for_current_task() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("a")
+
+    assert controller.state.view_level == "forensic"
+    assert controller.state.pending_answer_operation_id == "op-run"
+    assert controller.state.pending_answer_attention_id == "att-1"
+
+
+async def test_forensic_view_a_dispatches_answer_for_current_task() -> None:
+    answers: list[tuple[str, str, str]] = []
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        return f"answered {operation_id}:{attention_id}:{text}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("a")
+    await controller.handle_key("y")
+    await controller.handle_key("e")
+    await controller.handle_key("s")
+    await controller.handle_key("\r")
+
+    assert answers == [("op-run", "att-1", "yes")]
+    assert controller.state.pending_answer_operation_id is None
+    assert controller.state.pending_answer_attention_id is None
+    assert controller.state.last_message == "answered op-run:att-1:yes"
+
+
 async def _load_payload() -> dict[str, object]:
     return {
         "project": None,

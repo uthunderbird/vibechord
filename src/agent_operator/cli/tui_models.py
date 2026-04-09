@@ -263,6 +263,15 @@ def dashboard_tasks(payload: dict[str, object] | None) -> list[OperationTaskItem
 def session_timeline_events(
     payload: dict[str, object] | None, task: OperationTaskItem | None
 ) -> list[TimelineEventItem]:
+    session_view = selected_session_view(payload, task)
+    if session_view is not None:
+        raw_events = session_view.get("timeline")
+        if isinstance(raw_events, list):
+            return [
+                TimelineEventItem.from_payload(item)
+                for item in raw_events
+                if isinstance(item, dict)
+            ]
     if not isinstance(payload, dict):
         return []
     raw_events = payload.get("timeline_events")
@@ -280,6 +289,16 @@ def session_timeline_events(
 def session_brief(
     payload: dict[str, object] | None, task: OperationTaskItem | None
 ) -> dict[str, str]:
+    session_view = selected_session_view(payload, task)
+    if session_view is not None:
+        brief = session_view.get("session_brief")
+        if isinstance(brief, dict):
+            return {
+                "now": optional_text(brief.get("now")) or "-",
+                "wait": optional_text(brief.get("wait")) or "-",
+                "attention": optional_text(brief.get("attention")) or "-",
+                "latest_output": optional_text(brief.get("latest_output")) or "-",
+            }
     if not isinstance(payload, dict):
         return {"now": "-", "wait": "-", "attention": "-", "latest_output": "-"}
     session = selected_session(payload, task)
@@ -300,6 +319,11 @@ def selected_session(
     payload: dict[str, object] | None,
     task: OperationTaskItem | None,
 ) -> dict[str, object] | None:
+    session_view = selected_session_view(payload, task)
+    if session_view is not None:
+        session = session_view.get("session")
+        if isinstance(session, dict):
+            return session
     if not isinstance(payload, dict) or task is None or task.linked_session_id is None:
         return None
     raw_sessions = payload.get("sessions")
@@ -309,6 +333,23 @@ def selected_session(
         if not isinstance(item, dict):
             continue
         if optional_text(item.get("session_id")) == task.linked_session_id:
+            return item
+    return None
+
+
+def selected_session_view(
+    payload: dict[str, object] | None,
+    task: OperationTaskItem | None,
+) -> dict[str, object] | None:
+    if not isinstance(payload, dict) or task is None:
+        return None
+    raw_views = payload.get("session_views")
+    if not isinstance(raw_views, list):
+        return None
+    for item in raw_views:
+        if not isinstance(item, dict):
+            continue
+        if optional_text(item.get("task_id")) == task.task_id:
             return item
     return None
 

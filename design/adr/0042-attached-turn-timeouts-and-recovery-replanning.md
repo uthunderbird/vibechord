@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Implemented
 
 ## Context
 
@@ -101,3 +101,17 @@ This keeps attached mode live and resilient while staying faithful to persisted 
 - Follow-up: add attached-turn timeout configuration and timeout timestamps to session state.
 - Follow-up: add recovery-summary generation and recovery runtime alerts.
 - Follow-up: add deterministic replanning semantics after attached-turn recovery.
+
+## Implementation outcome
+
+This direction is now repository truth.
+
+Implemented evidence includes:
+
+- configured attached-turn timeout handling in the application/runtime layer
+- attached-turn timeout reconciliation and recovered synthetic results
+- recovery summaries stored on session state
+- runtime-alert projection for timeout recovery
+- regression tests covering timeout recovery and log-tail-assisted recovery
+
+The remaining work is refinement of heuristics and observability, not adoption of the model.

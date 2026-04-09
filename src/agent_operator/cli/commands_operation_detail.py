@@ -64,44 +64,18 @@ def _resolve_task(operation, task_ref: str) -> TaskState:
     return matches[0]
 
 
-def _resolve_task_session_payload(
+def _resolve_task_session_view(
     operation_payload: dict[str, object],
-    session_id: str,
+    task_id: str,
 ) -> dict[str, object]:
-    sessions = operation_payload.get("sessions")
-    if isinstance(sessions, list):
-        for session in sessions:
-            if not isinstance(session, dict):
+    session_views = operation_payload.get("session_views")
+    if isinstance(session_views, list):
+        for session_view in session_views:
+            if not isinstance(session_view, dict):
                 continue
-            if str(session.get("session_id") or "") == session_id:
-                return session
-    raise typer.BadParameter(f"Session {session_id!r} was not found.")
-
-
-def _format_session_events(payload: dict[str, object], session_id: str) -> list[dict[str, object]]:
-    raw_events = payload.get("timeline_events")
-    if not isinstance(raw_events, list):
-        return []
-    events = [item for item in raw_events if isinstance(item, dict)]
-    return [item for item in events if str(item.get("session_id") or "") == session_id]
-
-
-def _extract_task_attention(payload: dict[str, object], task_id: str) -> list[str]:
-    raw_attention = payload.get("open_attention")
-    if not isinstance(raw_attention, list):
-        return []
-    titles: list[str] = []
-    for item in raw_attention:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("target_scope")) != "task":
-            continue
-        if str(item.get("target_id") or "") != task_id:
-            continue
-        title = item.get("title")
-        if isinstance(title, str) and title.strip():
-            titles.append(title.strip())
-    return titles
+            if str(session_view.get("task_id") or "") == task_id:
+                return session_view
+    raise typer.BadParameter(f"Session view for task {task_id!r} was not found.")
 
 
 def _shorten(value: object) -> str:
@@ -110,16 +84,16 @@ def _shorten(value: object) -> str:
     return shorten_live_text(value, limit=120)
 
 
-def _session_agent_hint(adapter_key: str | None) -> str | None:
-    if adapter_key is None:
+def _selected_event_summary(event: object) -> str | None:
+    if not isinstance(event, dict):
         return None
-    if adapter_key.startswith("claude"):
-        return "claude"
-    if adapter_key.startswith("opencode"):
-        return "opencode"
-    if adapter_key.startswith("codex"):
-        return "codex"
-    return None
+    summary = event.get("summary")
+    if not isinstance(summary, str):
+        return None
+    stripped = summary.strip()
+    if not stripped:
+        return None
+    return shorten_live_text(stripped, limit=160) or stripped
 
 
 @app.command()
@@ -538,26 +512,21 @@ def session(
 
         async def _render_once() -> None:
             payload = await queries.load_payload(resolved_operation_id)
-            operation_brief = payload.get("operation_brief", {})
-            session_payload_data = _resolve_task_session_payload(
-                payload, task_record.linked_session_id
-            )
-            session_events = _format_session_events(payload, task_record.linked_session_id)
-            latest_event = session_events[-1] if session_events else None
-            attention = _extract_task_attention(payload, task_record.task_id)
+            session_view = _resolve_task_session_view(payload, task_record.task_id)
+            session_payload_data = session_view.get("session", {})
+            session_brief = session_view.get("session_brief", {})
+            session_events = session_view.get("timeline", [])
+            latest_event = session_view.get("selected_event")
+            transcript_hint = session_view.get("transcript_hint", {})
             session_snapshot = {
                 "operation_id": resolved_operation_id,
                 "task": task_record.model_dump(mode="json"),
-                "session_id": task_record.linked_session_id,
+                "session_id": session_payload_data.get("session_id") or task_record.linked_session_id,
                 "session": session_payload_data,
-                "now": _shorten(operation_brief.get("now")),
-                "wait": _shorten(operation_brief.get("wait")),
-                "attention": "; ".join(attention) if attention else "-",
-                "latest_output": _shorten(
-                    latest_event.get("summary") if isinstance(latest_event, dict) else None
-                ),
+                "session_brief": session_brief,
                 "timeline_events": [event for event in session_events if isinstance(event, dict)],
                 "selected_event": latest_event if isinstance(latest_event, dict) else None,
+                "transcript_hint": transcript_hint if isinstance(transcript_hint, dict) else {},
             }
             if json_mode:
                 typer.echo(json.dumps(session_snapshot, indent=2, ensure_ascii=False))
@@ -575,19 +544,14 @@ def session(
             if not bound_tasks:
                 bound_tasks = "-"
             typer.echo(
-                f"Session: {task_record.linked_session_id} [{adapter_key}] state={session_status}"
+                f"Session: {session_payload_data.get('session_id') or task_record.linked_session_id} "
+                f"[{adapter_key}] state={session_status}"
             )
             typer.echo(f"Bound tasks: {bound_tasks}")
-            typer.echo(f"Now: {_shorten(operation_brief.get('now'))}")
-            typer.echo(f"Wait: {_shorten(operation_brief.get('wait'))}")
-            if attention:
-                typer.echo(f"Attention: {'; '.join(attention)}")
-            else:
-                typer.echo("Attention: -")
-            latest_output = _shorten(
-                latest_event.get("summary") if isinstance(latest_event, dict) else None
-            )
-            typer.echo(f"Latest output: {latest_output}")
+            typer.echo(f"Now: {_shorten(session_brief.get('now'))}")
+            typer.echo(f"Wait: {_shorten(session_brief.get('wait'))}")
+            typer.echo(f"Attention: {_shorten(session_brief.get('attention'))}")
+            typer.echo(f"Latest output: {_shorten(session_brief.get('latest_output'))}")
             typer.echo("Recent events:")
             if session_events:
                 for event in session_events[-4:]:
@@ -605,13 +569,18 @@ def session(
                 typer.echo(f"  iteration: {latest_event.get('iteration', '-')}")
                 typer.echo(f"  task: {latest_event.get('task_id', '-')}")
                 typer.echo(f"  session: {latest_event.get('session_id', '-')}")
+                event_summary = _selected_event_summary(latest_event)
+                if event_summary is not None:
+                    typer.echo(f"  summary: {event_summary}")
             else:
                 typer.echo("Selected event: none")
-            adapter_hint = _session_agent_hint(session_payload_data.get("adapter_key"))
-            if adapter_hint is not None:
-                typer.echo(
-                    f"Transcript: operator log {resolved_operation_id} --agent {adapter_hint}"
-                )
+            transcript_command = (
+                transcript_hint.get("command")
+                if isinstance(transcript_hint, dict)
+                else None
+            )
+            if isinstance(transcript_command, str) and transcript_command.strip():
+                typer.echo(f"Transcript: {transcript_command}")
             else:
                 typer.echo(f"Transcript: operator log {resolved_operation_id}")
 

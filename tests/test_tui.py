@@ -5,10 +5,12 @@ import sys
 import anyio
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+from rich.console import Console
 from typer.testing import CliRunner
 
 import agent_operator.cli.main as cli_main
 from agent_operator.cli.tui import build_fleet_workbench_controller
+from agent_operator.cli.tui_models import dashboard_tasks, task_signal_text
 
 runner = CliRunner()
 pytestmark = pytest.mark.anyio
@@ -24,7 +26,9 @@ def _fleet_payload() -> dict[str, object]:
                 "status": "needs_human",
                 "scheduler_state": "active",
                 "objective_brief": "Answer a policy question",
-                "open_attention_count": 1,
+                "open_attention_count": 3,
+                "open_blocking_attention_count": 2,
+                "open_nonblocking_attention_count": 1,
                 "attention_briefs": ["[policy_gap] Need a human answer"],
                 "bucket": "needs_attention",
             }
@@ -37,7 +41,17 @@ def _fleet_payload() -> dict[str, object]:
                 "objective_brief": "Ship the dashboard",
                 "open_attention_count": 0,
                 "bucket": "active",
-            }
+            },
+            {
+                "operation_id": "op-nonblock",
+                "status": "running",
+                "scheduler_state": "active",
+                "objective_brief": "Review non-blocking alerts",
+                "open_attention_count": 1,
+                "open_blocking_attention_count": 0,
+                "open_nonblocking_attention_count": 1,
+                "bucket": "active",
+            },
         ],
         "recent": [
             {
@@ -60,12 +74,35 @@ async def test_fleet_workbench_tab_jumps_to_next_attention() -> None:
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
     await controller.handle_key("j")
     assert controller.state.selected_item is not None
     assert controller.state.selected_item.operation_id == "op-run"
+
+    await controller.handle_key("\t")
+    assert controller.state.selected_item is not None
+    assert controller.state.selected_item.operation_id == "op-attn"
+
+
+async def test_fleet_workbench_tab_skips_nonblocking_attention() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("j")
+    assert controller.state.selected_item is not None
+    assert controller.state.selected_item.operation_id == "op-nonblock"
 
     await controller.handle_key("\t")
     assert controller.state.selected_item is not None
@@ -86,6 +123,7 @@ async def test_fleet_workbench_cancel_requires_confirmation() -> None:
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
         cancel_operation=_cancel,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
@@ -121,6 +159,7 @@ async def test_fleet_workbench_pause_and_interrupt_dispatch_actions() -> None:
         unpause_operation=_unexpected_action,
         interrupt_operation=_interrupt,
         cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
@@ -131,6 +170,55 @@ async def test_fleet_workbench_pause_and_interrupt_dispatch_actions() -> None:
     assert controller.state.last_message == "interrupted op-attn:-"
 
 
+async def test_fleet_workbench_full_state_change_action_contract() -> None:
+    calls: list[tuple[str, str, str | None]] = []
+
+    async def _pause(operation_id: str) -> str:
+        calls.append(("pause", operation_id, None))
+        return f"enqueued: pause_operator [{operation_id}]"
+
+    async def _unpause(operation_id: str) -> str:
+        calls.append(("unpause", operation_id, None))
+        return f"enqueued: resume_operator [{operation_id}]"
+
+    async def _interrupt(operation_id: str, task_id: str | None) -> str:
+        calls.append(("interrupt", operation_id, task_id))
+        return f"enqueued: stop_agent_turn [{operation_id}:{task_id or 'none'}]"
+
+    async def _cancel(operation_id: str) -> str:
+        calls.append(("cancel", operation_id, None))
+        return f"cancelled: {operation_id}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_pause,
+        unpause_operation=_unpause,
+        interrupt_operation=_interrupt,
+        cancel_operation=_cancel,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+
+    await controller.handle_key("p")
+    await controller.handle_key("u")
+    await controller.handle_key("s")
+
+    assert calls == [
+        ("pause", "op-attn", None),
+        ("unpause", "op-attn", None),
+        ("interrupt", "op-attn", None),
+    ]
+    assert controller.state.last_message == "enqueued: stop_agent_turn [op-attn:none]"
+
+    await controller.handle_key("c")
+    await controller.handle_key("y")
+
+    assert calls[-1] == ("cancel", "op-attn", None)
+    assert controller.state.last_message == "cancelled: op-attn"
+
+
 async def test_enter_opens_operation_view_and_escape_returns_to_fleet() -> None:
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
@@ -139,6 +227,7 @@ async def test_enter_opens_operation_view_and_escape_returns_to_fleet() -> None:
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
@@ -161,6 +250,7 @@ async def test_operation_view_switches_modes_and_moves_task_selection() -> None:
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
@@ -186,6 +276,256 @@ async def test_operation_view_switches_modes_and_moves_task_selection() -> None:
     assert controller.state.operation_panel_mode == "detail"
 
 
+async def test_operation_view_shows_operation_brief_sections() -> None:
+    async def _load_operation_payload_with_brief(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["operation_brief"] = {
+            "goal": "Run compact operation view",
+            "now": "Working on task board layout",
+            "wait": "manual confirmation required",
+            "progress": {
+                "done": "",
+                "doing": "awaiting operator response",
+                "next": "resume execution",
+            },
+            "attention": "policy gap in mode switch",
+            "recent": "task board layout in progress",
+        }
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_brief,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+
+    console = Console(record=True, width=180, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+    for section in (
+        "Goal",
+        "Now",
+        "Wait",
+        "Progress",
+        "Attention",
+        "Recent",
+        "doing=awaiting operator response",
+    ):
+        assert section in rendered
+
+
+async def test_operation_view_tab_jumps_to_task_with_blocking_attention() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-1"
+    await controller.handle_key("\t")
+
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-2"
+
+
+async def test_operation_view_a_reports_oldest_blocking_attention_for_task() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("a")
+
+    assert controller.state.pending_answer_operation_id == "op-run"
+    assert controller.state.pending_answer_attention_id == "att-1"
+    assert controller.state.pending_answer_text == ""
+    assert (
+        controller.state.last_message == "Answer selected. Type text, Enter to send, Esc to cancel."
+    )
+
+
+async def test_fleet_view_a_enters_answer_mode_and_dispatches_oldest_attention() -> None:
+    answers: list[tuple[str, str, str]] = []
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        return f"enqueued: answer_attention_request [operation={operation_id}:attention={attention_id}:text={text}]"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("a")
+    await controller.handle_key("r")
+    await controller.handle_key("e")
+    await controller.handle_key("s")
+    await controller.handle_key("p")
+    await controller.handle_key("o")
+    await controller.handle_key("n")
+    await controller.handle_key("s")
+    await controller.handle_key("e")
+    await controller.handle_key("\r")
+
+    assert answers == [("op-run", "att-3", "response")]
+    assert controller.state.pending_answer_operation_id is None
+    assert controller.state.pending_answer_attention_id is None
+    assert (
+        controller.state.last_message
+        == "enqueued: answer_attention_request [operation=op-run:attention=att-3:text=response]"
+    )
+
+
+async def test_fleet_view_a_rejects_empty_answer_text() -> None:
+    answers: list[tuple[str, str, str]] = []
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        return "should-not-be-called"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("a")
+    await controller.handle_key("\r")
+    assert controller.state.last_message == "Answer text cannot be empty."
+    await controller.handle_key("\x1b")
+
+    assert answers == []
+    assert controller.state.pending_answer_operation_id is None
+    assert controller.state.pending_answer_attention_id is None
+    assert controller.state.last_message == "Answer input aborted."
+
+
+async def test_fleet_view_a_reports_no_attention_when_none_present() -> None:
+    payload = _fleet_payload()
+    payload["needs_attention"][0]["open_attention_count"] = 0
+    payload["needs_attention"][0]["open_blocking_attention_count"] = 0
+    payload["needs_attention"][0]["open_nonblocking_attention_count"] = 0
+
+    async def _empty_attention_payload() -> dict[str, object]:
+        return payload
+
+    async def _load_operation_payload_without_blocking(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = []
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_empty_attention_payload,
+        load_operation_payload=_load_operation_payload_without_blocking,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("a")
+
+    assert controller.state.last_message == "No blocking attention on op-attn."
+
+
+def test_task_signal_text() -> None:
+    payload = {
+        "attention": [
+            {
+                "attention_id": "att-1",
+                "attention_type": "policy_gap",
+                "target_scope": "task",
+                "target_id": "task-1",
+                "title": "Blocked by policy",
+                "question": "What to do?",
+                "blocking": True,
+                "created_at": "2026-01-01T00:00:00Z",
+            },
+            {
+                "attention_id": "att-2",
+                "attention_type": "resource_block",
+                "target_scope": "task",
+                "target_id": "task-2",
+                "title": "Info update",
+                "question": "Any details?",
+                "blocking": False,
+                "created_at": "2026-01-02T00:00:00Z",
+            },
+        ]
+    }
+    operation_payload = {
+        "operation_id": "op-1",
+        "tasks": [
+            {
+                "task_id": "task-1",
+                "task_short_id": "task-1",
+                "title": "task one",
+                "goal": "-",
+                "definition_of_done": "-",
+                "status": "running",
+                "priority": 1,
+                "dependencies": [],
+                "notes": [],
+            },
+            {
+                "task_id": "task-2",
+                "task_short_id": "task-2",
+                "title": "task two",
+                "goal": "-",
+                "definition_of_done": "-",
+                "status": "pending",
+                "priority": 1,
+                "dependencies": [],
+                "notes": [],
+            },
+        ],
+    }
+    operation_payload.update(payload)
+    tasks = dashboard_tasks(operation_payload)
+    assert task_signal_text(operation_payload, tasks[0]) == "[!!1]"
+    assert task_signal_text(operation_payload, tasks[1]) == "[!1]"
+
+
 async def test_operation_view_enter_opens_session_view_and_escape_returns() -> None:
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
@@ -194,6 +534,7 @@ async def test_operation_view_enter_opens_session_view_and_escape_returns() -> N
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
@@ -223,6 +564,7 @@ async def test_session_view_toggles_raw_transcript_and_uses_task_scoped_interrup
         unpause_operation=_unexpected_action,
         interrupt_operation=_interrupt,
         cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
@@ -238,6 +580,63 @@ async def test_session_view_toggles_raw_transcript_and_uses_task_scoped_interrup
     assert controller.state.last_message == "interrupt op-run:task-1"
 
 
+async def test_session_view_renders_session_brief_and_selected_event_sections() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    console = Console(record=True, width=180, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+
+    for section in (
+        "Session: codex_acp",
+        "Now",
+        "Wait",
+        "Attention",
+        "Latest output",
+        "Selected Event",
+        "agent started",
+        "Need a layout decision",
+    ):
+        assert section in rendered
+
+
+async def test_session_timeline_uses_human_event_labels() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    console = Console(record=True, width=180, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+
+    assert "agent started" in rendered
+    assert "agent completed" in rendered
+
+
 async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -> None:
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
@@ -246,6 +645,7 @@ async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
     )
 
     await controller.refresh()
@@ -260,6 +660,134 @@ async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -
 
     await controller.handle_key("\x1b")
     assert controller.state.view_level == "session"
+
+
+async def test_session_enter_stays_in_session_if_transcript_is_unavailable() -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    async def _interrupt(operation_id: str, task_id: str | None) -> str:
+        calls.append((operation_id, task_id))
+        return f"interrupt {operation_id}:{task_id or '-'}"
+
+    async def _load_operation_payload_without_transcript(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["upstream_transcript"] = {"title": "No transcript", "events": []}
+        payload["timeline_events"] = [
+            {
+                "event_type": "agent.invocation.started",
+                "iteration": 1,
+                "task_id": "task-1",
+                "session_id": "session-1",
+                "summary": "[iter 1] agent started: codex_acp",
+            },
+        ]
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_without_transcript,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    assert controller.state.view_level == "session"
+    assert (
+        controller.state.last_message
+        == "No raw transcript for selected session; staying on session timeline."
+    )
+
+
+async def test_fleet_refresh_failure_is_reported_and_non_fatal() -> None:
+    call_count = 0
+
+    async def _flaky_load_payload() -> dict[str, object]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise RuntimeError("transient load failure")
+        return _fleet_payload()
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_flaky_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    assert controller.state.selected_item is not None
+    assert controller.state.selected_item.operation_id == "op-run"
+
+    await controller.refresh()
+    assert controller.state.selected_item is not None
+    assert controller.state.selected_item.operation_id == "op-run"
+    assert (
+        controller.state.last_message == "Failed to refresh operation list: transient load failure"
+    )
+
+
+async def test_fleet_operation_payload_refresh_failure_is_non_fatal() -> None:
+    call_count = 0
+
+    async def _flaky_load_operation_payload(operation_id: str) -> dict[str, object] | None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise RuntimeError("operation payload load failure")
+        return await _load_operation_payload(operation_id)
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_flaky_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    assert controller.state.selected_task is not None
+    assert controller.state.view_level == "operation"
+    assert controller.state.selected_task.task_id == "task-1"
+    assert controller.state.last_message is None
+
+    await controller.refresh()
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-1"
+    assert (
+        controller.state.last_message
+        == "Failed to refresh operation payload: operation payload load failure"
+    )
+
+
+def test_empty_fleet_shows_guidance_message() -> None:
+    from agent_operator.cli.tui_rendering import render_list_table
+    from agent_operator.cli.tui_models import FleetWorkbenchState
+    from rich.console import Console
+
+    state = FleetWorkbenchState()
+    table = render_list_table(state)
+    console = Console(record=True, width=120, markup=False)
+    console.print(table)
+    assert "No active operations. Run 'operator run [goal]' to start." in console.export_text(
+        styles=False
+    )
 
 
 def test_fleet_prefers_interactive_workbench_when_both_streams_are_ttys(
@@ -346,8 +874,33 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
             {
                 "attention_id": "att-1",
                 "target_id": "task-1",
+                "target_scope": "task",
+                "attention_type": "policy_gap",
                 "title": "Need a layout decision",
-            }
+                "question": "How should we handle layout priorities?",
+                "blocking": True,
+                "created_at": "2026-01-02T00:00:00Z",
+            },
+            {
+                "attention_id": "att-2",
+                "target_id": "task-1",
+                "target_scope": "task",
+                "attention_type": "policy_gap",
+                "title": "Another layout question",
+                "question": "Need a deterministic tie-break?",
+                "blocking": False,
+                "created_at": "2026-01-03T00:00:00Z",
+            },
+            {
+                "attention_id": "att-3",
+                "target_id": "task-2",
+                "target_scope": "task",
+                "attention_type": "policy_gap",
+                "title": "Need modes order",
+                "question": "What mode order is safest?",
+                "blocking": True,
+                "created_at": "2025-12-31T23:00:00Z",
+            },
         ],
         "recent_events": [
             "[iter 1] decision: start_agent -> codex_acp",
@@ -368,6 +921,52 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
                 "session_id": "session-1",
                 "summary": "[iter 1] agent completed: success",
             },
+        ],
+        "session_views": [
+            {
+                "task_id": "task-1",
+                "task_short_id": "task-1",
+                "task_title": "Build the task board",
+                "session": {
+                    "session_id": "session-1",
+                    "adapter_key": "codex_acp",
+                    "status": "running",
+                    "waiting_reason": "Working through the board layout.",
+                    "bound_task_ids": ["task-1", "task-2"],
+                },
+                "session_brief": {
+                    "now": "Working through the board layout.",
+                    "wait": "Working through the board layout.",
+                    "attention": "Need a layout decision; Another layout question",
+                    "latest_output": "[iter 1] agent completed: success",
+                },
+                "timeline": [
+                    {
+                        "event_type": "agent.invocation.started",
+                        "iteration": 1,
+                        "task_id": "task-1",
+                        "session_id": "session-1",
+                        "summary": "[iter 1] agent started: codex_acp",
+                    },
+                    {
+                        "event_type": "agent.invocation.completed",
+                        "iteration": 1,
+                        "task_id": "task-1",
+                        "session_id": "session-1",
+                        "summary": "[iter 1] agent completed: success",
+                    },
+                ],
+                "selected_event": {
+                    "event_type": "agent.invocation.completed",
+                    "iteration": 1,
+                    "task_id": "task-1",
+                    "session_id": "session-1",
+                    "summary": "[iter 1] agent completed: success",
+                },
+                "transcript_hint": {
+                    "command": "operator log op-run --agent codex",
+                },
+            }
         ],
         "upstream_transcript": {
             "title": "Codex Log",
@@ -404,9 +1003,94 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
     }
 
 
+async def test_fleet_view_uses_selected_fleet_brief_sections() -> None:
+    payload = {
+        "project": None,
+        "total_operations": 1,
+        "header": {},
+        "rows": [
+            {
+                "operation_id": "op-brief",
+                "attention_badge": "!!",
+                "display_name": "Resolve alert",
+                "state_label": "running",
+                "agent_cue": "profile:alpha",
+                "recency_brief": "runtime alert",
+                "row_hint": "running",
+                "sort_bucket": "needs_attention",
+                "status": "running",
+                "scheduler_state": "active",
+                "project_profile_name": "alpha",
+                "runtime_alert": "blocked by runtime",
+                "focus_brief": "Need manual intervention",
+                "latest_outcome_brief": "intervention requested",
+                "blocker_brief": "blocked by policy",
+                "open_attention_count": 0,
+                "open_blocking_attention_count": 0,
+                "open_nonblocking_attention_count": 0,
+                "attention_briefs": ["[policy_gap] policy review"],
+                "attention_titles": ["policy review"],
+                "brief": {
+                    "goal": "Resolve alert",
+                    "now": "Need manual intervention",
+                    "wait": "blocked by runtime",
+                    "progress": {
+                        "done": "initial triage",
+                        "doing": "awaiting operator response",
+                        "next": "resume after review",
+                    },
+                    "attention": "[policy_gap] policy review",
+                    "recent": "intervention requested",
+                },
+            }
+        ],
+        "control_hints": [],
+        "mix": {
+            "bucket_counts": {"needs_attention": 1, "active": 0, "recent": 0},
+            "status_counts": {"running": 1},
+            "scheduler_counts": {"active": 1},
+            "involvement_counts": {"auto": 1},
+        },
+    }
+
+    async def _load_fleet_payload_with_brief() -> dict[str, object]:
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_fleet_payload_with_brief,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    assert controller.state.selected_fleet_brief is not None
+    assert controller.state.selected_fleet_brief["goal"] == "Resolve alert"
+    console = Console(record=True, width=140, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+    for section in (
+        "Goal",
+        "Now",
+        "Wait",
+        "Progress",
+        "Attention",
+        "Recent",
+        "doing=awaiting operator response",
+    ):
+        assert section in rendered
+
+
 async def _unexpected_action(operation_id: str) -> str:
     raise AssertionError(f"Unexpected action for {operation_id}")
 
 
 async def _unexpected_interrupt(operation_id: str, task_id: str | None) -> str:
     raise AssertionError(f"Unexpected interrupt for {operation_id}:{task_id}")
+
+
+async def _unexpected_answer(operation_id: str, attention_id: str, text: str) -> str:
+    raise AssertionError(f"Unexpected answer for {operation_id}:{attention_id}:{text}")

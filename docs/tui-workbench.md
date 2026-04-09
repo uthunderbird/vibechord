@@ -144,8 +144,9 @@ CLI.
 Current limitations of the implemented UI:
 
 - The workbench is only available when `operator fleet` runs with interactive terminal input and output.
-- The session brief and timeline use normalized stored payload fields. They do not yet provide
-  adapter-specific forensic formatting or rich per-event timestamps.
+- The session brief and timeline now read from the shared normalized session payload used by
+  `operator session`. They do not yet provide adapter-specific forensic formatting or rich
+  per-event timestamps.
 - The forensic view is read-only. It does not add deeper per-event actions beyond back-navigation.
 - Inline attention answering currently targets the oldest blocking attention in scope. The workbench
   does not yet provide a richer attention picker or non-blocking attention response workflow.

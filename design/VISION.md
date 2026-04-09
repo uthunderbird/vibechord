@@ -668,6 +668,8 @@ The CLI UX is governed by these requirements:
 - **P4 — Fleet is the default surface.**
   `operator` with no arguments and a TTY opens the fleet view. With no TTY or `--once`, it emits a
   single fleet snapshot. If no operations exist and no TTY is attached, it falls back to help.
+  The fleet surface is the default supervisory workbench: a human-first master-detail view with a
+  selectable operation list, concise operation brief, and compact action footer.
 - **P5 — Hyphen-case everywhere.**
   User-facing command names use kebab-case. Names such as `stop_turn` are replaced by intentful
   user-facing names such as `interrupt`.
@@ -679,12 +681,54 @@ The CLI UX is governed by these requirements:
 - **P8 — Friendly operation references.**
   Commands that accept an operation reference should accept the full id, an unambiguous short
   prefix, `last`, and, where meaningful, an unambiguous project/profile-derived reference.
+- **P9 — Shared scope model with the TUI.**
+  The CLI and TUI should share the same supervisory coordinate system:
+  `fleet`, `operation`, `session`, and `forensic`.
+  This is a conceptual model, not a requirement to rename every command around those nouns.
+  CLI commands should remain intentful, but the product should be explainable by `scope × role`
+  rather than as a flat bag of unrelated commands.
 
 ### Principle: commands named by user intent, not system mechanism
 
 Every command should be named for what the user wants to accomplish, not for the internal mechanism
 it triggers. `resume` is better than `tick`. `agenda` is better than `list-scheduled-wakeups`.
 Commands that expose implementation details belong in the forensic tier, not the everyday tier.
+
+### Scope × role model
+
+The CLI should use the same scope model as the TUI:
+
+- `fleet`
+- `operation`
+- `session`
+- `forensic`
+
+Within each scope, commands play one of a small number of roles:
+
+- `summary`
+- `live`
+- `detail`
+- `control`
+- `transcript`
+
+Examples:
+
+- `fleet` = `fleet` scope, `live/snapshot` role
+- `status` = `operation` scope, canonical `summary` role
+- `watch` = `operation` scope, lightweight `live` role
+- `tasks` = `operation` scope, structural `detail` role
+- `log` = `forensic` scope, `transcript` role
+
+This model is intended to keep CLI and TUI conceptually aligned without forcing identical surface
+forms. It also makes missing surfaces visible: if the public CLI has no meaningful `session`-scope
+surface, that is a product gap rather than merely an implementation detail.
+
+At the code/package level, this shared model does not imply that TUI should permanently remain
+nested inside the CLI package. The current `cli/tui` shape is acceptable as a transition, but the
+better long-term architecture is for CLI and TUI to exist as sibling delivery adapters under a
+common delivery family rather than as `cli` owning `tui` structurally.
+See [RFC 0011](./rfc/0011-delivery-package-boundary-for-cli-and-tui.md) and
+[RFC 0012](./rfc/0012-delivery-package-migration-tranche.md) for the boundary and tranche framing.
 
 ### Three tiers by frequency
 
@@ -697,9 +741,9 @@ Needed every run. Always at the top level.
 
 | Command | Purpose |
 |---|---|
-| `operator` | fleet view (TTY) or fleet snapshot (non-TTY) |
+| `operator` | fleet workbench (TTY) or fleet snapshot (non-TTY) |
 | `run` | start a new operation |
-| `fleet` | all active operations across projects |
+| `fleet` | all active operations across projects in the fleet workbench |
 | `status op-id` | operation state and attention summary |
 | `answer op-id [att-id]` | answer a blocking attention request |
 | `message op-id "..."` | inject free-form context for the operator brain |
@@ -709,6 +753,7 @@ Needed every run. Always at the top level.
 | `cancel op-id` | cancel the operation |
 | `history [op-id]` | operation history ledger |
 | `init` | set up operator in the current project |
+| `clear` | clear operator runtime state for the current workspace |
 | `project ...` | project profile management |
 
 **Note on `run`:** The command is named for the user's intent — "run this goal" — not for the entity it creates. `run` creates an *operation* and begins its first *run*. See the operation/run distinction in Why This Exists.
@@ -721,6 +766,7 @@ policy needs adjustment.
 | Command | Purpose |
 |---|---|
 | `watch op-id` | live surface — what is happening, is input needed |
+| `session op-id --task task-id` | session-scoped summary/live surface |
 | `inspect op-id` | progress snapshot — what has been done |
 | `dashboard op-id` | live L2 view: inspect with task board and command receipts |
 | `tasks op-id` | task graph with dependency status and agent assignment |
@@ -796,10 +842,12 @@ The CLI command structure is:
 - `operator message OP TEXT`
 - `operator history [OP]`
 - `operator init`
+- `operator clear`
 - `operator project ...`
 
 #### Secondary commands shown below the primary section
 
+- `operator session OP --task TASK`
 - `operator log OP`
 - `operator tasks OP`
 - `operator memory OP`
@@ -836,6 +884,18 @@ The CLI command structure is:
 - prompts interactively for a goal when no goal is provided and no active project supplies a
   default objective
 - writes the new operation reference to `.operator/last`
+
+#### `operator clear`
+
+- clears project-local operator runtime and derived state for the current workspace
+- preserves:
+  - `operator-profile.yaml`
+  - `operator-profiles/`
+  - `.operator/profiles/`
+- removes the current workspace `operator-history.jsonl`
+- refuses by default when active or recoverable operations still exist
+- requires explicit destructive confirmation, with `--yes` as the non-interactive bypass
+- is a workspace lifecycle/reset surface, not a one-operation control surface
 
 #### `operator status`
 
@@ -879,10 +939,13 @@ The CLI command structure is:
 
 ### The `watch` surface
 
-`watch` is the primary live surface. The design goal: the user looks at the screen and within one
-second knows whether they need to do anything.
+`watch` is a retained textual live surface for one operation. It is not the canonical shell-native
+summary surface (`status`), and it is not the preferred interactive supervision surface when a real
+TTY workbench is desired (the TUI fills that role). Its design goal is narrower: the user looks at
+the screen and within one second knows whether they need to do anything, without requiring the full
+workbench.
 
-**TTY mode** (interactive terminal):
+**Textual live mode**:
 
 ```
 ● Running  iter 4/100  ·  last activity: 8s ago
@@ -903,9 +966,19 @@ Key elements:
 - Open attention requests with a ready-to-copy answer command template
 - No UUIDs in the primary view — only short task IDs and human-readable names
 - No internal state labels (`scheduler=active`, `session_status=running`) in the primary view
+- The output must stay concise and human-first; it must not degrade into a projection dump such as
+  `state: running | scheduler=active | focus=session:... | summary={...}`
 
 **Non-TTY / pipe mode:** JSONL events, same as the current `--json` output. Machine-readable output
 is not broken by the richer TTY display.
+
+Relationship to adjacent surfaces:
+
+- `status` is the canonical one-operation shell summary and control-oriented snapshot
+- the TUI workbench is the preferred interactive live supervision surface
+- `watch` remains useful as a lightweight textual live follower and pipe-friendly supervision aid
+- `session` is the public session-scope summary/live surface
+- `log` remains the raw transcript surface
 
 ### Drill-down model
 
@@ -914,8 +987,10 @@ The user can navigate from the live surface to raw evidence in four levels:
 ```
 L1  watch op-id           live — "is input needed, what is happening"
       ↓
-L2  inspect op-id         snapshot — progress, recent decisions, open attention
-    dashboard op-id       live L2 — same content with live updates + task board
+L2  session op-id --task task-id
+                          session-scoped summary/live view
+    inspect op-id         operation snapshot — progress, recent decisions, open attention
+    dashboard op-id       rich operation live/detail surface
       ↓
 L3  tasks op-id           task graph with dependency and assignment detail
     trace op-id           forensic event log

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Stale — superseded by ADR 0046, ADR 0057, and ADR 0090
 
 ## Context
 
@@ -99,3 +99,20 @@ product direction.
 - Follow-up: define reconciler lease and lock semantics.
 - Follow-up: define `drive` / `until-idle` CLI surfaces.
 - Follow-up: harden outcome and runtime-alert projections once the resident consumption path exists.
+
+## Later outcome
+
+This ADR did not become the repository's active route.
+
+Later decisions took the runtime in a different direction:
+
+- [ADR 0046](./0046-timed-wakeups-and-daemon-auto-resume.md) kept explicit daemon-driven
+  resumable advancement rather than introducing a resident reconciler as the primary answer
+- [ADR 0057](./0057-attached-mode-inline-wakeup-auto-resume.md) solved the attached-mode wakeup
+  path inline inside the attached loop rather than through a generic resident reconciler
+- [ADR 0090](./0090-single-process-async-runtime-hosting-and-background-worker-removal.md)
+  recast attached/background execution around one async runtime host instead of a separate resident
+  reconciler track
+
+The repository therefore treats this ADR as historical design exploration rather than an active or
+pending implementation front.

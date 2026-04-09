@@ -5,6 +5,8 @@ from pathlib import Path
 
 from agent_operator.application import OperationProjectionService
 from agent_operator.domain import (
+    AgentTurnBrief,
+    AgentTurnSummary,
     AgentSessionHandle,
     AttentionRequest,
     AttentionStatus,
@@ -14,6 +16,7 @@ from agent_operator.domain import (
     MemoryEntry,
     MemoryFreshness,
     MemoryScope,
+    OperationSummary,
     OperationGoal,
     OperationPolicy,
     OperationState,
@@ -23,8 +26,11 @@ from agent_operator.domain import (
     SchedulerState,
     SessionRecord,
     SessionRecordStatus,
+    TaskState,
+    TaskStatus,
+    TraceBriefBundle,
 )
-from agent_operator.runtime import AgendaBucket, AgendaItem, AgendaSnapshot
+from agent_operator.runtime import AgendaBucket, AgendaItem, AgendaSnapshot, build_agenda_item
 
 
 def _operation() -> OperationState:
@@ -95,6 +101,70 @@ def _operation() -> OperationState:
     )
 
 
+def _operation_with_mixed_attention() -> tuple[OperationState, OperationSummary]:
+    operation = _operation().model_copy(deep=True)
+    operation.attention_requests = [
+        AttentionRequest(
+            attention_id="att-1",
+            operation_id="op-1",
+            attention_type=AttentionType.NOVEL_STRATEGIC_FORK,
+            status=AttentionStatus.OPEN,
+            title="Need a policy response",
+            question="How to route this task?",
+            target_scope=CommandTargetScope.OPERATION,
+            target_id="op-1",
+            blocking=True,
+        ),
+        AttentionRequest(
+            attention_id="att-2",
+            operation_id="op-1",
+            attention_type=AttentionType.POLICY_GAP,
+            status=AttentionStatus.OPEN,
+            title="Additional context needed",
+            question="Can you add context?",
+            target_scope=CommandTargetScope.OPERATION,
+            target_id="op-1",
+            blocking=False,
+        ),
+    ]
+    summary = OperationSummary(
+        operation_id="op-1",
+        status=operation.status,
+        objective_prompt="Ship dashboard",
+        final_summary=None,
+        focus=None,
+        runnable_task_count=0,
+        reusable_session_count=0,
+        updated_at=datetime.now(UTC),
+    )
+    return operation, summary
+
+
+def _operation_with_task_session() -> OperationState:
+    operation = _operation().model_copy(deep=True)
+    operation.tasks = [
+        TaskState(
+            task_id="task-1",
+            title="Implement session view",
+            goal="Ship normalized session payload",
+            definition_of_done="Session payload is shared",
+            status=TaskStatus.RUNNING,
+            linked_session_id="session-1",
+        )
+    ]
+    operation.sessions[0].bound_task_ids = ["task-1"]
+    return operation
+
+
+def test_build_agenda_item_splits_open_attention_counts() -> None:
+    operation, summary = _operation_with_mixed_attention()
+    item = build_agenda_item(operation, summary)
+
+    assert item.open_attention_count == 2
+    assert item.open_blocking_attention_count == 1
+    assert item.open_nonblocking_attention_count == 1
+
+
 def test_build_durable_truth_payload_splits_memory() -> None:
     payload = OperationProjectionService().build_durable_truth_payload(
         _operation(),
@@ -135,6 +205,66 @@ def test_build_fleet_payload_returns_actions() -> None:
     assert any(action["cli_command"] == "operator watch op-1" for action in payload["actions"])
 
 
+def test_build_fleet_workbench_payload_normalizes_rows_and_header() -> None:
+    items = [
+        AgendaItem(
+            operation_id="op-alert",
+            bucket=AgendaBucket.NEEDS_ATTENTION,
+            status=OperationStatus.NEEDS_HUMAN,
+            scheduler_state=SchedulerState.ACTIVE,
+            involvement_level=InvolvementLevel.AUTO,
+            objective_brief="Answer a policy question",
+            project_profile_name="operator",
+            updated_at=datetime(2026, 1, 3, 12, 0, 0, tzinfo=UTC),
+            runtime_alert="Operator needs manual intervention",
+            open_attention_count=2,
+            open_blocking_attention_count=1,
+            open_nonblocking_attention_count=1,
+            attention_titles=["policy gap", "timeout check"],
+            focus_brief="waiting on input",
+            latest_outcome_brief="paused at checkpoint",
+            blocker_brief="blocked by human policy",
+        ),
+        AgendaItem(
+            operation_id="op-running",
+            bucket=AgendaBucket.ACTIVE,
+            status=OperationStatus.RUNNING,
+            scheduler_state=SchedulerState.ACTIVE,
+            involvement_level=InvolvementLevel.COLLABORATIVE,
+            objective_brief="Ship the dashboard",
+            updated_at=datetime(2026, 1, 3, 12, 0, 5, tzinfo=UTC),
+            focus_brief="agent started",
+            latest_outcome_brief="running task board migration",
+            blocker_brief=None,
+            attention_titles=[],
+        ),
+    ]
+    payload = OperationProjectionService().build_fleet_workbench_payload(
+        AgendaSnapshot(total_operations=2, needs_attention=[items[0]], active=[items[1]], recent=[]),
+        project="operator",
+    )
+
+    assert payload["project"] == "operator"
+    assert payload["total_operations"] == 2
+    rows = payload["rows"]
+    assert isinstance(rows, list)
+    assert rows[0]["operation_id"] == "op-alert"
+    assert rows[1]["operation_id"] == "op-running"
+    assert rows[0]["sort_bucket"] == "needs_attention"
+    assert rows[1]["sort_bucket"] == "active"
+    assert rows[0]["attention_badge"] == "!!"
+    assert rows[0]["state_label"] == "needs_human"
+    assert rows[0]["agent_cue"] == "profile:operator"
+    assert rows[0]["row_hint"] == "now: runtime alert"
+    brief = rows[0]["brief"]
+    assert brief["goal"] == "Answer a policy question"
+    assert isinstance(brief["progress"], dict)
+    assert brief["progress"]["done"] is None
+    assert "status_counts" in payload["mix"]
+    assert payload["mix"]["bucket_counts"]["needs_attention"] == 1
+    assert payload["mix"]["bucket_counts"]["active"] == 1
+
+
 def test_build_project_dashboard_payload_merges_fleet_actions() -> None:
     profile = ProjectProfile(name="operator", cwd=Path("/tmp/operator"))
     payload = OperationProjectionService().build_project_dashboard_payload(
@@ -162,6 +292,29 @@ def test_build_project_dashboard_payload_merges_fleet_actions() -> None:
     assert "operator dashboard op-1" in commands
 
 
+def test_build_dashboard_payload_emits_normalized_session_views() -> None:
+    operation = _operation_with_task_session()
+    payload = OperationProjectionService().build_dashboard_payload(
+        operation,
+        brief=None,
+        outcome=None,
+        runtime_alert=None,
+        commands=[],
+        events=[],
+        decision_memos=[],
+        upstream_transcript=None,
+    )
+
+    session_views = payload["session_views"]
+    assert isinstance(session_views, list)
+    assert len(session_views) == 1
+    session_view = session_views[0]
+    assert session_view["task_id"] == "task-1"
+    assert session_view["session"]["session_id"] == "session-1"
+    assert session_view["session_brief"]["wait"] == "Working"
+    assert session_view["transcript_hint"]["command"] == "operator log op-1 --agent codex"
+
+
 def test_build_live_snapshot_and_format_live_snapshot() -> None:
     service = OperationProjectionService()
     snapshot = service.build_live_snapshot(_operation(), None, runtime_alert="rate limit soon")
@@ -173,3 +326,35 @@ def test_build_live_snapshot_and_format_live_snapshot() -> None:
     assert "state: running" in rendered
     assert "objective=Ship dashboard" in rendered
     assert "alert=rate limit soon" in rendered
+
+
+def test_build_inspect_summary_payload_uses_recommended_next_step() -> None:
+    service = OperationProjectionService()
+    brief = TraceBriefBundle(
+        agent_turn_briefs=[
+            AgentTurnBrief(
+                operation_id="op-1",
+                iteration=4,
+                agent_key="codex_acp",
+                session_id="session-1",
+                assignment_brief="Implement the next TUI slice.",
+                result_brief="Completed the slice.",
+                status="success",
+                turn_summary=AgentTurnSummary(
+                    declared_goal="Improve the TUI.",
+                    actual_work_done="Implemented the next operation-view slice.",
+                    state_delta="Repository now includes the new drill-down.",
+                    verification_status="Focused tests passed.",
+                    recommended_next_step="Implement the watch redesign next.",
+                ),
+            )
+        ]
+    )
+
+    payload = service.build_inspect_summary_payload(
+        _operation(),
+        brief,
+        runtime_alert=None,
+    )
+
+    assert payload["next_step"] == "Implement the watch redesign next."

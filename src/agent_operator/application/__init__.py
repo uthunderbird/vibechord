@@ -48,6 +48,9 @@ from agent_operator.application.operation_projections import (
     OperationProjectionService,
     ProjectionAction,
 )
+from agent_operator.application.operation_fleet_workbench_queries import (
+    OperationFleetWorkbenchQueryService,
+)
 from agent_operator.application.operation_runtime import SupervisorBackedOperationRuntime
 from agent_operator.application.operation_runtime_context import OperationRuntimeContext
 from agent_operator.application.operation_runtime_reconciliation import (
@@ -92,6 +95,7 @@ __all__ = [
     "OperationControlStateCoordinator",
     "OperationDeliveryCommandService",
     "OperationDashboardQueryService",
+    "OperationFleetWorkbenchQueryService",
     "OperationDriveService",
     "OperationEntrypointService",
     "OperationLifecycleCoordinator",

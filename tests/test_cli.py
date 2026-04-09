@@ -8,6 +8,7 @@ from pathlib import Path
 import anyio
 from typer.testing import CliRunner
 
+import agent_operator.cli.commands_operation_detail as commands_operation_detail
 from agent_operator.cli.main import _format_live_snapshot, app
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -1960,7 +1961,80 @@ def test_session_command_json_emits_machine_readable_payload(tmp_path: Path, mon
     assert '"task": {' in result.stdout
     assert '"session_id": "session-1"' in result.stdout
     assert '"session": {' in result.stdout
+    assert '"session_brief": {' in result.stdout
     assert '"timeline_events":' in result.stdout
+    assert '"transcript_hint": {' in result.stdout
+
+
+def test_session_command_follow_once_prints_single_live_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--follow", "--once"])
+
+    assert result.exit_code == 0
+    assert result.stdout.count("Session scope for Primary objective") == 1
+    assert "Latest output:" in result.stdout
+    assert "Selected event:" in result.stdout
+
+
+def test_session_command_prints_selected_event_summary_when_present(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class _FakeDashboardQueries:
+        async def load_payload(self, operation_id: str) -> dict[str, object]:
+            return {
+                "session_views": [
+                    {
+                        "task_id": "task-1",
+                        "session": {
+                            "session_id": "session-1",
+                            "adapter_key": "codex_acp",
+                            "status": "running",
+                            "bound_task_ids": ["task-1"],
+                        },
+                        "session_brief": {
+                            "now": "Running the task board migration",
+                            "wait": "waiting for review",
+                            "attention": "-",
+                            "latest_output": "agent completed: success",
+                        },
+                        "timeline": [
+                            {
+                                "event_type": "agent.invocation.completed",
+                                "iteration": 1,
+                                "task_id": "task-1",
+                                "session_id": "session-1",
+                                "summary": "[iter 1] agent completed: success",
+                            }
+                        ],
+                        "selected_event": {
+                            "event_type": "agent.invocation.completed",
+                            "iteration": 1,
+                            "task_id": "task-1",
+                            "session_id": "session-1",
+                            "summary": "[iter 1] agent completed: success",
+                        },
+                        "transcript_hint": {"command": "operator log op-cli-1 --agent codex"},
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(
+        commands_operation_detail,
+        "build_operation_dashboard_query_service",
+        lambda settings, operation_id, codex_home: _FakeDashboardQueries(),
+    )
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
+
+    assert result.exit_code == 0
+    assert "summary: [iter 1] agent completed: success" in result.stdout
 
 
 def test_session_command_errors_when_task_has_no_linked_session(

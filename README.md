@@ -69,7 +69,8 @@ switch to raw transcript, and use `a` from fleet, operation, or session to answe
 blocking attention in scope. `Enter` still drills into forensic even when a session has no raw
 transcript payload, falling back to event context plus an explicit empty-state message. For the
 current keymap, supported actions, and known limitations, see
-[TUI Workbench](docs/tui-workbench.md).
+[TUI Workbench](docs/tui-workbench.md). For the current forensic drill-down behavior, see
+[TUI Forensic Workflow](docs/tui-forensic-workflow.md).
 
 ## Where to go next
 

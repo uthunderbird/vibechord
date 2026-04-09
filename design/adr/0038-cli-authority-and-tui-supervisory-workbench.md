@@ -95,9 +95,9 @@ Primary intent groups:
   - `run`
   - project/profile resolution and setup
 - **monitor and control one operation**
-  - `watch`
-  - `dashboard`
-  - `context`
+  - `status`
+  - lightweight textual follow via `watch`
+  - richer drill-down via `dashboard`
   - live control commands
 - **supervise many operations**
   - `agenda`
@@ -122,7 +122,6 @@ used by:
 - `agenda`
 - `fleet`
 - `dashboard`
-- `context`
 - `watch`
 
 Its core jobs are:
@@ -134,6 +133,15 @@ Its core jobs are:
 - and fast navigation across active work.
 
 It should not become a second architecture or a replacement for explicit CLI control.
+
+### Surface priority clarification
+
+This ADR establishes the broad product split, not the final one-operation command taxonomy.
+Later CLI ADRs narrow the relative roles of `status`, `watch`, and TUI:
+
+- `status` becomes the canonical shell-native one-operation summary surface
+- TUI becomes the preferred interactive live supervision surface
+- `watch` remains as a lighter textual live follower rather than the flagship interactive surface
 
 ## Alternatives Considered
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Implemented
 
 ## Context
 
@@ -92,3 +92,17 @@ stable and operator-relevant format.
 - Follow-up: add a turn-summary generation step after completed agent turns.
 - Follow-up: update decision and evaluation prompts to prefer structured summaries for older turns.
 - Follow-up: keep raw excerpts as fallback evidence rather than the primary representation.
+
+## Implementation outcome
+
+This direction is now repository truth.
+
+Implemented evidence includes:
+
+- structured `AgentTurnSummary` support in the brain/provider and traceability path
+- prompt construction that prefers structured turn summaries for older completed turns
+- full latest completed result retention in prompt history
+- fallback excerpt behavior when summaries are missing
+
+The remaining work is iterative quality improvement of summary production and prompt shaping, not
+whether this direction was adopted.

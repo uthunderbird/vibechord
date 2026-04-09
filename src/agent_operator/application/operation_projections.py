@@ -7,6 +7,7 @@ from pathlib import Path
 
 from agent_operator.domain import (
     AgentTurnBrief,
+    AttentionRequest,
     AttentionStatus,
     DecisionMemo,
     MemoryEntry,
@@ -21,6 +22,7 @@ from agent_operator.domain import (
     RunMode,
     SchedulerState,
     SessionRecord,
+    TaskState,
     TraceBriefBundle,
 )
 from agent_operator.runtime import AgendaItem, AgendaSnapshot
@@ -45,6 +47,105 @@ class ProjectionAction:
             "destructive": self.destructive,
             "enabled": self.enabled,
             "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class FleetWorkbenchBrief:
+    goal: str
+    now: str | None
+    wait: str | None
+    progress_done: str | None
+    progress_doing: str | None
+    progress_next: str | None
+    attention: str | None
+    recent: str | None
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "goal": self.goal,
+            "now": self.now,
+            "wait": self.wait,
+            "progress": {
+                "done": self.progress_done,
+                "doing": self.progress_doing,
+                "next": self.progress_next,
+            },
+            "attention": self.attention,
+            "recent": self.recent,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class FleetWorkbenchRow:
+    operation_id: str
+    attention_badge: str
+    display_name: str
+    state_label: str
+    agent_cue: str
+    recency_brief: str
+    row_hint: str
+    sort_bucket: str
+    status: str
+    scheduler_state: str
+    project_profile_name: str | None
+    runtime_alert: str | None
+    focus_brief: str | None
+    latest_outcome_brief: str | None
+    blocker_brief: str | None
+    open_attention_count: int
+    open_blocking_attention_count: int
+    open_nonblocking_attention_count: int
+    attention_briefs: tuple[str, ...]
+    attention_titles: tuple[str, ...]
+    brief: FleetWorkbenchBrief
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "operation_id": self.operation_id,
+            "attention_badge": self.attention_badge,
+            "display_name": self.display_name,
+            "state_label": self.state_label,
+            "agent_cue": self.agent_cue,
+            "recency_brief": self.recency_brief,
+            "row_hint": self.row_hint,
+            "sort_bucket": self.sort_bucket,
+            "status": self.status,
+            "scheduler_state": self.scheduler_state,
+            "project_profile_name": self.project_profile_name,
+            "runtime_alert": self.runtime_alert,
+            "focus_brief": self.focus_brief,
+            "latest_outcome_brief": self.latest_outcome_brief,
+            "blocker_brief": self.blocker_brief,
+            "open_attention_count": self.open_attention_count,
+            "open_blocking_attention_count": self.open_blocking_attention_count,
+            "open_nonblocking_attention_count": self.open_nonblocking_attention_count,
+            "attention_briefs": list(self.attention_briefs),
+            "attention_titles": list(self.attention_titles),
+            "brief": self.brief.to_payload(),
+            "open_attention": self.open_attention_count > 0,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class FleetWorkbenchPayload:
+    project: str | None
+    total_operations: int
+    header: dict[str, object]
+    rows: list[dict[str, object]]
+    control_hints: list[str]
+    mix: dict[str, object]
+    actions: list[dict[str, object]]
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "project": self.project,
+            "total_operations": self.total_operations,
+            "header": self.header,
+            "rows": self.rows,
+            "control_hints": self.control_hints,
+            "mix": self.mix,
+            "actions": self.actions,
         }
 
 
@@ -191,6 +292,171 @@ class OperationProjectionService:
             "actions": [action.to_payload() for action in self._fleet_actions(snapshot)],
         }
 
+    def build_fleet_workbench_payload(
+        self,
+        snapshot: AgendaSnapshot,
+        *,
+        project: str | None,
+    ) -> dict[str, object]:
+        items = self._ordered_fleet_workbench_items(snapshot)
+        return FleetWorkbenchPayload(
+            project=project,
+            total_operations=snapshot.total_operations,
+            header=self._fleet_workbench_header(snapshot, items),
+            rows=[self._build_fleet_workbench_row(item) for item in items],
+            control_hints=self._fleet_workbench_control_hints(snapshot),
+            actions=[action.to_payload() for action in self._fleet_actions(snapshot)],
+            mix={
+                "bucket_counts": {
+                    "needs_attention": len(snapshot.needs_attention),
+                    "active": len(snapshot.active),
+                    "recent": len(snapshot.recent),
+                },
+                "status_counts": self._count_items_by_key(items, lambda item: item.status.value),
+                "scheduler_counts": self._count_items_by_key(
+                    items,
+                    lambda item: item.scheduler_state.value,
+                ),
+                "involvement_counts": self._count_items_by_key(
+                    items,
+                    lambda item: item.involvement_level.value,
+                ),
+            },
+        ).to_payload()
+
+    def _ordered_fleet_workbench_items(self, snapshot: AgendaSnapshot) -> list[AgendaItem]:
+        return [*snapshot.needs_attention, *snapshot.active, *snapshot.recent]
+
+    def _build_fleet_workbench_row(self, item: AgendaItem) -> dict[str, object]:
+        return FleetWorkbenchRow(
+            operation_id=item.operation_id,
+            attention_badge=self._fleet_workbench_attention_badge(item),
+            display_name=self._shorten_text(item.objective_brief, limit=120) or item.objective_brief,
+            state_label=self._fleet_workbench_state_label(item),
+            agent_cue=self._fleet_workbench_agent_cue(item),
+            recency_brief=self._fleet_workbench_recency(item),
+            row_hint=self._fleet_workbench_row_hint(item),
+            sort_bucket=item.bucket.value,
+            status=item.status.value,
+            scheduler_state=item.scheduler_state.value,
+            project_profile_name=item.project_profile_name,
+            runtime_alert=item.runtime_alert,
+            focus_brief=item.focus_brief,
+            latest_outcome_brief=item.latest_outcome_brief,
+            blocker_brief=item.blocker_brief,
+            open_attention_count=item.open_attention_count,
+            open_blocking_attention_count=item.open_blocking_attention_count,
+            open_nonblocking_attention_count=item.open_nonblocking_attention_count,
+            attention_briefs=tuple(item.attention_briefs),
+            attention_titles=tuple(item.attention_titles),
+            brief=self._fleet_workbench_brief(item),
+        ).to_payload()
+
+    def _fleet_workbench_attention_badge(self, item: AgendaItem) -> str:
+        if item.runtime_alert is not None:
+            return "!!"
+        if item.open_blocking_attention_count > 0:
+            return f"B{item.open_blocking_attention_count}"
+        if item.open_attention_count > 0:
+            return f"A{item.open_attention_count}"
+        if item.open_nonblocking_attention_count > 0:
+            return f"Q{item.open_nonblocking_attention_count}"
+        return "-"
+
+    def _fleet_workbench_state_label(self, item: AgendaItem) -> str:
+        if item.scheduler_state is SchedulerState.ACTIVE:
+            return item.status.value
+        return f"{item.status.value}/{item.scheduler_state.value}"
+
+    def _fleet_workbench_agent_cue(self, item: AgendaItem) -> str:
+        if item.project_profile_name:
+            return f"profile:{item.project_profile_name}"
+        if item.policy_scope:
+            return item.policy_scope
+        return "-"
+
+    def _fleet_workbench_recency(self, item: AgendaItem) -> str:
+        if item.runtime_alert is not None:
+            return self._shorten_text(item.runtime_alert, limit=80) or "runtime alert"
+        if item.focus_brief is not None:
+            return self._shorten_text(item.focus_brief, limit=80) or "focus"
+        if item.latest_outcome_brief is not None:
+            return self._shorten_text(item.latest_outcome_brief, limit=80) or "latest outcome"
+        return "no recent activity"
+
+    def _fleet_workbench_row_hint(self, item: AgendaItem) -> str:
+        if item.runtime_alert is not None:
+            return "now: runtime alert"
+        if item.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}:
+            return "paused"
+        if item.status is OperationStatus.NEEDS_HUMAN:
+            return "waiting"
+        if item.status is OperationStatus.FAILED:
+            return "failed"
+        if item.status is OperationStatus.COMPLETED:
+            return "completed"
+        if item.status is OperationStatus.CANCELLED:
+            return "cancelled"
+        return "running"
+
+    def _fleet_workbench_brief(self, item: AgendaItem) -> FleetWorkbenchBrief:
+        return FleetWorkbenchBrief(
+            goal=self._shorten_text(item.objective_brief, limit=120) or item.objective_brief,
+            now=self._shorten_text(item.focus_brief, limit=120),
+            wait=self._shorten_text(
+                item.runtime_alert if item.runtime_alert is not None else item.latest_outcome_brief,
+                limit=120,
+            ),
+            progress_done=self._shorten_text(item.blocker_brief if item.status is OperationStatus.COMPLETED else None, limit=120),
+            progress_doing=self._shorten_text(item.latest_outcome_brief, limit=120),
+            progress_next=self._shorten_text(item.blocker_brief or (item.attention_titles[0] if item.attention_titles else None), limit=120),
+            attention=self._shorten_text("; ".join(item.attention_titles), limit=120),
+            recent=self._shorten_text(item.latest_outcome_brief, limit=120),
+        )
+
+    def _fleet_workbench_control_hints(self, snapshot: AgendaSnapshot) -> list[str]:
+        hints: list[str] = []
+        for action in self._fleet_actions(snapshot):
+            command = action.cli_command
+            if isinstance(command, str) and command not in hints:
+                hints.append(command)
+        return hints
+
+    def _fleet_workbench_header(
+        self,
+        snapshot: AgendaSnapshot,
+        rows: list[AgendaItem] | list[dict[str, object]],
+    ) -> dict[str, object]:
+        items = self._ordered_fleet_workbench_items(snapshot)
+        all_items = [item for item in items]
+        status_counts = self._count_items_by_key(all_items, lambda item: item.status.value)
+        scheduler_counts = self._count_items_by_key(all_items, lambda item: item.scheduler_state.value)
+        bucket_counts = {
+            "needs_attention": len(snapshot.needs_attention),
+            "active": len(snapshot.active),
+            "recent": len(snapshot.recent),
+        }
+        header_rows = len(rows)
+        return {
+            "total_operations": snapshot.total_operations,
+            "bucket_counts": bucket_counts,
+            "status_counts": status_counts,
+            "scheduler_counts": scheduler_counts,
+            "active_count": self._count_items(all_items, lambda item: item.status is OperationStatus.RUNNING),
+            "needs_human_count": self._count_items(
+                all_items, lambda item: item.status is OperationStatus.NEEDS_HUMAN
+            ),
+            "running_count": self._count_items(
+                all_items, lambda item: item.status is OperationStatus.RUNNING
+            ),
+            "paused_count": self._count_items(
+                all_items,
+                lambda item: item.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED},
+            ),
+            "rows_count": header_rows,
+            "operator_load": None,
+        }
+
     def build_project_dashboard_payload(
         self,
         *,
@@ -245,6 +511,154 @@ class OperationProjectionService:
             "verification_summary": self._turn_verification_summary(latest_turn),
             "blockers_summary": self._turn_blockers_summary(latest_turn),
             "runtime_alert": runtime_alert,
+        }
+
+    def build_operation_brief_payload(
+        self,
+        operation: OperationState,
+        brief: TraceBriefBundle | None,
+        *,
+        runtime_alert: str | None,
+    ) -> dict[str, object]:
+        brief = brief or TraceBriefBundle()
+        operation_brief = brief.operation_brief
+        latest_turn = self._latest_agent_turn_brief(brief)
+        open_attention = [
+            attention.title
+            for attention in operation.attention_requests
+            if attention.status is AttentionStatus.OPEN
+        ]
+        progress_done = self._turn_verification_summary(latest_turn)
+        if operation.status is OperationStatus.COMPLETED:
+            progress_done = (
+                self._shorten_text(operation.final_summary, limit=120)
+                or progress_done
+                or self._shorten_text(operation.objective_state.objective, limit=120)
+            )
+        progress_doing = self._turn_work_summary(latest_turn)
+        progress_next = self._turn_next_step(latest_turn)
+        if progress_doing is None and operation_brief is not None:
+            progress_doing = self._shorten_text(operation_brief.latest_outcome_brief, limit=120)
+            if progress_next is None:
+                progress_next = self._shorten_text(operation_brief.blocker_brief, limit=120)
+        if progress_done is None and operation_brief is not None:
+            progress_done = self._shorten_text(operation_brief.blocker_brief, limit=120) if operation.status is OperationStatus.COMPLETED else None
+
+        wait = runtime_alert
+        if not wait:
+            if operation_brief is not None and operation_brief.runtime_alert_brief is not None:
+                wait = self._shorten_text(operation_brief.runtime_alert_brief, limit=120)
+            elif open_attention:
+                wait = self._shorten_text("; ".join(open_attention[:2]), limit=120)
+
+        return {
+            "goal": self._shorten_text(
+                operation_brief.objective_brief if operation_brief is not None else operation.objective_state.objective,
+                limit=120,
+            ),
+            "now": self._shorten_text(
+                operation_brief.focus_brief if operation_brief is not None else None,
+                limit=120,
+            )
+            or self._shorten_text(operation.final_summary, limit=120)
+            or self._shorten_text(operation.objective_state.objective, limit=120),
+            "wait": self._shorten_text(wait, limit=120),
+            "progress": {
+                "done": progress_done,
+                "doing": progress_doing,
+                "next": progress_next,
+            },
+            "attention": (
+                self._shorten_text("; ".join(open_attention), limit=220)
+                or ""
+            ),
+            "recent": self._shorten_text(
+                self._turn_work_summary(latest_turn)
+                or (operation_brief.latest_outcome_brief if operation_brief is not None else None)
+                or self._shorten_text(operation.final_summary, limit=120),
+                limit=120,
+            ),
+        }
+
+    def build_session_brief_payload(
+        self,
+        *,
+        session: SessionRecord,
+        timeline: list[dict[str, object]],
+        attention_titles: list[str],
+    ) -> dict[str, str]:
+        wait = self._shorten_text(session.waiting_reason, limit=120)
+        latest_output = "-"
+        for event in reversed(timeline):
+            summary = event.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                latest_output = self._shorten_text(summary, limit=160) or summary.strip()
+                break
+        if wait is not None:
+            lowered = wait.lower()
+            if "working" in lowered or "running" in lowered:
+                now = wait
+            else:
+                now = session.status.value
+        elif session.status.value == "running":
+            now = "Agent turn running"
+        else:
+            now = session.status.value
+        return {
+            "now": now,
+            "wait": wait or session.status.value,
+            "attention": "; ".join(attention_titles[:2]) if attention_titles else "-",
+            "latest_output": latest_output,
+        }
+
+    def build_session_view_payload(
+        self,
+        *,
+        operation_id: str,
+        task: TaskState,
+        session: SessionRecord,
+        events: list[RunEvent],
+        open_attention: list[AttentionRequest],
+    ) -> dict[str, object]:
+        timeline = [
+            {
+                "event_type": event.event_type,
+                "iteration": event.iteration,
+                "task_id": event.task_id,
+                "session_id": event.session_id,
+                "summary": self._format_live_event(event) or event.event_type,
+            }
+            for event in events
+        ]
+        selected_event = timeline[-1] if timeline else None
+        attention_titles = [
+            attention.title
+            for attention in open_attention
+            if attention.target_id == task.task_id
+        ]
+        return {
+            "task_id": task.task_id,
+            "task_short_id": f"task-{task.task_short_id}",
+            "task_title": task.title,
+            "session": {
+                "session_id": session.session_id,
+                "adapter_key": session.adapter_key,
+                "status": session.status.value,
+                "session_name": session.handle.session_name,
+                "display_name": session.handle.display_name,
+                "waiting_reason": session.waiting_reason,
+                "bound_task_ids": list(session.bound_task_ids),
+            },
+            "session_brief": self.build_session_brief_payload(
+                session=session,
+                timeline=timeline,
+                attention_titles=attention_titles,
+            ),
+            "timeline": timeline,
+            "selected_event": selected_event,
+            "transcript_hint": {
+                "command": f"operator log {operation_id} --agent {self._session_agent_hint(session.adapter_key) or 'auto'}"
+            },
         }
 
     def build_live_snapshot(
@@ -322,6 +736,59 @@ class OperationProjectionService:
             for rendered in (self._format_live_event(event) for event in events[-8:])
             if rendered is not None
         ]
+        open_attention_payload = [
+            {
+                "attention_id": attention.attention_id,
+                "attention_type": attention.attention_type.value,
+                "blocking": attention.blocking,
+                "target_scope": attention.target_scope.value,
+                "target_id": attention.target_id,
+                "title": attention.title,
+                "question": attention.question,
+                "context_brief": attention.context_brief,
+                "suggested_options": list(attention.suggested_options),
+            }
+            for attention in open_attention
+        ]
+        timeline_events = [
+            {
+                "event_type": event.event_type,
+                "iteration": event.iteration,
+                "task_id": event.task_id,
+                "session_id": event.session_id,
+                "summary": self._format_live_event(event) or event.event_type,
+            }
+            for event in events[-20:]
+        ]
+        session_views = []
+        for task in sorted(
+            operation.tasks,
+            key=lambda item: (-item.effective_priority, item.created_at, item.task_id),
+        ):
+            if task.linked_session_id is None:
+                continue
+            session = next(
+                (item for item in operation.sessions if item.session_id == task.linked_session_id),
+                None,
+            )
+            if session is None:
+                continue
+            relevant_events = [
+                event
+                for event in events[-20:]
+                if event.session_id == session.session_id or event.task_id == task.task_id
+            ]
+            if not relevant_events:
+                relevant_events = list(events[-20:])
+            session_views.append(
+                self.build_session_view_payload(
+                    operation_id=operation.operation_id,
+                    task=task,
+                    session=session,
+                    events=relevant_events,
+                    open_attention=open_attention,
+                )
+            )
         return {
             "operation_id": operation.operation_id,
             "status": operation.status.value,
@@ -337,6 +804,11 @@ class OperationProjectionService:
                 else None
             ),
             "brief_summary": self.build_brief_summary_payload(
+                operation,
+                brief,
+                runtime_alert=runtime_alert,
+            ),
+            "operation_brief": self.build_operation_brief_payload(
                 operation,
                 brief,
                 runtime_alert=runtime_alert,
@@ -358,20 +830,7 @@ class OperationProjectionService:
             "project_context": context_payload.get("project_context"),
             "policy_coverage": context_payload.get("policy_coverage"),
             "active_policies": context_payload.get("active_policies"),
-            "attention": [
-                {
-                    "attention_id": attention.attention_id,
-                    "attention_type": attention.attention_type.value,
-                    "blocking": attention.blocking,
-                    "target_scope": attention.target_scope.value,
-                    "target_id": attention.target_id,
-                    "title": attention.title,
-                    "question": attention.question,
-                    "context_brief": attention.context_brief,
-                    "suggested_options": list(attention.suggested_options),
-                }
-                for attention in open_attention
-            ],
+            "attention": open_attention_payload,
             "tasks": [
                 {
                     "task_id": task.task_id,
@@ -434,16 +893,8 @@ class OperationProjectionService:
                 )
             ],
             "recent_events": recent_events,
-            "timeline_events": [
-                {
-                    "event_type": event.event_type,
-                    "iteration": event.iteration,
-                    "task_id": event.task_id,
-                    "session_id": event.session_id,
-                    "summary": self._format_live_event(event) or event.event_type,
-                }
-                for event in events[-20:]
-            ],
+            "timeline_events": timeline_events,
+            "session_views": session_views,
             "recent_commands": [
                 {
                     "command_id": command.command_id,
@@ -468,6 +919,15 @@ class OperationProjectionService:
             "actions": [action.to_payload() for action in self._dashboard_actions(operation)],
         }
 
+    def _session_agent_hint(self, adapter_key: str) -> str | None:
+        if adapter_key.startswith("claude"):
+            return "claude"
+        if adapter_key.startswith("opencode"):
+            return "opencode"
+        if adapter_key.startswith("codex"):
+            return "codex"
+        return None
+
     def _count_items_by_key(
         self,
         items: list[AgendaItem],
@@ -478,6 +938,9 @@ class OperationProjectionService:
             key = key_fn(item)
             counts[key] = counts.get(key, 0) + 1
         return counts
+
+    def _count_items(self, items: list[AgendaItem], predicate: Callable[[AgendaItem], bool]) -> int:
+        return sum(1 for item in items if predicate(item))
 
     def _fleet_actions(self, snapshot: AgendaSnapshot) -> list[ProjectionAction]:
         actions: list[ProjectionAction] = []
@@ -640,17 +1103,24 @@ class OperationProjectionService:
     def _turn_next_step(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None or turn.turn_summary is None:
             return None
-        return self._shorten_text(turn.turn_summary.next_step, limit=220)
+        return self._shorten_text(turn.turn_summary.recommended_next_step, limit=220)
 
     def _turn_verification_summary(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None or turn.turn_summary is None:
             return None
-        return self._shorten_text(turn.turn_summary.verification_summary, limit=220)
+        return self._shorten_text(turn.turn_summary.verification_status, limit=220)
 
     def _turn_blockers_summary(self, turn: AgentTurnBrief | None) -> str | None:
-        if turn is None or turn.turn_summary is None:
+        if (
+            turn is None
+            or turn.turn_summary is None
+            or not turn.turn_summary.remaining_blockers
+        ):
             return None
-        return self._shorten_text(turn.turn_summary.blockers_summary, limit=220)
+        return self._shorten_text(
+            "; ".join(turn.turn_summary.remaining_blockers),
+            limit=220,
+        )
 
     def _shorten_text(self, text: str | None, *, limit: int) -> str | None:
         if text is None:

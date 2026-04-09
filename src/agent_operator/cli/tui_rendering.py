@@ -527,7 +527,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
     if state.last_message is not None:
         return Text(state.last_message)
     if state.view_level == "forensic":
-        return Text("Esc back to session timeline  q quit")
+        return Text("a answer  Esc back to session timeline  q quit")
     if state.view_level == "session":
         return Text(
             "j/k move  Enter forensic  r raw transcript  Esc back  a answer"

@@ -10,6 +10,7 @@ from agent_operator.application import (
 from agent_operator.domain import (
     AgentSessionHandle,
     DecisionMemo,
+    OperationBrief,
     InvolvementLevel,
     MemoryEntry,
     MemoryFreshness,
@@ -101,12 +102,17 @@ def _operation() -> OperationState:
     )
 
 
-def _delivery(store: MemoryStore, inbox: MemoryCommandInbox) -> OperationDeliveryCommandService:
+def _delivery(
+    store: MemoryStore,
+    inbox: MemoryCommandInbox,
+    trace_store: MemoryTraceStore | None = None,
+) -> OperationDeliveryCommandService:
+    trace_store = trace_store or MemoryTraceStore()
     return OperationDeliveryCommandService(
         store=store,
         command_inbox=inbox,
         projection_service=OperationProjectionService(),
-        trace_store=MemoryTraceStore(),
+        trace_store=trace_store,
         background_inspection_store=_BackgroundInspectionStore(),
         wakeup_inspection_store=None,
         service_factory=lambda: _Service(),
@@ -135,8 +141,19 @@ async def test_load_payload_builds_dashboard_payload() -> None:
             rationale="Need implementation progress.",
         ),
     )
+    await trace_store.save_operation_brief(
+        OperationBrief(
+            operation_id="op-1",
+            status=OperationStatus.RUNNING,
+            objective_brief="Ship dashboard",
+            focus_brief="Build the task board",
+            latest_outcome_brief="Running task-board migration",
+            blocker_brief="awaiting policy review",
+            runtime_alert_brief="needs policy confirmation",
+        ),
+    )
     service = OperationDashboardQueryService(
-        status_service=_delivery(store, inbox),
+        status_service=_delivery(store, inbox, trace_store),
         projection_service=OperationProjectionService(),
         command_inbox=inbox,
         event_reader=_EventReader(),
@@ -152,3 +169,12 @@ async def test_load_payload_builds_dashboard_payload() -> None:
     assert payload["tasks"][0]["goal"] == "Render the operation task board."
     assert payload["memory_entries"][0]["memory_id"] == "mem-1"
     assert payload["decision_memos"][0]["chosen_action"] == "start_agent"
+    operation_brief = payload["operation_brief"]
+    assert isinstance(operation_brief, dict)
+    assert operation_brief["goal"] == "Ship dashboard"
+    assert operation_brief["now"] == "Build the task board"
+    assert operation_brief["wait"] == "needs policy confirmation"
+    progress = operation_brief["progress"]
+    assert isinstance(progress, dict)
+    assert progress["doing"] == "Running task-board migration"
+    assert operation_brief["attention"] == ""

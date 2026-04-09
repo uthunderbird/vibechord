@@ -1,34 +1,49 @@
 # CLI Reference
 
-`operator` exposes a fleet-first CLI with the following primary commands:
+`operator` exposes a fleet-first CLI organized around a few primary entry surfaces plus deeper
+inspection and forensic commands.
 
-- `run` — run the operator against a goal
-- `init` — set up operator in the current project
-- `status` — show the default one-operation summary
-- `cancel` — cancel an operation or one of its background runs
-- `involvement` — update the involvement level for a running operation
-- `pause` / `unpause` — control attached operation execution
-- `interrupt` — stop the current attached turn without cancelling the whole operation
-- `message` — send a durable operator-level message
-- `attention` — show attention requests
-- `tasks` — show the task board
-- `memory` — show distilled memory entries
-- `artifacts` — show durable artifacts
-- `answer` — answer an open attention request
-- `list` — list persisted operations
+Primary workflow surfaces:
+
+- `operator` — fleet view in a TTY, fleet snapshot otherwise
+- `run` — start an operation toward a goal
+- `fleet` — supervise active operations across projects
+- `status` — canonical shell-native one-operation summary
+- `answer` — answer a blocking attention request
+- `message` — inject durable operator context
+- `pause` / `unpause` — control operation execution
+- `interrupt` — stop the current agent turn without cancelling the whole operation
+- `cancel` — cancel an operation
 - `history` — show committed project history
-- `agenda` — show the cross-operation agenda
-- `fleet` — show a live cross-operation dashboard
-- `report` — print the human-readable report for an operation
-- `dashboard` — show a live one-operation dashboard
-- `watch` — watch an operation via persisted events and state
-- `log` — show condensed human-readable transcript events
+- `init` — set up operator in the current project
+- `project ...` — manage project profiles
+
+Situational and forensic surfaces:
+
+- `watch` — lightweight textual live view for one operation
+- `dashboard` — richer one-operation live dashboard
+- `session` — task-addressed session snapshot surface (`--task`, `--once`, `--follow`, `--json`)
+- `tasks` — task board for an operation
+- `memory` — distilled memory entries
+- `artifacts` — durable outputs
+- `attention` — attention request details
+- `report` — human-readable operation report
+- `log` — condensed transcript events
+- `list` — persisted operation inventory
+- `agenda` — cross-operation agenda view
+- `involvement` — update the autonomy level for a running operation
 
 ## Entry surface
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator
 ```
+
+In the current product model:
+
+- `status` is the canonical shell-native one-operation summary surface
+- the TUI workbench launched from `operator` / `fleet` is the preferred interactive live supervision surface
+- `watch` remains a lighter textual live follower rather than the flagship interactive surface
 
 ## Common examples
 
@@ -49,6 +64,12 @@ Inspect the latest operation:
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 UV_CACHE_DIR=/tmp/uv-cache uv run operator report last
+```
+
+Inspect the session bound to a task:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --once
 ```
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and

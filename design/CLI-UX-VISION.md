@@ -45,9 +45,75 @@ No underscores in command names. All commands follow `kebab-case`. `stop_turn` �
 **P8 — `last` and short IDs as operation references.**
 Every command accepting an operation ID also accepts the short prefix (first 8+ chars), `last` (most recently started in this project), and an unambiguous profile name.
 
+**P9 — Shared scope model with the TUI.**
+The CLI and TUI should share the same supervisory coordinate system:
+
+- `fleet`
+- `operation`
+- `session`
+- `forensic`
+
+This does not mean every command must be renamed to match those nouns. It means the public CLI
+should be explainable by **scope × role**, not only by an undifferentiated list of commands.
+
+The role axis is:
+
+- `summary`
+- `live`
+- `detail`
+- `control`
+- `transcript`
+
+Examples:
+
+- `fleet` = `fleet` scope, `live/snapshot` role
+- `status` = `operation` scope, canonical `summary` role
+- `watch` = `operation` scope, lightweight `live` role
+- `tasks` = `operation` scope, structural `detail` role
+- `log` = `forensic` scope, `transcript` role
+
+This model is explanatory, not a mandate to replace intentful command names with level nouns.
+
 ---
 
 ## Command Structure
+
+## Scope And Role Model
+
+The CLI should be teachable using the same scope model as the TUI, while keeping command names
+intent-shaped.
+
+The scopes are:
+
+- `fleet` — cross-operation supervision
+- `operation` — one operation as the main shell unit
+- `session` — one agent session within an operation
+- `forensic` — raw evidence and deep debugging surfaces
+
+The roles are:
+
+- `summary` — concise human-readable snapshot
+- `live` — follow ongoing state changes
+- `detail` — inspect deeper structured state
+- `control` — issue commands that change execution
+- `transcript` — inspect raw session output
+
+This yields the intended mental model:
+
+| Scope | Summary | Live | Detail | Control | Transcript |
+|---|---|---|---|---|---|
+| `fleet` | `operator` / `fleet --once` | `operator` / `fleet` | project/fleet detail stays secondary | `answer`, `pause`, `unpause`, `cancel` from selected op | — |
+| `operation` | `status` | `watch`, `dashboard` | `tasks`, `memory`, `artifacts`, `attention`, `report` | `answer`, `message`, `pause`, `unpause`, `interrupt`, `cancel` | — |
+| `session` | `session OP --task TASK --once` | `session OP --task TASK --follow` | `session OP --task TASK` | `interrupt --task TASK` is the scoped control entry | transcript escalation remains `log OP [--agent ...]` |
+| `forensic` | `inspect` | `trace` | `debug inspect`, `debug trace`, `debug context` | debug recovery commands | `log` |
+
+Implications:
+
+- `status` remains the canonical shell-native one-operation summary surface
+- `watch` remains a narrower textual live follower, not the canonical summary
+- the CLI is not just a flat bag of commands; it has the same supervisory scopes as the TUI
+- a public `session`-scope CLI surface is required for the model to be real rather than decorative
+- `clear` is a workspace lifecycle/reset surface, not a supervision scope surface
 
 ### Primary commands (shown in default `--help`)
 
@@ -64,12 +130,14 @@ operator interrupt OP       Interrupt the current agent turn
 operator message OP TEXT    Send a durable message to a running operation
 operator history [OP]       Operation history ledger
 operator init               Set up operator in the current project
+operator clear              Clear operator runtime state for this project
 operator project ...        Project profile management
 ```
 
 ### Secondary commands (shown in `--help`, below separator)
 
 ```
+operator session OP --task TASK  Session-scoped summary/live surface
 operator log OP             Agent session log (auto-selects agent)
 operator tasks OP           Task board for an operation
 operator memory OP          Memory entries for an operation
@@ -132,6 +200,31 @@ Behavior:
 
 ---
 
+### `operator clear`
+
+```
+operator clear [--yes]
+```
+
+Clears project-local operator runtime and derived state so the workspace behaves as if operator had
+not previously been run there.
+
+Required semantics:
+
+- deletes runtime state under the resolved operator data dir
+- deletes the current workspace `operator-history.jsonl`
+- preserves:
+  - `operator-profile.yaml`
+  - `operator-profiles/`
+  - `.operator/profiles/`
+- refuses when active or recoverable operations still exist
+- requires explicit destructive confirmation, with `--yes` as the non-interactive bypass
+
+This is a workspace lifecycle/reset command, not a one-operation control command and not a generic
+cache cleaner.
+
+---
+
 ### `operator status OP`
 
 ```
@@ -148,6 +241,171 @@ Default output: rich multi-section summary — status, iteration count, task sum
 ```
 op-abc123  RUNNING  iter=14/100  tasks=2r·3q·1b  att=[!!1]
 ```
+
+---
+
+### `operator watch OP`
+
+```
+operator watch OP [--json] [--poll-interval SECS]
+```
+
+`watch` is a retained textual live surface for one operation. It is not the canonical shell-native
+summary surface (`status`) and it is not the preferred interactive supervision surface (the TUI
+workbench fills that role). Its job is to provide a concise human-readable live textual view when a
+full TUI is unnecessary, unavailable, or inappropriate.
+
+Its job is not to dump the current projection model. Its job is to answer, within one screen and
+within one second:
+
+1. What is happening right now?
+2. Do I need to do anything?
+3. What changed recently?
+
+Default output should be concise, narrative, and human-first. A compliant textual view is:
+
+```text
+● Running   iter 4/100   last activity 8s ago
+
+Task    task-3a7f2b1c  Implement Level 1 operation view
+Agent   codex_acp      editing TUI drill-down and focused tests
+Now     Waiting for current agent turn to finish
+
+Progress
+- Done: interactive fleet workbench
+- Doing: Level 1 operation view
+- Remaining: docs, README TUI guide
+
+Attention
+- none
+```
+
+Required blocks:
+
+- headline: macro-state, iteration budget, and relative last-activity timestamp
+- current task: short task id plus human title
+- current agent line: adapter name plus plain-language work summary
+- now/waiting line: one explicit sentence about the current blocking condition
+- progress block: compact `done / doing / remaining` summary when enough information exists
+- attention block: either `none` or the oldest blocking attention with a ready action hint
+
+Forbidden in the primary view:
+
+- raw UUIDs except where no short task id exists
+- internal control-plane labels such as `scheduler=active`, `focus=session:...`,
+  `session_status=running`
+- raw Python/JSON dict rendering such as `summary={...}`
+- repeated unchanged full-objective text on every refresh
+- duplicate "running/completed/running" churn lines that do not change user understanding
+
+If more detail is available, it belongs below the primary block or in `inspect`, `dashboard`,
+`tasks`, `trace`, or `log` — not inline in the headline stream.
+
+Change-emission rules:
+
+- refreshes must be idempotent; unchanged state should redraw, not append another noisy summary line
+- append a new visible event line only when user-visible meaning changed
+- repeated polling with no semantic change must not produce repeated output
+- agent completion lines must summarize what changed in that iteration, not repeat stale agent text
+
+Non-TTY / pipe mode:
+
+- `--json` remains the machine-readable contract
+- non-TTY human-readable mode may emit a compact textual snapshot, but must still follow the same
+  semantic prioritization as TTY mode
+
+Relationship to other surfaces:
+
+- `status` remains the canonical shell-native one-operation summary and control-oriented snapshot
+- the TUI workbench remains the preferred interactive live supervision surface when a real TTY
+  workbench is desired
+- `watch` remains useful as a lightweight textual live follower and pipe-friendly supervision aid
+
+Current non-compliant anti-pattern to avoid:
+
+```text
+state: running | scheduler=active | focus=session:... | objective=... | session=... | agent=... | session_status=running | waiting=... | summary={...}
+```
+
+This format is considered implementation leakage, not acceptable user-facing CLI UX.
+
+---
+
+### `operator session OP --task TASK`
+
+```
+operator session OP --task TASK [--once] [--follow] [--json] [--poll-interval SECS]
+```
+
+`session` is the public session-scope CLI surface.
+
+It exists because the CLI should share the same supervisory scopes as the TUI:
+
+- `fleet`
+- `operation`
+- `session`
+- `forensic`
+
+This command is addressed by:
+
+- operation reference
+- task short id or UUID via `--task`
+
+It must not require the user to know or type an internal session UUID.
+
+Default behavior:
+
+- without `--follow`, render one human-readable session snapshot
+- with `--follow`, act as the live textual Level 2 surface
+- with `--json`, emit the machine-readable session payload
+
+The default human-readable shape should mirror the `Session View` contract in textual form:
+
+- session identity and state
+- `Now`
+- `Wait`
+- `Attention`
+- `Latest output`
+- recent event list
+- selected/latest event detail
+- explicit transcript hint
+
+Reference shape:
+
+```text
+Session  task-3a7f2b1c  codex_acp  RUNNING
+Now      validating token refresh flow
+Wait     agent turn running
+Attention 1 open policy_gap
+Latest   implemented refresh handler; moving to validation
+
+Recent
+- 14:32 ▸ agent output
+- 14:31 ● brain decision: continue
+- 14:20 ⚠ attention opened: policy_gap
+
+Selected
+- [14:32] agent output
+  Implemented token refresh handler. Moving to validation.
+  Changes: auth/session.py, tests/auth.py
+
+Transcript
+- operator log OP --follow
+```
+
+Guardrails:
+
+- this is not raw transcript
+- this is not a full forensic trace
+- this is not a replacement for `status`
+- this is not addressed by session UUID
+
+Relationship to adjacent surfaces:
+
+- `status` remains the canonical operation-scope summary
+- `watch` remains the lightweight operation-scope live follower
+- `session` is the public session-scope summary/live surface
+- `log` remains the transcript surface
 
 ---
 
@@ -245,7 +503,33 @@ This is distinct from `operator list`, which reads live operation state from `.o
 operator fleet [--project PROFILE] [--once] [--json] [--poll-interval SECS]
 ```
 
-TUI fleet view when TTY is attached. Single snapshot when non-TTY or `--once`. `--project` filters by profile name.
+TUI fleet workbench when TTY is attached. Single snapshot when non-TTY or `--once`. `--project`
+filters by profile name.
+
+The interactive fleet surface is a human-first master-detail view:
+
+- compact global header
+- selectable operation list in the left pane
+- concise brief for the selected operation in the right pane
+- compact footer with primary actions
+
+The default fleet list is not a one-line projection dump. Each operation row should normally show:
+
+1. attention badge + operation name
+2. state + agent cue + recency
+3. normalized short hint such as `now: ...` or `waiting: ...`
+
+The default fleet brief should favor:
+
+- `Goal`
+- `Now`
+- `Wait`
+- `Progress`
+- `Attention`
+- `Recent`
+
+It should not absorb task-board, transcript, or forensic-detail responsibilities that belong to
+deeper TUI levels.
 
 ---
 
@@ -347,6 +631,12 @@ All commands must produce human-readable output by default. Commands that curren
 
 The CLI and TUI share the same application layer. All CLI commands route through the same `_enqueue_command_async` and service paths as TUI actions. The CLI is the scriptable, pipe-friendly surface; the TUI is the interactive supervision surface.
 
+At the package-structure level, the current `cli/tui` placement should be treated as transitional.
+The intended long-term shape is sibling delivery adapters under a common delivery family, not
+permanent structural ownership of TUI by the CLI package.
+See [RFC 0011](./rfc/0011-delivery-package-boundary-for-cli-and-tui.md) for the boundary choice and
+[RFC 0012](./rfc/0012-delivery-package-migration-tranche.md) for the future migration tranche.
+
 | TUI action | CLI equivalent |
 |-----------|----------------|
 | Fleet view | `operator fleet --once` |
@@ -355,6 +645,7 @@ The CLI and TUI share the same application layer. All CLI commands route through
 | Cancel operation | `operator cancel OP` |
 | Interrupt agent turn | `operator interrupt OP [--task TASK]` |
 | Send message | `operator message OP TEXT` |
+| View session scope | `operator session OP --task TASK` |
 | View task board | `operator tasks OP` |
 | View raw transcript | `operator log OP --follow` |
 | Open TUI explicitly | `operator fleet` (with TTY) |
@@ -370,9 +661,10 @@ The CLI and TUI share the same application layer. All CLI commands route through
 |-----------------|-------------|
 | `run` | Retained; `--allowed-agent` → `--agent`; add `--from` |
 | `fleet` | Retained; becomes default for `operator` with no args + TTY |
-| `status` (new) | Replaces `dashboard --once` as the primary status command |
+| `status` | Replaces `dashboard --once` as the primary status command |
 | `dashboard` | Deprecated in favor of `status` (human) and `fleet` (live multi-op) |
-| `watch` | Deprecated; `log --follow` covers the use case |
+| `watch` | Retained as a lightweight textual live surface; must be human-first rather than projection-dump output, but does not outrank `status` or the TUI |
+| `session` | Added as the public session-scope summary/live surface; addressed by `OP + --task TASK`, not by session UUID |
 | `answer` | Simplified to 3 parameters; policy promotion separated |
 | `pause` / `unpause` | Retained |
 | `stop_turn` | Renamed to `interrupt` |
@@ -409,16 +701,12 @@ The CLI and TUI share the same application layer. All CLI commands route through
 - Custom help formatter for primary / secondary section separator in Typer
 - TTY detection for `fleet` default behavior and zero-argument `operator`
 - `last` operation ID persistence (`.operator/last` write on `operator run`)
-- `operator init` top-level command implementation
 - `operator run --from TICKET` PM intake integration
-- `operator history` ledger reader (reads `operator-history.jsonl`)
-- `operator log` unified agent log command (replaces `codex-log` / `claude-log`)
 - `operator answer` interactive `$EDITOR` prompt when `--text` omitted
 - Confirmation prompts in `cancel` and `policy revoke`
 - Human-readable output for `project inspect` and `project resolve`
-- `--brief` output mode for `status`
-- `operator status` as a new command (currently covered by `dashboard --once`)
-- `debug` subgroup with hidden visibility
+- `operator watch` redesign from raw projection stream to semantic human-first textual live surface
+- `operator session OP --task TASK` implementation and shared payload contract
 - `operator converse [OP]` — NL REPL session; new primary command (specified in NL-UX-VISION.md)
 - `operator ask OP "..."` — single-shot NL query, read-only; new primary command (specified in NL-UX-VISION.md)
 - `operator mcp` — MCP stdio server; new secondary command (specified in AGENT-INTEGRATION-VISION.md)

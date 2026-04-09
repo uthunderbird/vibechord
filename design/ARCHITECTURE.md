@@ -152,8 +152,31 @@ Examples:
 - machine-readable console output
 
 > **Planned**: Python convenience APIs.
+> **Planned**: TUI supervisory workbench.
 
 Delivery composes the application layer, not duplicates its logic.
+
+In hexagonal terms, delivery surfaces are driving adapters over application-facing contracts.
+
+- CLI is the authoritative shell-facing driving adapter.
+- The future TUI is a supervisory driving adapter over the same underlying contracts.
+- State-changing delivery actions must drive the same application-facing command/use-case paths.
+- Supervisory and inspection delivery surfaces must consume shared application-facing
+  query/projection services rather than delivery-local state assembly.
+- Rendering, navigation, help behavior, keybindings, and other surface-specific interaction rules
+  remain adapter-local concerns.
+
+Current package placement may temporarily keep TUI code under `agent_operator.cli`, but that should
+be understood as a transitional delivery-package shape rather than the ideal long-term architecture.
+The better long-term package boundary is sibling delivery adapters under a common delivery family,
+not permanent `cli/tui` nesting and not a standalone top-level `agent_operator.tui` authority root.
+See [RFC 0011](./rfc/0011-delivery-package-boundary-for-cli-and-tui.md) for the boundary choice and
+[RFC 0012](./rfc/0012-delivery-package-migration-tranche.md) for the later migration tranche.
+
+That means the repository should not grow a separate enduring architectural layer between delivery
+and application for TUI work. When delivery extractions are needed, they should expose
+application-facing command/query contracts more explicitly rather than creating a second workflow
+authority above or beside the existing application layer.
 
 The CLI commands are organized in a three-tier model (Everyday / Situational / Forensic). See
 `Inspection Surfaces` below for the full surface list and VISION.md CLI Design for the tier
