@@ -38,7 +38,7 @@ from .options import (
     RUN_MODE_OPTION,
     RUN_SUCCESS_CRITERION_OPTION,
 )
-from .workflows import run_async
+from .workflows import clear_async, run_async
 
 
 @app.command()
@@ -119,3 +119,10 @@ def init(
         typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
         return
     typer.echo(f"Initialized project profile: {profile_path}")
+
+
+@app.command()
+def clear(
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt."),
+) -> None:
+    anyio.run(clear_async, yes)

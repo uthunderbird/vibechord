@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -272,3 +272,21 @@ This ADR is materially satisfied when:
   - no history entries
   - no stale wakeups, commands, or background artifacts
   - no trace/report/event residue
+
+## Implementation Notes (2026-04-10)
+
+Current repository truth now includes a first implementation tranche:
+
+- `operator clear` exists as a top-level CLI command.
+- destructive execution requires explicit confirmation; `--yes` is the non-interactive bypass.
+- the command clears the current workspace `operator-history.jsonl`.
+- the command preserves:
+  - `operator-profile.yaml`
+  - `operator-profiles/`
+  - `.operator/profiles/`
+  - `.operator/uv-cache/`
+- the command refuses when persisted non-terminal operations or live background-run records still
+  exist for the resolved workspace data dir.
+
+This satisfies the ADR's P0 contract without adding a broader forced-clear or alternate retention
+mode.

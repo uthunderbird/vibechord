@@ -24,12 +24,14 @@ from .workflows_views import (
     log_async,
     project_dashboard_async,
 )
+from .workflows_workspace import clear_async
 
 __all__ = [
     "CliEventProjector",
     "agenda_async",
     "answer_async",
     "cancel_async",
+    "clear_async",
     "daemon_async",
     "dashboard_async",
     "enqueue_command_async",

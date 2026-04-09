@@ -1220,6 +1220,122 @@ def test_history_reports_when_committed_ledger_is_disabled(tmp_path: Path, monke
     assert "Committed history ledger is disabled for this project." in result.stdout
 
 
+def test_clear_yes_removes_runtime_state_and_preserves_profiles(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "operator"
+    repo_root.mkdir()
+    (repo_root / ".git").mkdir()
+    data_dir = repo_root / ".operator"
+    monkeypatch.chdir(repo_root)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    _seed_operation(data_dir)
+    for relative in (
+        "events/op-cli-1.jsonl",
+        "commands/cmd-1.json",
+        "control_intents/intent-1.json",
+        "wakeups/wakeup-1.json",
+        "operation_events/op-cli-1.jsonl",
+        "operation_checkpoints/op-cli-1.json",
+        "background/runs/run-1.json",
+        "background/results/run-1.json",
+        "project_memory/project/entry-1.json",
+        "policies/policy-1.json",
+        "acp/session.log",
+        "claude/session.log",
+        "monitor/pid",
+        "projects/legacy.yaml",
+    ):
+        path = data_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    (data_dir / "last").write_text("op-cli-1\n", encoding="utf-8")
+    (repo_root / "operator-history.jsonl").write_text('{"op_id":"op-cli-1"}\n', encoding="utf-8")
+    (repo_root / "operator-profile.yaml").write_text("name: default\n", encoding="utf-8")
+    (repo_root / "operator-profiles").mkdir()
+    (repo_root / "operator-profiles" / "opsbot.yaml").write_text("name: opsbot\n", encoding="utf-8")
+    (data_dir / "profiles").mkdir(parents=True)
+    (data_dir / "profiles" / "local.yaml").write_text("name: local\n", encoding="utf-8")
+    (data_dir / "uv-cache").mkdir(parents=True)
+    (data_dir / "uv-cache" / "cache.txt").write_text("cached\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["clear", "--yes"])
+
+    assert result.exit_code == 0
+    assert "Cleared operator state for" in result.stdout
+    assert not (data_dir / "runs").exists()
+    assert not (data_dir / "events").exists()
+    assert not (data_dir / "commands").exists()
+    assert not (data_dir / "control_intents").exists()
+    assert not (data_dir / "wakeups").exists()
+    assert not (data_dir / "operation_events").exists()
+    assert not (data_dir / "operation_checkpoints").exists()
+    assert not (data_dir / "background").exists()
+    assert not (data_dir / "project_memory").exists()
+    assert not (data_dir / "policies").exists()
+    assert not (data_dir / "acp").exists()
+    assert not (data_dir / "claude").exists()
+    assert not (data_dir / "monitor").exists()
+    assert not (data_dir / "projects").exists()
+    assert not (data_dir / "last").exists()
+    assert not (repo_root / "operator-history.jsonl").exists()
+    assert (repo_root / "operator-profile.yaml").exists()
+    assert (repo_root / "operator-profiles" / "opsbot.yaml").exists()
+    assert (data_dir / "profiles" / "local.yaml").exists()
+    assert (data_dir / "uv-cache" / "cache.txt").exists()
+
+
+def test_clear_refuses_when_running_operation_exists(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "operator"
+    repo_root.mkdir()
+    (repo_root / ".git").mkdir()
+    data_dir = repo_root / ".operator"
+    monkeypatch.chdir(repo_root)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    store = FileOperationStore(data_dir / "runs")
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id="op-live-1",
+            goal=OperationGoal(objective="Keep running", harness_instructions=""),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+
+    result = runner.invoke(app, ["clear", "--yes"])
+
+    assert result.exit_code == 1
+    assert (
+        "Refusing to clear operator state while active or recoverable operations still exist"
+        in result.stderr
+    )
+    assert (data_dir / "runs" / "op-live-1.operation.json").exists()
+
+
+def test_clear_without_yes_prompts_and_can_cancel(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "operator"
+    repo_root.mkdir()
+    (repo_root / ".git").mkdir()
+    data_dir = repo_root / ".operator"
+    monkeypatch.chdir(repo_root)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    (data_dir / "events").mkdir(parents=True)
+    (data_dir / "events" / "event.jsonl").write_text("{}", encoding="utf-8")
+
+    result = runner.invoke(app, ["clear"], input="n\n")
+
+    assert result.exit_code == 0
+    assert "cancelled" in result.stdout
+    assert (data_dir / "events" / "event.jsonl").exists()
+
+
 def test_agenda_groups_attention_active_and_recent_operations(tmp_path: Path, monkeypatch) -> None:
     _seed_agenda_operations(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))

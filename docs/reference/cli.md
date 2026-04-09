@@ -16,6 +16,7 @@ Primary workflow surfaces:
 - `cancel` — cancel an operation
 - `history` — show committed project history
 - `init` — set up operator in the current project
+- `clear` — wipe project-local operator runtime state while preserving profiles
 - `project ...` — manage project profiles
 
 Situational and forensic surfaces:
@@ -51,6 +52,12 @@ Initialize a project:
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator init
+```
+
+Clear project-local operator state:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator clear --yes
 ```
 
 Run an operation:

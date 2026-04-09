@@ -48,6 +48,11 @@ from agent_operator.runtime.profiles import (
     resolve_project_run_config,
     write_project_profile,
 )
+from agent_operator.runtime.project_clear import (
+    ProjectClearResult,
+    clear_project_operator_state,
+    find_project_clear_blockers,
+)
 from agent_operator.runtime.project_memory import FileProjectMemoryStore
 from agent_operator.runtime.store import FileOperationStore
 from agent_operator.runtime.supervisor import InProcessAgentRunSupervisor
@@ -75,11 +80,13 @@ __all__ = [
     "FileWakeupInbox",
     "WakeupWatcher",
     "JsonlEventSink",
+    "ProjectClearResult",
     "ProjectingEventSink",
     "RichConsoleAdapter",
     "SystemClock",
     "agenda_matches_project",
     "apply_project_profile_settings",
+    "clear_project_operator_state",
     "committed_default_profile_path",
     "committed_profile_dir",
     "build_agenda_item",
@@ -89,6 +96,7 @@ __all__ = [
     "find_codex_session_log",
     "format_claude_log_event",
     "format_codex_log_event",
+    "find_project_clear_blockers",
     "HistoryLedgerEntry",
     "iter_claude_log_events",
     "iter_codex_log_events",
