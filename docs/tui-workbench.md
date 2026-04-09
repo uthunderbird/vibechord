@@ -135,7 +135,8 @@ The forensic view currently shows:
 Current interactive actions implemented in the workbench:
 
 - inspect fleet, operation, session, and forensic views
-- answer the oldest blocking attention in scope from fleet, operation, or session
+- answer the oldest blocking attention in scope from fleet, operation, or session, then continue
+  directly to the next oldest blocking attention in the same scope when one remains
 - jump to the next attention-bearing operation from fleet
 - refresh fleet and operation views
 - pause an operation
@@ -147,6 +148,11 @@ Current interactive actions implemented in the workbench:
 These actions operate over persisted runtime truth and command delivery services already used by the
 CLI.
 
+When you answer a blocking attention with `a`, the workbench now keeps the interaction scoped and
+oldest-first: after a successful answer, it auto-selects the next oldest blocking attention in the
+same fleet or task scope when one remains and stays in answer mode so you can continue triage
+without re-triggering `a`.
+
 ## Current Limitations
 
 Current limitations of the implemented UI:
@@ -156,8 +162,9 @@ Current limitations of the implemented UI:
   `operator session`. They do not yet provide adapter-specific forensic formatting or rich
   per-event timestamps.
 - The forensic view is read-only. It does not add deeper per-event actions beyond back-navigation.
-- Inline attention answering currently targets the oldest blocking attention in scope. The workbench
-  does not yet provide a richer attention picker or non-blocking attention response workflow.
+- Inline attention answering now chains oldest-first within the same fleet or task scope, but the
+  workbench still does not provide a richer attention picker or non-blocking attention response
+  workflow.
 - Session drill-down depends on task-linked session data being present in the operation dashboard
   payload. Tasks without a linked session cannot open Level 2.
 - Filtering currently applies only at the fleet level. Operation, session, and forensic views do

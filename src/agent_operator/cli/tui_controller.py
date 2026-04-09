@@ -11,6 +11,7 @@ from .tui_models import (
     oldest_task_blocking_attention,
     payload_items,
     session_timeline_events,
+    task_signal_text,
     tasks_with_blocking_attention,
 )
 from .tui_rendering import render_workbench
@@ -347,14 +348,18 @@ class FleetWorkbenchController:
                 return True
             operation_id = self.state.pending_answer_operation_id
             attention_id = self.state.pending_answer_attention_id
+            task_id = self.state.pending_answer_task_id
             if operation_id is None or attention_id is None:
                 self._clear_pending_answer("Answer was aborted due to missing context.")
                 return True
             self._clear_pending_answer("Submitting answer...")
-            self.state.last_message = await self._answer_attention(
-                operation_id, attention_id, response
-            )
+            result_message = await self._answer_attention(operation_id, attention_id, response)
             await self.refresh()
+            self._continue_answer_flow_after_submission(
+                operation_id=operation_id,
+                task_id=task_id,
+                result_message=result_message,
+            )
             return True
         if key in {"\x7f", "\b"}:
             if self.state.pending_answer_text:
@@ -495,12 +500,18 @@ class FleetWorkbenchController:
         if target is None:
             self.state.last_message = f"No blocking attention on task {task.task_id}."
             return
-        self._start_answer_flow(
-            self.state.selected_item.operation_id
-            if self.state.selected_item is not None
-            else task.task_id,
-            target.attention_id,
+        self._set_answer_flow(
+            operation_id=(
+                self.state.selected_item.operation_id
+                if self.state.selected_item is not None
+                else task.task_id
+            ),
+            attention_id=target.attention_id,
+            task_id=task.task_id,
+            prompt="Answer text: ",
         )
+        self.state.last_message = "Answer selected. Type text, Enter to send, Esc to cancel."
+        self.state.pending_confirmation = None
 
     def _jump_to_next_blocking_task_attention(self) -> None:
         tasks = dashboard_tasks(self.state.selected_operation_payload)
@@ -517,18 +528,92 @@ class FleetWorkbenchController:
                 return
 
     def _start_answer_flow(self, operation_id: str, attention_id: str) -> None:
-        self.state.pending_answer_operation_id = operation_id
-        self.state.pending_answer_attention_id = attention_id
-        self.state.pending_answer_text = ""
+        self._set_answer_flow(
+            operation_id=operation_id,
+            attention_id=attention_id,
+            task_id=None,
+            prompt="Answer text: ",
+        )
         self.state.last_message = "Answer selected. Type text, Enter to send, Esc to cancel."
         self.state.pending_confirmation = None
+
+    def _set_answer_flow(
+        self,
+        *,
+        operation_id: str,
+        attention_id: str,
+        task_id: str | None,
+        prompt: str,
+    ) -> None:
+        self.state.pending_answer_operation_id = operation_id
+        self.state.pending_answer_attention_id = attention_id
+        self.state.pending_answer_task_id = task_id
+        self.state.pending_answer_text = ""
+        self.state.pending_answer_prompt = prompt
 
     def _clear_pending_answer(self, message: str) -> None:
         self.state.pending_answer_operation_id = None
         self.state.pending_answer_attention_id = None
+        self.state.pending_answer_task_id = None
         self.state.pending_answer_text = ""
+        self.state.pending_answer_prompt = "Answer text: "
         self.state.last_message = message
         self.state.pending_confirmation = None
+
+    def _continue_answer_flow_after_submission(
+        self,
+        *,
+        operation_id: str,
+        task_id: str | None,
+        result_message: str,
+    ) -> None:
+        payload = self.state.selected_operation_payload
+        if not isinstance(payload, dict):
+            self.state.last_message = result_message
+            return
+        next_attention = (
+            oldest_task_blocking_attention(payload, task_id)
+            if task_id is not None
+            else oldest_blocking_attention(payload)
+        )
+        if next_attention is None:
+            self.state.last_message = result_message
+            return
+        remaining = self._remaining_blocking_attention_count(payload=payload, task_id=task_id)
+        scope_label = f"task {task_id}" if task_id is not None else operation_id
+        remain_label = "attention remains" if remaining == 1 else "attentions remain"
+        self._set_answer_flow(
+            operation_id=operation_id,
+            attention_id=next_attention.attention_id,
+            task_id=task_id,
+            prompt=f"{remaining} blocking {remain_label} in {scope_label}. Answer text: ",
+        )
+        self.state.last_message = f"{result_message} Next oldest blocking attention selected."
+        self.state.pending_confirmation = None
+
+    def _remaining_blocking_attention_count(
+        self,
+        *,
+        payload: dict[str, object],
+        task_id: str | None,
+    ) -> int:
+        if task_id is not None:
+            tasks = dashboard_tasks(payload)
+            target_task = next((item for item in tasks if item.task_id == task_id), None)
+            if target_task is None:
+                return 0
+            signal = task_signal_text(payload, target_task)
+            if signal.startswith("[!!") and signal.endswith("]"):
+                return int(signal.removeprefix("[!!").removesuffix("]"))
+            return 0
+        target = oldest_blocking_attention(payload)
+        if target is None:
+            return 0
+        return sum(
+            1
+            for item in payload.get("attention", [])
+            if isinstance(item, dict) and bool(item.get("blocking"))
+        )
 
     def _start_filter_input(self) -> None:
         self.state.pending_filter_restore_query = self.state.filter_query

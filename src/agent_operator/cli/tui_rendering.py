@@ -525,7 +525,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
             f"fleet filter: {state.pending_filter_text}  Enter apply  Esc cancel  Backspace edit"
         )
     if state.pending_answer_operation_id is not None:
-        instruction = "Answer text: "
+        instruction = state.pending_answer_prompt
         return Text(
             f"answer[{state.pending_answer_attention_id}] for {state.pending_answer_operation_id}: "
             + instruction

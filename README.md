@@ -66,7 +66,8 @@ drill down, `Esc` to go back, and the level-specific bindings to inspect tasks, 
 transcript/detail, and operation controls. The session level now defaults to a compact live session
 screen with `Now`, `Wait`, `Attention`, `Latest output`, and selected-event detail; use `r` to
 switch to raw transcript, and use `a` from fleet, operation, or session to answer the oldest
-blocking attention in scope. Fleet view also supports `/` for a live filter over operation id,
+blocking attention in scope, chaining directly to the next oldest blocking attention in the same
+scope when one remains. Fleet view also supports `/` for a live filter over operation id,
 objective, status, agent cue, project, and attention text. `Enter` still drills into forensic even when a session has no raw
 transcript payload, falling back to event context plus an explicit empty-state message. For the
 current keymap, supported actions, and known limitations, see

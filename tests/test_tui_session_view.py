@@ -92,14 +92,25 @@ async def test_session_view_a_enters_answer_mode_for_task_attention() -> None:
 
 async def test_session_view_a_dispatches_answer_for_current_task() -> None:
     answers: list[tuple[str, str, str]] = []
+    active_attention_ids = ["att-1"]
+
+    async def _load_operation_payload_single_blocker(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [
+            item
+            for item in payload["attention"]
+            if isinstance(item, dict) and item.get("attention_id") in active_attention_ids
+        ]
+        return payload
 
     async def _answer(operation_id: str, attention_id: str, text: str) -> str:
         answers.append((operation_id, attention_id, text))
+        active_attention_ids[:] = [item for item in active_attention_ids if item != attention_id]
         return f"answered {operation_id}:{attention_id}:{text}"
 
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
-        load_operation_payload=_load_operation_payload,
+        load_operation_payload=_load_operation_payload_single_blocker,
         pause_operation=_unexpected_action,
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
@@ -174,14 +185,25 @@ async def test_forensic_view_a_enters_answer_mode_for_current_task() -> None:
 
 async def test_forensic_view_a_dispatches_answer_for_current_task() -> None:
     answers: list[tuple[str, str, str]] = []
+    active_attention_ids = ["att-1"]
+
+    async def _load_operation_payload_single_blocker(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [
+            item
+            for item in payload["attention"]
+            if isinstance(item, dict) and item.get("attention_id") in active_attention_ids
+        ]
+        return payload
 
     async def _answer(operation_id: str, attention_id: str, text: str) -> str:
         answers.append((operation_id, attention_id, text))
+        active_attention_ids[:] = [item for item in active_attention_ids if item != attention_id]
         return f"answered {operation_id}:{attention_id}:{text}"
 
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
-        load_operation_payload=_load_operation_payload,
+        load_operation_payload=_load_operation_payload_single_blocker,
         pause_operation=_unexpected_action,
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,

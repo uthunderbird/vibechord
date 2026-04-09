@@ -475,6 +475,7 @@ async def test_operation_view_a_reports_oldest_blocking_attention_for_task() -> 
 
     assert controller.state.pending_answer_operation_id == "op-run"
     assert controller.state.pending_answer_attention_id == "att-1"
+    assert controller.state.pending_answer_task_id == "task-1"
     assert controller.state.pending_answer_text == ""
     assert (
         controller.state.last_message == "Answer selected. Type text, Enter to send, Esc to cancel."
@@ -483,9 +484,20 @@ async def test_operation_view_a_reports_oldest_blocking_attention_for_task() -> 
 
 async def test_fleet_view_a_enters_answer_mode_and_dispatches_oldest_attention() -> None:
     answers: list[tuple[str, str, str]] = []
+    active_attention_ids = ["att-3"]
+
+    async def _load_operation_payload_single_blocker(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [
+            item
+            for item in payload["attention"]
+            if isinstance(item, dict) and item.get("attention_id") in active_attention_ids
+        ]
+        return payload
 
     async def _answer(operation_id: str, attention_id: str, text: str) -> str:
         answers.append((operation_id, attention_id, text))
+        active_attention_ids[:] = [item for item in active_attention_ids if item != attention_id]
         return (
             "enqueued: answer_attention_request "
             f"[operation={operation_id}:attention={attention_id}:text={text}]"
@@ -493,7 +505,7 @@ async def test_fleet_view_a_enters_answer_mode_and_dispatches_oldest_attention()
 
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
-        load_operation_payload=_load_operation_payload,
+        load_operation_payload=_load_operation_payload_single_blocker,
         pause_operation=_unexpected_action,
         unpause_operation=_unexpected_action,
         interrupt_operation=_unexpected_interrupt,
@@ -517,9 +529,147 @@ async def test_fleet_view_a_enters_answer_mode_and_dispatches_oldest_attention()
     assert answers == [("op-run", "att-3", "response")]
     assert controller.state.pending_answer_operation_id is None
     assert controller.state.pending_answer_attention_id is None
+    assert controller.state.pending_answer_task_id is None
     assert (
         controller.state.last_message
         == "enqueued: answer_attention_request [operation=op-run:attention=att-3:text=response]"
+    )
+
+
+async def test_fleet_view_answer_chains_to_next_oldest_blocking_attention() -> None:
+    active_attention = [
+        {
+            "attention_id": "att-early",
+            "target_id": "task-1",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "First answer",
+            "question": "What first?",
+            "blocking": True,
+            "created_at": "2025-12-30T00:00:00Z",
+        },
+        {
+            "attention_id": "att-late",
+            "target_id": "task-2",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "Second answer",
+            "question": "What next?",
+            "blocking": True,
+            "created_at": "2025-12-31T00:00:00Z",
+        },
+    ]
+    answers: list[tuple[str, str, str]] = []
+
+    async def _load_operation_payload_with_remaining(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [item.copy() for item in active_attention]
+        return payload
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        active_attention[:] = [
+            item for item in active_attention if item["attention_id"] != attention_id
+        ]
+        return f"answered {attention_id}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_remaining,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("a")
+    for key in "yes":
+        await controller.handle_key(key)
+    await controller.handle_key("\r")
+
+    assert answers == [("op-run", "att-early", "yes")]
+    assert controller.state.pending_answer_operation_id == "op-run"
+    assert controller.state.pending_answer_attention_id == "att-late"
+    assert controller.state.pending_answer_task_id is None
+    assert controller.state.pending_answer_prompt == (
+        "1 blocking attention remains in op-run. Answer text: "
+    )
+
+
+async def test_task_answer_chains_within_same_task_scope() -> None:
+    active_attention = [
+        {
+            "attention_id": "att-1",
+            "target_id": "task-1",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "Task one first",
+            "question": "Task one?",
+            "blocking": True,
+            "created_at": "2025-12-30T00:00:00Z",
+        },
+        {
+            "attention_id": "att-2",
+            "target_id": "task-1",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "Task one second",
+            "question": "Task one again?",
+            "blocking": True,
+            "created_at": "2025-12-31T00:00:00Z",
+        },
+        {
+            "attention_id": "att-3",
+            "target_id": "task-2",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "Other task",
+            "question": "Task two?",
+            "blocking": True,
+            "created_at": "2025-12-29T00:00:00Z",
+        },
+    ]
+    answers: list[tuple[str, str, str]] = []
+
+    async def _load_operation_payload_with_task_queue(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [item.copy() for item in active_attention]
+        return payload
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        active_attention[:] = [
+            item for item in active_attention if item["attention_id"] != attention_id
+        ]
+        return f"answered {attention_id}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_task_queue,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("a")
+    for key in "ok":
+        await controller.handle_key(key)
+    await controller.handle_key("\r")
+
+    assert answers == [("op-run", "att-1", "ok")]
+    assert controller.state.pending_answer_operation_id == "op-run"
+    assert controller.state.pending_answer_attention_id == "att-2"
+    assert controller.state.pending_answer_task_id == "task-1"
+    assert controller.state.pending_answer_prompt == (
+        "1 blocking attention remains in task task-1. Answer text: "
     )
 
 
