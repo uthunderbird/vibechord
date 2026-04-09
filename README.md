@@ -63,8 +63,10 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator fleet
 
 The implemented navigation path is `fleet -> operation -> session -> forensic`. Use `Enter` to
 drill down, `Esc` to go back, and the level-specific bindings to inspect tasks, timeline items, raw
-transcript/detail, and operation controls. For the current keymap, supported actions, and known
-limitations, see [TUI Workbench](docs/tui-workbench.md).
+transcript/detail, and operation controls. The session level now defaults to a compact live session
+screen with `Now`, `Wait`, `Attention`, `Latest output`, and selected-event detail; use `r` to
+switch to raw transcript. For the current keymap, supported actions, and known limitations, see
+[TUI Workbench](docs/tui-workbench.md).
 
 ## Where to go next
 

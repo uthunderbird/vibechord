@@ -81,8 +81,12 @@ message instead of opening Level 2.
 ## Session Level
 
 `Enter` on a task with a linked session opens the Level 2 session view. The left pane shows the
-selected task's session timeline. The right pane shows either event detail or a raw transcript view
-for the current session payload.
+selected task's session timeline. The right pane defaults to a split session screen:
+
+- a compact session brief with `Now`, `Wait`, `Attention`, and `Latest output`
+- a selected-event detail block for the currently highlighted timeline item
+
+`r` switches that right pane to the raw transcript view for the current session payload.
 
 Available keys:
 
@@ -135,8 +139,8 @@ CLI.
 Current limitations of the implemented UI:
 
 - The workbench is only available when `operator fleet` runs with interactive terminal input and output.
-- The session and forensic transcript panes render generic stored transcript/detail text. They do
-  not yet provide adapter-specific forensic formatting.
+- The session brief and timeline use normalized stored payload fields. They do not yet provide
+  adapter-specific forensic formatting or rich per-event timestamps.
 - The forensic view is read-only. It does not add deeper per-event actions beyond back-navigation.
 - The workbench does not yet provide inline attention answering or response composition from the
   fleet or operation views.
