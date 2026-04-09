@@ -251,7 +251,9 @@ class OperationProjectionService:
                 else None
             ),
             "policy_scope": (
-                metadata.get("policy_scope") if isinstance(metadata.get("policy_scope"), str) else None
+                metadata.get("policy_scope")
+                if isinstance(metadata.get("policy_scope"), str)
+                else None
             ),
             "resolved_profile": resolved_profile if isinstance(resolved_profile, dict) else None,
             "resolved_launch": resolved_launch if isinstance(resolved_launch, dict) else None,
@@ -331,7 +333,8 @@ class OperationProjectionService:
         return FleetWorkbenchRow(
             operation_id=item.operation_id,
             attention_badge=self._fleet_workbench_attention_badge(item),
-            display_name=self._shorten_text(item.objective_brief, limit=120) or item.objective_brief,
+            display_name=self._shorten_text(item.objective_brief, limit=120)
+            or item.objective_brief,
             state_label=self._fleet_workbench_state_label(item),
             agent_cue=self._fleet_workbench_agent_cue(item),
             recency_brief=self._fleet_workbench_recency(item),
@@ -407,9 +410,14 @@ class OperationProjectionService:
                 item.runtime_alert if item.runtime_alert is not None else item.latest_outcome_brief,
                 limit=120,
             ),
-            progress_done=self._shorten_text(item.blocker_brief if item.status is OperationStatus.COMPLETED else None, limit=120),
+            progress_done=self._shorten_text(
+                item.blocker_brief if item.status is OperationStatus.COMPLETED else None, limit=120
+            ),
             progress_doing=self._shorten_text(item.latest_outcome_brief, limit=120),
-            progress_next=self._shorten_text(item.blocker_brief or (item.attention_titles[0] if item.attention_titles else None), limit=120),
+            progress_next=self._shorten_text(
+                item.blocker_brief or (item.attention_titles[0] if item.attention_titles else None),
+                limit=120,
+            ),
             attention=self._shorten_text("; ".join(item.attention_titles), limit=120),
             recent=self._shorten_text(item.latest_outcome_brief, limit=120),
         )
@@ -430,7 +438,9 @@ class OperationProjectionService:
         items = self._ordered_fleet_workbench_items(snapshot)
         all_items = [item for item in items]
         status_counts = self._count_items_by_key(all_items, lambda item: item.status.value)
-        scheduler_counts = self._count_items_by_key(all_items, lambda item: item.scheduler_state.value)
+        scheduler_counts = self._count_items_by_key(
+            all_items, lambda item: item.scheduler_state.value
+        )
         bucket_counts = {
             "needs_attention": len(snapshot.needs_attention),
             "active": len(snapshot.active),
@@ -442,7 +452,9 @@ class OperationProjectionService:
             "bucket_counts": bucket_counts,
             "status_counts": status_counts,
             "scheduler_counts": scheduler_counts,
-            "active_count": self._count_items(all_items, lambda item: item.status is OperationStatus.RUNNING),
+            "active_count": self._count_items(
+                all_items, lambda item: item.status is OperationStatus.RUNNING
+            ),
             "needs_human_count": self._count_items(
                 all_items, lambda item: item.status is OperationStatus.NEEDS_HUMAN
             ),
@@ -451,7 +463,9 @@ class OperationProjectionService:
             ),
             "paused_count": self._count_items(
                 all_items,
-                lambda item: item.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED},
+                lambda item: (
+                    item.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}
+                ),
             ),
             "rows_count": header_rows,
             "operator_load": None,
@@ -542,7 +556,11 @@ class OperationProjectionService:
             if progress_next is None:
                 progress_next = self._shorten_text(operation_brief.blocker_brief, limit=120)
         if progress_done is None and operation_brief is not None:
-            progress_done = self._shorten_text(operation_brief.blocker_brief, limit=120) if operation.status is OperationStatus.COMPLETED else None
+            progress_done = (
+                self._shorten_text(operation_brief.blocker_brief, limit=120)
+                if operation.status is OperationStatus.COMPLETED
+                else None
+            )
 
         wait = runtime_alert
         if not wait:
@@ -553,7 +571,9 @@ class OperationProjectionService:
 
         return {
             "goal": self._shorten_text(
-                operation_brief.objective_brief if operation_brief is not None else operation.objective_state.objective,
+                operation_brief.objective_brief
+                if operation_brief is not None
+                else operation.objective_state.objective,
                 limit=120,
             ),
             "now": self._shorten_text(
@@ -568,10 +588,7 @@ class OperationProjectionService:
                 "doing": progress_doing,
                 "next": progress_next,
             },
-            "attention": (
-                self._shorten_text("; ".join(open_attention), limit=220)
-                or ""
-            ),
+            "attention": (self._shorten_text("; ".join(open_attention), limit=220) or ""),
             "recent": self._shorten_text(
                 self._turn_work_summary(latest_turn)
                 or (operation_brief.latest_outcome_brief if operation_brief is not None else None)
@@ -596,10 +613,11 @@ class OperationProjectionService:
                 break
         if wait is not None:
             lowered = wait.lower()
-            if "working" in lowered or "running" in lowered:
-                now = wait
-            else:
-                now = session.status.value
+            now = (
+                wait
+                if "working" in lowered or "running" in lowered
+                else session.status.value
+            )
         elif session.status.value == "running":
             now = "Agent turn running"
         else:
@@ -632,9 +650,7 @@ class OperationProjectionService:
         ]
         selected_event = timeline[-1] if timeline else None
         attention_titles = [
-            attention.title
-            for attention in open_attention
-            if attention.target_id == task.task_id
+            attention.title for attention in open_attention if attention.target_id == task.task_id
         ]
         return {
             "task_id": task.task_id,
@@ -657,7 +673,10 @@ class OperationProjectionService:
             "timeline": timeline,
             "selected_event": selected_event,
             "transcript_hint": {
-                "command": f"operator log {operation_id} --agent {self._session_agent_hint(session.adapter_key) or 'auto'}"
+                "command": (
+                    f"operator log {operation_id} --agent "
+                    f"{self._session_agent_hint(session.adapter_key) or 'auto'}"
+                )
             },
         }
 
@@ -951,23 +970,91 @@ class OperationProjectionService:
 
         if snapshot.needs_attention:
             item = snapshot.needs_attention[0]
-            add(ProjectionAction("dashboard", "Dashboard", f"operator dashboard {item.operation_id}", "operation", False))
-            add(ProjectionAction("context", "Context", f"operator context {item.operation_id}", "operation", False))
+            add(
+                ProjectionAction(
+                    "dashboard",
+                    "Dashboard",
+                    f"operator dashboard {item.operation_id}",
+                    "operation",
+                    False,
+                )
+            )
+            add(
+                ProjectionAction(
+                    "context",
+                    "Context",
+                    f"operator context {item.operation_id}",
+                    "operation",
+                    False,
+                )
+            )
             if item.runtime_alert is not None:
-                add(ProjectionAction("resume", "Resume", f"operator resume {item.operation_id}", "operation", False))
+                add(
+                    ProjectionAction(
+                        "resume",
+                        "Resume",
+                        f"operator resume {item.operation_id}",
+                        "operation",
+                        False,
+                    )
+                )
             if item.open_attention_count > 0 or item.status is OperationStatus.NEEDS_HUMAN:
-                add(ProjectionAction("attention", "Attention", f"operator attention {item.operation_id}", "operation", False))
+                add(
+                    ProjectionAction(
+                        "attention",
+                        "Attention",
+                        f"operator attention {item.operation_id}",
+                        "operation",
+                        False,
+                    )
+                )
             if item.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}:
-                add(ProjectionAction("unpause", "Unpause", f"operator unpause {item.operation_id}", "operation", False))
+                add(
+                    ProjectionAction(
+                        "unpause",
+                        "Unpause",
+                        f"operator unpause {item.operation_id}",
+                        "operation",
+                        False,
+                    )
+                )
         if snapshot.active:
             item = snapshot.active[0]
-            add(ProjectionAction("dashboard", "Dashboard", f"operator dashboard {item.operation_id}", "operation", False))
-            add(ProjectionAction("watch", "Watch", f"operator watch {item.operation_id}", "operation", False))
-            add(ProjectionAction("context", "Context", f"operator context {item.operation_id}", "operation", False))
-            add(ProjectionAction("pause", "Pause", f"operator pause {item.operation_id}", "operation", False))
+            add(
+                ProjectionAction(
+                    "dashboard",
+                    "Dashboard",
+                    f"operator dashboard {item.operation_id}",
+                    "operation",
+                    False,
+                )
+            )
+            add(
+                ProjectionAction(
+                    "watch", "Watch", f"operator watch {item.operation_id}", "operation", False
+                )
+            )
+            add(
+                ProjectionAction(
+                    "context",
+                    "Context",
+                    f"operator context {item.operation_id}",
+                    "operation",
+                    False,
+                )
+            )
+            add(
+                ProjectionAction(
+                    "pause", "Pause", f"operator pause {item.operation_id}", "operation", False
+                )
+            )
         if snapshot.recent:
             item = snapshot.recent[0]
-            add(ProjectionAction("report", "Report", f"operator report {item.operation_id}", "operation", False))
+            add(
+                ProjectionAction(
+                    "report", "Report", f"operator report {item.operation_id}", "operation", False
+                )
+            )
         return actions
 
     def _project_dashboard_actions(
@@ -977,18 +1064,52 @@ class OperationProjectionService:
         fleet: dict[str, object],
     ) -> list[ProjectionAction]:
         actions = [
-            ProjectionAction("run", "Run", f'operator run --project {project_name} "<objective>"', "project", False),
-            ProjectionAction("project_inspect", "Project Inspect", f"operator project inspect {project_name}", "project", False),
-            ProjectionAction("project_resolve", "Project Resolve", f"operator project resolve {project_name}", "project", False),
-            ProjectionAction("fleet", "Fleet", f"operator fleet --project {project_name} --all --once", "project", False),
-            ProjectionAction("policy_list", "Policy List", f"operator policy list --project profile:{project_name}", "project", False),
+            ProjectionAction(
+                "run",
+                "Run",
+                f'operator run --project {project_name} "<objective>"',
+                "project",
+                False,
+            ),
+            ProjectionAction(
+                "project_inspect",
+                "Project Inspect",
+                f"operator project inspect {project_name}",
+                "project",
+                False,
+            ),
+            ProjectionAction(
+                "project_resolve",
+                "Project Resolve",
+                f"operator project resolve {project_name}",
+                "project",
+                False,
+            ),
+            ProjectionAction(
+                "fleet",
+                "Fleet",
+                f"operator fleet --project {project_name} --all --once",
+                "project",
+                False,
+            ),
+            ProjectionAction(
+                "policy_list",
+                "Policy List",
+                f"operator policy list --project profile:{project_name}",
+                "project",
+                False,
+            ),
         ]
         fleet_actions = fleet.get("actions")
         if isinstance(fleet_actions, list):
             for item in fleet_actions:
                 if isinstance(item, dict):
                     cli_command = item.get("cli_command")
-                    if isinstance(cli_command, str) and cli_command and all(existing.cli_command != cli_command for existing in actions):
+                    if (
+                        isinstance(cli_command, str)
+                        and cli_command
+                        and all(existing.cli_command != cli_command for existing in actions)
+                    ):
                         actions.append(
                             ProjectionAction(
                                 str(item.get("key") or "action"),
@@ -997,38 +1118,93 @@ class OperationProjectionService:
                                 str(item.get("scope") or "operation"),
                                 bool(item.get("destructive", False)),
                                 bool(item.get("enabled", True)),
-                                str(item.get("reason")) if isinstance(item.get("reason"), str) else None,
+                                str(item.get("reason"))
+                                if isinstance(item.get("reason"), str)
+                                else None,
                             )
                         )
         return actions
 
     def _dashboard_actions(self, operation: OperationState) -> list[ProjectionAction]:
         actions = [
-            ProjectionAction("context", "Context", f"operator context {operation.operation_id}", "operation", False),
-            ProjectionAction("watch", "Watch", f"operator watch {operation.operation_id}", "operation", False),
+            ProjectionAction(
+                "context",
+                "Context",
+                f"operator context {operation.operation_id}",
+                "operation",
+                False,
+            ),
+            ProjectionAction(
+                "watch", "Watch", f"operator watch {operation.operation_id}", "operation", False
+            ),
         ]
         if operation.status is OperationStatus.RUNNING:
             if operation.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}:
-                actions.append(ProjectionAction("unpause", "Unpause", f"operator unpause {operation.operation_id}", "operation", False))
+                actions.append(
+                    ProjectionAction(
+                        "unpause",
+                        "Unpause",
+                        f"operator unpause {operation.operation_id}",
+                        "operation",
+                        False,
+                    )
+                )
             else:
-                actions.append(ProjectionAction("pause", "Pause", f"operator pause {operation.operation_id}", "operation", False))
-            if operation.active_session_record is not None and operation.scheduler_state is not SchedulerState.DRAINING:
-                actions.append(ProjectionAction("interrupt", "Interrupt", f"operator interrupt {operation.operation_id}", "operation", False))
-        if any(session.adapter_key in {"codex_acp", "claude_acp", "opencode_acp"} for session in operation.sessions):
-            actions.append(ProjectionAction("log", "Log", f"operator log {operation.operation_id}", "operation", False))
-        open_attention = [attention for attention in operation.attention_requests if attention.status is AttentionStatus.OPEN]
+                actions.append(
+                    ProjectionAction(
+                        "pause",
+                        "Pause",
+                        f"operator pause {operation.operation_id}",
+                        "operation",
+                        False,
+                    )
+                )
+            if (
+                operation.active_session_record is not None
+                and operation.scheduler_state is not SchedulerState.DRAINING
+            ):
+                actions.append(
+                    ProjectionAction(
+                        "interrupt",
+                        "Interrupt",
+                        f"operator interrupt {operation.operation_id}",
+                        "operation",
+                        False,
+                    )
+                )
+        if any(
+            session.adapter_key in {"codex_acp", "claude_acp", "opencode_acp"}
+            for session in operation.sessions
+        ):
+            actions.append(
+                ProjectionAction(
+                    "log", "Log", f"operator log {operation.operation_id}", "operation", False
+                )
+            )
+        open_attention = [
+            attention
+            for attention in operation.attention_requests
+            if attention.status is AttentionStatus.OPEN
+        ]
         if open_attention:
             actions.append(
                 ProjectionAction(
                     "answer",
                     "Answer",
-                    f"operator answer {operation.operation_id} {open_attention[0].attention_id} --text '...'",
+                    (
+                        f"operator answer {operation.operation_id} "
+                        f"{open_attention[0].attention_id} --text '...'"
+                    ),
                     "operation",
                     False,
                 )
             )
         policy_scope = operation.policy_coverage.project_scope
-        if operation.policy_coverage.status.value == "uncovered" and isinstance(policy_scope, str) and policy_scope.startswith("profile:"):
+        if (
+            operation.policy_coverage.status.value == "uncovered"
+            and isinstance(policy_scope, str)
+            and policy_scope.startswith("profile:")
+        ):
             actions.append(
                 ProjectionAction(
                     "policy_list",
@@ -1065,10 +1241,15 @@ class OperationProjectionService:
         if event_type == "operation.command.enqueued":
             command_type = payload.get("command_type") or "command"
             return f"command queued: {command_type}"
-        return self._shorten_text(json.dumps(event.model_dump(mode="json"), ensure_ascii=False), limit=120)
+        return self._shorten_text(
+            json.dumps(event.model_dump(mode="json"), ensure_ascii=False), limit=120
+        )
 
     def _format_dashboard_command(self, command: OperationCommand) -> str:
-        rendered = f"{command.command_type.value} [{command.status.value}] target={command.target_scope.value}:{command.target_id or '-'}"
+        rendered = (
+            f"{command.command_type.value} [{command.status.value}] "
+            f"target={command.target_scope.value}:{command.target_id or '-'}"
+        )
         payload_text = self._shorten_text(json.dumps(command.payload, ensure_ascii=False), limit=80)
         if payload_text is not None and payload_text != "{}":
             rendered += f" | payload={payload_text}"
@@ -1111,11 +1292,7 @@ class OperationProjectionService:
         return self._shorten_text(turn.turn_summary.verification_status, limit=220)
 
     def _turn_blockers_summary(self, turn: AgentTurnBrief | None) -> str | None:
-        if (
-            turn is None
-            or turn.turn_summary is None
-            or not turn.turn_summary.remaining_blockers
-        ):
+        if turn is None or turn.turn_summary is None or not turn.turn_summary.remaining_blockers:
             return None
         return self._shorten_text(
             "; ".join(turn.turn_summary.remaining_blockers),
@@ -1172,7 +1349,9 @@ class OperationProjectionService:
             if next_step is not None:
                 parts.append(f"next={next_step}")
         runtime_alert = self._shorten_text(
-            str(snapshot.get("runtime_alert")) if snapshot.get("runtime_alert") is not None else None,
+            str(snapshot.get("runtime_alert"))
+            if snapshot.get("runtime_alert") is not None
+            else None,
             limit=120,
         )
         if runtime_alert is not None:

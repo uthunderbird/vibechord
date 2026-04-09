@@ -2,22 +2,24 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
+from agent_operator.application.commands.operation_control_state import (
+    OperationControlStateCoordinator,
+)
 from agent_operator.application.event_sourcing.event_sourced_commands import (
     EventSourcedCommandApplicationService,
 )
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_attention import OperationAttentionCoordinator
-from agent_operator.application.operation_control_state import OperationControlStateCoordinator
-from agent_operator.application.operation_event_relay import OperationEventRelay
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
-from agent_operator.application.operation_policy_context import (
+from agent_operator.application.process_signals import ProcessManagerSignal
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
+from agent_operator.application.runtime.operation_policy_context import (
     OperationPolicyContextCoordinator,
 )
-from agent_operator.application.operation_process_dispatch import (
+from agent_operator.application.runtime.operation_process_dispatch import (
     OperationProcessSignalDispatcher,
 )
-from agent_operator.application.operation_runtime_context import OperationRuntimeContext
-from agent_operator.application.process_signals import ProcessManagerSignal
+from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.domain import (
     AgentSessionHandle,
     AttentionRequest,

@@ -8,7 +8,7 @@ from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
-from agent_operator.application.operation_state_views import OperationStateViewService
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.domain import (
     AgentSessionHandle,
     ExecutionBudget,

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_operator.application.operation_agenda_queries import OperationAgendaQueryService
-from agent_operator.application.operation_projections import OperationProjectionService
+from agent_operator.application.queries.operation_agenda_queries import OperationAgendaQueryService
+from agent_operator.application.queries.operation_projections import OperationProjectionService
 from agent_operator.runtime import AgendaSnapshot
 
 

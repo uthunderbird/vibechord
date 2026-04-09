@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_operator.application.operation_runtime import SupervisorBackedOperationRuntime
+from agent_operator.application.runtime.operation_runtime import SupervisorBackedOperationRuntime
 from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,

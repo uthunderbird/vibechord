@@ -15,8 +15,11 @@
 - Do not overclaim.
 - Distinguish clearly between implemented behavior, intended behavior, tested behavior, and future
   direction.
+- Distinguish clearly between decision authority and implementation completeness.
 - Prefer evidence from code, persisted state, tests, and logs over prompt wording or design intent.
 - If a route fails, record the failure honestly and preserve the lesson.
+- Make skim-safe truth explicit: a reader should not need to read the full body of a long ADR or
+  RFC to discover that implementation is only partial.
 
 ## Status Labels
 
@@ -27,6 +30,9 @@ Use these labels where helpful:
 - `partial`
 - `planned`
 - `blocked`
+
+For ADRs and RFCs, prefer an explicit implementation-status section when the document could
+otherwise be read as "accepted therefore complete".
 
 ## Documentation Placement
 

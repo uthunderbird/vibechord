@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
-from agent_operator.application.operation_state_views import OperationStateViewService
 from agent_operator.application.process_signals import ProcessManagerSignal
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.domain import (
     OperationCheckpointRecord,
     OperationState,

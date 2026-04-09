@@ -4,8 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from agent_operator.application.operation_delivery_commands import OperationDeliveryCommandService
-from agent_operator.application.operation_projections import OperationProjectionService
+from agent_operator.application.queries.operation_projections import OperationProjectionService
+from agent_operator.application.queries.operation_status_queries import OperationStatusQueryService
 from agent_operator.domain import DecisionMemo, OperationState, RunEvent
 from agent_operator.protocols import OperationCommandInbox
 
@@ -20,7 +20,7 @@ class TraceStoreLike(Protocol):
 
 @dataclass(slots=True)
 class OperationDashboardQueryService:
-    status_service: OperationDeliveryCommandService
+    status_service: OperationStatusQueryService
     projection_service: OperationProjectionService
     command_inbox: OperationCommandInbox
     event_reader: EventReaderLike

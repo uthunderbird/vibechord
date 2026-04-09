@@ -49,7 +49,11 @@ from ..helpers_rendering import (
     shorten_live_text,
     turn_work_summary,
 )
-from ..helpers_resolution import resolve_history_entry, resolve_operation_id
+from ..helpers_resolution import (
+    resolve_history_entry,
+    resolve_operation_id,
+    resolve_project_profile_selection,
+)
 from ..helpers_services import (
     build_agenda_query_service,
     build_delivery_commands_service,
@@ -58,7 +62,6 @@ from ..helpers_services import (
     build_project_dashboard_query_service,
     delivery_commands_service,
     load_settings,
-    resolve_project_profile_selection,
 )
 
 

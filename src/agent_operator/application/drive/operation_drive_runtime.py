@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from agent_operator.application.operation_runtime_context import OperationRuntimeContext
-from agent_operator.application.operation_runtime_reconciliation import (
+from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
+from agent_operator.application.runtime.operation_runtime_reconciliation import (
     OperationRuntimeReconciliationService,
 )
 from agent_operator.domain import OperationState, RunOptions

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agent_operator.application.operation_state_views import OperationStateViewService
-from agent_operator.application.operation_traceability import OperationTraceabilityService
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
+from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
 from agent_operator.domain import OperationCheckpoint, OperationState
 from agent_operator.protocols import OperationStore
 

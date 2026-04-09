@@ -9,32 +9,31 @@ import typer
 from agent_operator.application import (
     OperationAgendaQueryService,
     OperationDashboardQueryService,
-    OperationFleetWorkbenchQueryService,
     OperationDeliveryCommandService,
+    OperationFleetWorkbenchQueryService,
     OperationProjectDashboardQueryService,
+    OperationStatusQueryService,
 )
 from agent_operator.bootstrap import (
     build_background_run_inspection_store,
     build_command_inbox,
     build_event_sink,
-    build_history_ledger,
     build_policy_store,
-    build_service as bootstrap_build_service,
     build_store,
     build_trace_store,
     build_wakeup_inbox,
 )
+from agent_operator.bootstrap import (
+    build_service as bootstrap_build_service,
+)
 from agent_operator.config import OperatorSettings
-from agent_operator.domain import InvolvementLevel, OperationCommandType, OperationGoal, OperationPolicy
-from agent_operator.domain import OperationState, OperationStatus, ProjectProfile, RunMode, RuntimeHints
+from agent_operator.domain import (
+    ProjectProfile,
+)
 from agent_operator.runtime import (
     ProjectingEventSink,
-    apply_project_profile_settings,
     committed_default_profile_path,
-    committed_profile_dir,
     resolve_operator_data_dir,
-    resolve_project_run_config,
-    write_project_profile,
 )
 
 from .helpers_logs import build_dashboard_upstream_transcript
@@ -46,7 +45,6 @@ from .helpers_rendering import (
     render_inspect_summary,
     render_status_brief,
 )
-from .helpers_resolution import resolve_project_profile_selection
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -82,11 +80,13 @@ def delivery_commands_service() -> OperationDeliveryCommandService:
 def build_agenda_query_service(settings: OperatorSettings) -> OperationAgendaQueryService:
     return OperationAgendaQueryService(
         store=build_store(settings),
-        status_service=build_delivery_commands_service(settings),
+        status_service=build_status_query_service(settings),
     )
 
 
-def build_project_dashboard_query_service(settings: OperatorSettings) -> OperationProjectDashboardQueryService:
+def build_project_dashboard_query_service(
+    settings: OperatorSettings,
+) -> OperationProjectDashboardQueryService:
     return OperationProjectDashboardQueryService(
         agenda_queries=build_agenda_query_service(settings),
         projection_service=PROJECTIONS,
@@ -110,7 +110,7 @@ def build_operation_dashboard_query_service(
     codex_home: Path,
 ) -> OperationDashboardQueryService:
     return OperationDashboardQueryService(
-        status_service=build_delivery_commands_service(settings),
+        status_service=build_status_query_service(settings),
         projection_service=PROJECTIONS,
         command_inbox=build_command_inbox(settings),
         event_reader=build_event_sink(settings, operation_id),
@@ -131,16 +131,22 @@ def build_delivery_commands_service(
     return OperationDeliveryCommandService(
         store=build_store(settings),
         command_inbox=build_command_inbox(settings),
+        service_factory=factory,
+        find_task_by_display_id=find_task_by_display_id,
+    )
+
+
+def build_status_query_service(settings: OperatorSettings) -> OperationStatusQueryService:
+    return OperationStatusQueryService(
+        store=build_store(settings),
         projection_service=PROJECTIONS,
         trace_store=build_trace_store(settings),
         background_inspection_store=build_background_run_inspection_store(settings),
         wakeup_inspection_store=build_wakeup_inbox(settings),
-        service_factory=factory,
         overlay_live_background_progress=overlay_live_background_progress,
         build_runtime_alert=build_runtime_alert,
         render_status_brief=render_status_brief,
         render_inspect_summary=render_inspect_summary,
-        find_task_by_display_id=find_task_by_display_id,
     )
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_runtime_context import OperationRuntimeContext
+from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.domain import (
     AgentResult,
     AgentSessionHandle,

@@ -38,8 +38,8 @@ from .helpers_rendering import (
 )
 from .helpers_resolution import resolve_operation_id, resolve_operation_id_async
 from .helpers_services import (
-    build_delivery_commands_service,
     build_operation_dashboard_query_service,
+    build_status_query_service,
     load_settings,
 )
 from .options import CODEX_HOME_OPTION, JSON_OPTION, MEMORY_ALL_OPTION, WATCH_POLL_INTERVAL_OPTION
@@ -298,11 +298,11 @@ def report(
 ) -> None:
     settings = load_settings()
     trace_store = build_trace_store(settings)
-    delivery = build_delivery_commands_service(settings)
+    status_queries = build_status_query_service(settings)
 
     async def _report() -> None:
         try:
-            operation, outcome, brief, _ = await delivery.build_status_payload(operation_id)
+            operation, outcome, brief, _ = await status_queries.build_status_payload(operation_id)
         except RuntimeError as exc:
             raise typer.BadParameter(f"Report for {operation_id!r} was not found.") from exc
         report_text = await trace_store.load_report(operation_id)
@@ -521,7 +521,8 @@ def session(
             session_snapshot = {
                 "operation_id": resolved_operation_id,
                 "task": task_record.model_dump(mode="json"),
-                "session_id": session_payload_data.get("session_id") or task_record.linked_session_id,
+                "session_id": session_payload_data.get("session_id")
+                or task_record.linked_session_id,
                 "session": session_payload_data,
                 "session_brief": session_brief,
                 "timeline_events": [event for event in session_events if isinstance(event, dict)],
@@ -543,8 +544,11 @@ def session(
             )
             if not bound_tasks:
                 bound_tasks = "-"
+            session_display_id = (
+                session_payload_data.get("session_id") or task_record.linked_session_id
+            )
             typer.echo(
-                f"Session: {session_payload_data.get('session_id') or task_record.linked_session_id} "
+                f"Session: {session_display_id} "
                 f"[{adapter_key}] state={session_status}"
             )
             typer.echo(f"Bound tasks: {bound_tasks}")
@@ -575,9 +579,7 @@ def session(
             else:
                 typer.echo("Selected event: none")
             transcript_command = (
-                transcript_hint.get("command")
-                if isinstance(transcript_hint, dict)
-                else None
+                transcript_hint.get("command") if isinstance(transcript_hint, dict) else None
             )
             if isinstance(transcript_command, str) and transcript_command.strip():
                 typer.echo(f"Transcript: {transcript_command}")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from agent_operator.application.operation_event_relay import OperationEventRelay
-from agent_operator.application.operation_traceability import OperationTraceabilityService
+from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
 from agent_operator.domain import (
     IterationState,
     OperationState,

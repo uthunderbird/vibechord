@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
+from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_attention import OperationAttentionCoordinator
-from agent_operator.application.operation_event_relay import OperationEventRelay
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
-from agent_operator.application.operation_process_dispatch import (
+from agent_operator.application.process_signals import ProcessManagerSignal
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
+from agent_operator.application.runtime.operation_process_dispatch import (
     OperationProcessSignalDispatcher,
 )
-from agent_operator.application.process_signals import ProcessManagerSignal
 from agent_operator.domain import (
     AgentError,
     AgentResult,

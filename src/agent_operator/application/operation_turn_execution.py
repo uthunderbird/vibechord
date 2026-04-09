@@ -4,13 +4,13 @@ from datetime import UTC, datetime
 
 from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.attached_turns import AttachedTurnService
+from agent_operator.application.commands.operation_commands import OperationCommandService
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_commands import OperationCommandService
-from agent_operator.application.operation_event_relay import OperationEventRelay
-from agent_operator.application.operation_process_dispatch import (
+from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
+from agent_operator.application.runtime.operation_process_dispatch import (
     OperationProcessSignalDispatcher,
 )
-from agent_operator.application.operation_traceability import OperationTraceabilityService
 from agent_operator.domain import (
     AgentDescriptor,
     AgentProgress,
@@ -66,6 +66,22 @@ class OperationTurnExecutionService:
         task: TaskState | None,
         session: AgentSessionHandle,
     ) -> AgentResult:
+        async def _reconcile_timeout(
+            active_iteration: IterationState,
+            active_task: TaskState | None,
+            active_session: AgentSessionHandle,
+            record: SessionRecord,
+            progress: AgentProgress | None,
+        ) -> AgentResult:
+            return await self.reconcile_attached_turn_timeout(
+                state,
+                active_iteration,
+                active_task,
+                active_session,
+                record,
+                progress,
+            )
+
         return await self._attached_turn_service.collect_turn(
             state=state,
             iteration=iteration,
@@ -82,18 +98,7 @@ class OperationTurnExecutionService:
                     attached_session=active_session,
                 )
             ),
-            reconcile_timeout=lambda active_iteration,
-            active_task,
-            active_session,
-            record,
-            progress: self.reconcile_attached_turn_timeout(
-                state,
-                active_iteration,
-                active_task,
-                active_session,
-                record,
-                progress,
-            ),
+            reconcile_timeout=_reconcile_timeout,
             dispatch_process_manager_signal=self._process_signal_dispatcher.dispatch,
             scheduler_is_draining=state.scheduler_state is SchedulerState.DRAINING,
         )

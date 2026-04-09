@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Protocol
+
+from agent_operator.application.queries.operation_projections import OperationProjectionService
+from agent_operator.domain import AttentionStatus, OperationOutcome, OperationState, SchedulerState
+from agent_operator.protocols import OperationStore
+
+
+class TraceStoreLike(Protocol):
+    async def load_brief_bundle(self, operation_id: str): ...
+
+
+class BackgroundInspectionStoreLike(Protocol):
+    async def list_runs(self, operation_id: str) -> list: ...
+
+
+class WakeupInspectionStoreLike(Protocol):
+    def read_all(self, operation_id: str | None = None) -> list[dict[str, object]]: ...
+
+
+@dataclass(slots=True)
+class OperationStatusQueryService:
+    store: OperationStore
+    projection_service: OperationProjectionService
+    trace_store: TraceStoreLike
+    background_inspection_store: BackgroundInspectionStoreLike
+    wakeup_inspection_store: WakeupInspectionStoreLike | None
+    overlay_live_background_progress: Callable[[OperationState, list], OperationState]
+    build_runtime_alert: Callable[..., str | None]
+    render_status_brief: Callable[[OperationState], str]
+    render_inspect_summary: Callable[[OperationState, object | None], str]
+
+    async def build_status_payload(
+        self,
+        operation_id: str,
+    ) -> tuple[OperationState | None, OperationOutcome | None, object | None, str | None]:
+        operation = await self.store.load_operation(operation_id)
+        outcome = await self.store.load_outcome(operation_id)
+        if operation is None and outcome is None:
+            raise RuntimeError(f"Operation {operation_id!r} was not found.")
+        if operation is None:
+            return None, outcome, None, None
+        wakeups = (
+            self.wakeup_inspection_store.read_all(operation_id)
+            if self.wakeup_inspection_store is not None
+            else []
+        )
+        runs = await self.background_inspection_store.list_runs(operation_id)
+        operation = self.overlay_live_background_progress(operation, runs)
+        brief_bundle = await self.trace_store.load_brief_bundle(operation_id)
+        runtime_alert = self.build_runtime_alert(
+            status=operation.status,
+            wakeups=wakeups,
+            background_runs=[item.model_dump(mode="json") for item in runs],
+        )
+        return operation, outcome, brief_bundle, runtime_alert
+
+    async def render_status_output(
+        self,
+        operation_id: str,
+        *,
+        json_mode: bool,
+        brief: bool,
+    ) -> str:
+        operation, outcome, brief_bundle, runtime_alert = await self.build_status_payload(
+            operation_id
+        )
+        if operation is None:
+            assert outcome is not None
+            if json_mode:
+                return json.dumps(
+                    {
+                        "operation_id": operation_id,
+                        "status": outcome.status.value,
+                        "summary": outcome.summary,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            return f"{operation_id} {outcome.status.value.upper()} {outcome.summary}"
+
+        if json_mode:
+            payload = {
+                "operation_id": operation_id,
+                "status": operation.status.value,
+                "summary": self.build_live_snapshot(operation_id, operation, outcome),
+                "action_hint": self.build_status_action_hint(operation),
+                "durable_truth": self.projection_service.build_durable_truth_payload(
+                    operation,
+                    include_inactive_memory=True,
+                ),
+            }
+            return json.dumps(payload, indent=2, ensure_ascii=False)
+        if brief:
+            return self.render_status_brief(operation)
+        rendered = self.render_inspect_summary(operation, brief_bundle, runtime_alert=runtime_alert)
+        action_hint = self.build_status_action_hint(operation)
+        if action_hint is not None:
+            rendered += f"\n→ Action required: {action_hint}"
+        return rendered
+
+    def build_status_action_hint(self, operation: OperationState) -> str | None:
+        open_attention = [
+            attention
+            for attention in operation.attention_requests
+            if attention.status is AttentionStatus.OPEN
+        ]
+        if open_attention:
+            return (
+                f"operator answer {operation.operation_id} "
+                f"{open_attention[0].attention_id} --text '...'"
+            )
+        if (
+            operation.active_session_record is not None
+            and operation.scheduler_state is not SchedulerState.DRAINING
+        ):
+            return f"operator interrupt {operation.operation_id}"
+        if operation.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}:
+            return f"operator unpause {operation.operation_id}"
+        return None
+
+    def build_live_snapshot(
+        self,
+        operation_id: str,
+        operation: OperationState | None,
+        outcome: OperationOutcome | None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {"operation_id": operation_id}
+        if operation is None:
+            payload["status"] = outcome.status.value if outcome is not None else "unknown"
+            payload["summary"] = outcome.summary if outcome is not None else "Operation not found."
+            return payload
+        payload.update(
+            self.projection_service.build_live_snapshot(operation, None, runtime_alert=None)
+        )
+        payload["involvement_level"] = operation.involvement_level.value
+        payload["updated_at"] = operation.updated_at.isoformat()
+        active_session = operation.active_session_record
+        if active_session is not None:
+            payload["session_id"] = active_session.session_id
+            payload["adapter_key"] = active_session.adapter_key
+            payload["session_status"] = active_session.status.value
+            if active_session.waiting_reason:
+                payload["waiting_reason"] = active_session.waiting_reason
+        if operation.attention_requests:
+            open_attention = [
+                item for item in operation.attention_requests if item.status is AttentionStatus.OPEN
+            ]
+            if open_attention:
+                payload["open_attention_count"] = len(open_attention)
+                payload["attention_title"] = open_attention[0].title
+                payload["attention_brief"] = (
+                    f"[{open_attention[0].attention_type.value}] {open_attention[0].title}"
+                )
+        summary = outcome.summary if outcome is not None else operation.final_summary
+        if summary:
+            payload["summary"] = summary
+        return payload

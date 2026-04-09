@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_operator.application.operation_agenda_queries import OperationAgendaQueryService
-from agent_operator.application.operation_projections import OperationProjectionService
+from agent_operator.application.queries.operation_agenda_queries import OperationAgendaQueryService
+from agent_operator.application.queries.operation_projections import OperationProjectionService
 from agent_operator.domain import PolicyStatus, ProjectProfile, ResolvedProjectRunConfig
 from agent_operator.protocols import PolicyStore
 

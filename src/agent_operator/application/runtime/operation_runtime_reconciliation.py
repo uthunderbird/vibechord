@@ -4,10 +4,10 @@ from datetime import UTC, datetime, timedelta
 
 from agent_operator.application.agent_results import AgentResultService
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_event_relay import OperationEventRelay
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
-from agent_operator.application.operation_runtime_context import OperationRuntimeContext
-from agent_operator.application.operation_traceability import OperationTraceabilityService
+from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
+from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.domain import (
     AgentError,
     AgentResult,
@@ -222,9 +222,7 @@ class OperationRuntimeReconciliationService:
                 if error.raw is not None
                 else None
             )
-            cooldown = self._agent_result_service.normalize_rate_limit_cooldown(
-                retry_after_seconds
-            )
+            cooldown = self._agent_result_service.normalize_rate_limit_cooldown(retry_after_seconds)
             reason = (
                 "Rate limit encountered on background/attached run and operator "
                 "input is needed before retrying."
@@ -338,8 +336,7 @@ class OperationRuntimeReconciliationService:
                 error=AgentError(
                     code="background_run_stale",
                     message=(
-                        "Background agent turn lost heartbeat before delivering a "
-                        "wakeup or result."
+                        "Background agent turn lost heartbeat before delivering a wakeup or result."
                     ),
                     retryable=False,
                     raw={
@@ -396,9 +393,7 @@ class OperationRuntimeReconciliationService:
                 "session_id": run.session_id,
                 "pid": run.pid,
                 "last_heartbeat_at": (
-                    run.last_heartbeat_at.isoformat()
-                    if run.last_heartbeat_at is not None
-                    else None
+                    run.last_heartbeat_at.isoformat() if run.last_heartbeat_at is not None else None
                 ),
             },
             task_id=run.task_id,
@@ -539,9 +534,7 @@ class OperationRuntimeReconciliationService:
             if iteration is None:
                 continue
             task = (
-                self._loaded_operation.find_task(state, polled.task_id)
-                if polled.task_id
-                else None
+                self._loaded_operation.find_task(state, polled.task_id) if polled.task_id else None
             )
             result = await self._operation_runtime.collect_background_turn(polled.run_id)
             if result is None:

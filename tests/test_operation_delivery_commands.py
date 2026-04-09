@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agent_operator.application import (
     OperationDeliveryCommandService,
-    OperationProjectionService,
 )
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -15,10 +12,10 @@ from agent_operator.domain import (
     AttentionType,
     CommandTargetScope,
     InvolvementLevel,
+    OperationCommandType,
     OperationGoal,
     OperationOutcome,
     OperationPolicy,
-    OperationCommandType,
     OperationState,
     OperationStatus,
     RuntimeHints,
@@ -26,7 +23,10 @@ from agent_operator.domain import (
     SessionRecord,
     SessionRecordStatus,
 )
-from agent_operator.testing.operator_service_support import MemoryCommandInbox, MemoryStore, MemoryTraceStore
+from agent_operator.testing.operator_service_support import (
+    MemoryCommandInbox,
+    MemoryStore,
+)
 
 
 class _BackgroundInspectionStore:
@@ -106,52 +106,9 @@ def _service(store: MemoryStore, inbox: MemoryCommandInbox) -> OperationDelivery
     return OperationDeliveryCommandService(
         store=store,
         command_inbox=inbox,
-        projection_service=OperationProjectionService(),
-        trace_store=MemoryTraceStore(),
-        background_inspection_store=_BackgroundInspectionStore(),
-        wakeup_inspection_store=None,
         service_factory=lambda: _Service(),
-        overlay_live_background_progress=lambda operation, runs: operation,
-        build_runtime_alert=lambda **kwargs: None,
-        render_status_brief=lambda operation: f"brief:{operation.operation_id}",
-        render_inspect_summary=lambda operation, brief, runtime_alert=None: f"inspect:{operation.operation_id}",
         find_task_by_display_id=lambda operation, task_id: None,
     )
-
-
-@pytest.mark.anyio
-async def test_render_status_output_json_uses_projection_payload() -> None:
-    store = MemoryStore()
-    inbox = MemoryCommandInbox()
-    operation = _operation()
-    await store.save_operation(operation)
-    await store.save_outcome(
-        OperationOutcome(
-            operation_id="op-1",
-            status=OperationStatus.RUNNING,
-            summary="still running",
-        )
-    )
-    service = _service(store, inbox)
-
-    rendered = await service.render_status_output("op-1", json_mode=True, brief=False)
-    payload = json.loads(rendered)
-
-    assert payload["operation_id"] == "op-1"
-    assert payload["status"] == "running"
-    assert len(payload["durable_truth"]["tasks"]) == 1
-
-
-def test_build_live_snapshot_uses_shared_delivery_builder() -> None:
-    service = _service(MemoryStore(), MemoryCommandInbox())
-    operation = _operation()
-
-    payload = service.build_live_snapshot("op-1", operation, None)
-
-    assert payload["operation_id"] == "op-1"
-    assert payload["status"] == "running"
-    assert payload["session_id"] == "session-1"
-    assert payload["open_attention_count"] == 1
 
 
 @pytest.mark.anyio

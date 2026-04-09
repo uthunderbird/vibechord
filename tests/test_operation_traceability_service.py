@@ -6,8 +6,8 @@ import pytest
 
 from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_runtime_context import OperationRuntimeContext
-from agent_operator.application.operation_traceability import OperationTraceabilityService
+from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
+from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,

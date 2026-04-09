@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from agent_operator.application.agent_results import AgentResultService
+from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
-from agent_operator.application.operation_runtime_context import OperationRuntimeContext
 from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
+from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.domain import (
     AttentionRequest,
     AttentionType,

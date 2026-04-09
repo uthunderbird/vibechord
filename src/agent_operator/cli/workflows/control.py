@@ -34,16 +34,16 @@ from ..helpers_rendering import (
     format_live_snapshot,
     render_dashboard,
 )
+from ..helpers_resolution import resolve_project_profile_selection
 from ..helpers_services import (
-    build_delivery_commands_service,
     build_operation_dashboard_query_service,
     build_projected_service,
     build_projecting_delivery_commands_service,
+    build_status_query_service,
     delivery_commands_service,
     emit_free_mode_stub,
     load_settings,
     load_settings_with_data_dir,
-    resolve_project_profile_selection,
 )
 
 
@@ -225,9 +225,9 @@ async def watch_async(operation_id: str, json_mode: bool, poll_interval: float) 
     settings = load_settings()
     event_sink = build_event_sink(settings, operation_id)
     projector = CliEventProjector(json_mode=json_mode)
-    delivery = build_delivery_commands_service(settings)
+    status_queries = build_status_query_service(settings)
     try:
-        _, outcome, _, _ = await delivery.build_status_payload(operation_id)
+        _, outcome, _, _ = await status_queries.build_status_payload(operation_id)
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
     projector.emit_operation(operation_id)
@@ -242,8 +242,8 @@ async def watch_async(operation_id: str, json_mode: bool, poll_interval: float) 
                 continue
             seen_event_ids.add(event.event_id)
             projector.handle_event(event)
-        operation, outcome, _, _ = await delivery.build_status_payload(operation_id)
-        snapshot = delivery.build_live_snapshot(operation_id, operation, outcome)
+        operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
+        snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
         if snapshot != last_snapshot:
             projector.emit_snapshot(snapshot)
             last_snapshot = snapshot
@@ -306,7 +306,7 @@ async def resume_async(operation_id: str, max_cycles: int, json_mode: bool) -> N
 
 
 async def status_async(operation_id: str, json_mode: bool, brief: bool) -> None:
-    service = delivery_commands_service()
+    service = build_status_query_service(load_settings())
     try:
         typer.echo(
             await service.render_status_output(operation_id, json_mode=json_mode, brief=brief)

@@ -1,5 +1,14 @@
 from agent_operator.application.agent_results import AgentResultService
 from agent_operator.application.attached_turns import AttachedTurnService
+from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
+from agent_operator.application.commands.operation_cancellation import OperationCancellationService
+from agent_operator.application.commands.operation_commands import OperationCommandService
+from agent_operator.application.commands.operation_control_state import (
+    OperationControlStateCoordinator,
+)
+from agent_operator.application.commands.operation_delivery_commands import (
+    OperationDeliveryCommandService,
+)
 from agent_operator.application.decision_execution import DecisionExecutionService
 from agent_operator.application.drive.operation_drive import OperationDriveService
 from agent_operator.application.drive.operation_drive_control import OperationDriveControlService
@@ -25,41 +34,37 @@ from agent_operator.application.event_sourcing.event_sourced_replay import (
     EventSourcedReplayState,
 )
 from agent_operator.application.loaded_operation import LoadedOperation
-from agent_operator.application.operation_attention import OperationAttentionCoordinator
-from agent_operator.application.operation_agenda_queries import OperationAgendaQueryService
-from agent_operator.application.operation_cancellation import OperationCancellationService
-from agent_operator.application.operation_commands import OperationCommandService
-from agent_operator.application.operation_control_state import OperationControlStateCoordinator
 from agent_operator.application.operation_entrypoints import OperationEntrypointService
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
-from agent_operator.application.operation_policy_context import (
-    OperationPolicyContextCoordinator,
-)
-from agent_operator.application.operation_project_dashboard_queries import (
-    OperationProjectDashboardQueryService,
-)
-from agent_operator.application.operation_delivery_commands import (
-    OperationDeliveryCommandService,
-)
-from agent_operator.application.operation_dashboard_queries import (
+from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
+from agent_operator.application.operator_policy import LlmFirstOperatorPolicy
+from agent_operator.application.queries.operation_agenda_queries import OperationAgendaQueryService
+from agent_operator.application.queries.operation_dashboard_queries import (
     OperationDashboardQueryService,
 )
-from agent_operator.application.operation_projections import (
+from agent_operator.application.queries.operation_fleet_workbench_queries import (
+    OperationFleetWorkbenchQueryService,
+)
+from agent_operator.application.queries.operation_project_dashboard_queries import (
+    OperationProjectDashboardQueryService,
+)
+from agent_operator.application.queries.operation_projections import (
     OperationProjectionService,
     ProjectionAction,
 )
-from agent_operator.application.operation_fleet_workbench_queries import (
-    OperationFleetWorkbenchQueryService,
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
+from agent_operator.application.queries.operation_status_queries import (
+    OperationStatusQueryService,
 )
-from agent_operator.application.operation_runtime import SupervisorBackedOperationRuntime
-from agent_operator.application.operation_runtime_context import OperationRuntimeContext
-from agent_operator.application.operation_runtime_reconciliation import (
+from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
+from agent_operator.application.runtime.operation_policy_context import (
+    OperationPolicyContextCoordinator,
+)
+from agent_operator.application.runtime.operation_runtime import SupervisorBackedOperationRuntime
+from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
+from agent_operator.application.runtime.operation_runtime_reconciliation import (
     OperationRuntimeReconciliationService,
 )
-from agent_operator.application.operation_state_views import OperationStateViewService
-from agent_operator.application.operation_traceability import OperationTraceabilityService
-from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
-from agent_operator.application.operator_policy import LlmFirstOperatorPolicy
 from agent_operator.application.service import OperatorService
 from agent_operator.dtos.requests import AgentRunRequest
 
@@ -85,6 +90,7 @@ __all__ = [
     "OperationDriveRuntimeService",
     "OperationDriveTraceService",
     "OperationPolicyContextCoordinator",
+    "OperationStatusQueryService",
     "OperationProjectionService",
     "OperationRuntimeContext",
     "OperationStateViewService",

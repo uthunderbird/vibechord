@@ -6,9 +6,9 @@ import pytest
 
 from agent_operator.application import (
     OperationAgendaQueryService,
-    OperationDeliveryCommandService,
     OperationProjectDashboardQueryService,
     OperationProjectionService,
+    OperationStatusQueryService,
 )
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -30,7 +30,6 @@ from agent_operator.domain import (
     SessionRecordStatus,
 )
 from agent_operator.testing.operator_service_support import (
-    MemoryCommandInbox,
     MemoryStore,
     MemoryTraceStore,
 )
@@ -115,20 +114,17 @@ def _operation() -> OperationState:
     )
 
 
-def _delivery(store: MemoryStore) -> OperationDeliveryCommandService:
-    return OperationDeliveryCommandService(
+def _status_queries(store: MemoryStore) -> OperationStatusQueryService:
+    return OperationStatusQueryService(
         store=store,
-        command_inbox=MemoryCommandInbox(),
         projection_service=OperationProjectionService(),
         trace_store=MemoryTraceStore(),
         background_inspection_store=_BackgroundInspectionStore(),
         wakeup_inspection_store=None,
-        service_factory=lambda: _Service(),
         overlay_live_background_progress=lambda operation, runs: operation,
         build_runtime_alert=lambda **kwargs: None,
         render_status_brief=lambda operation: "",
         render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
-        find_task_by_display_id=lambda operation, task_id: None,
     )
 
 
@@ -136,7 +132,7 @@ def _delivery(store: MemoryStore) -> OperationDeliveryCommandService:
 async def test_load_payload_builds_project_dashboard() -> None:
     store = _StoreWithSummaries()
     await store.save_operation(_operation())
-    agenda_queries = OperationAgendaQueryService(store=store, status_service=_delivery(store))
+    agenda_queries = OperationAgendaQueryService(store=store, status_service=_status_queries(store))
     service = OperationProjectDashboardQueryService(
         agenda_queries=agenda_queries,
         projection_service=OperationProjectionService(),

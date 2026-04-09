@@ -4,17 +4,17 @@ import pytest
 
 from agent_operator.application import (
     OperationDashboardQueryService,
-    OperationDeliveryCommandService,
     OperationProjectionService,
+    OperationStatusQueryService,
 )
 from agent_operator.domain import (
     AgentSessionHandle,
     DecisionMemo,
-    OperationBrief,
     InvolvementLevel,
     MemoryEntry,
     MemoryFreshness,
     MemoryScope,
+    OperationBrief,
     OperationGoal,
     OperationPolicy,
     OperationState,
@@ -102,25 +102,21 @@ def _operation() -> OperationState:
     )
 
 
-def _delivery(
+def _status_queries(
     store: MemoryStore,
-    inbox: MemoryCommandInbox,
     trace_store: MemoryTraceStore | None = None,
-) -> OperationDeliveryCommandService:
+) -> OperationStatusQueryService:
     trace_store = trace_store or MemoryTraceStore()
-    return OperationDeliveryCommandService(
+    return OperationStatusQueryService(
         store=store,
-        command_inbox=inbox,
         projection_service=OperationProjectionService(),
         trace_store=trace_store,
         background_inspection_store=_BackgroundInspectionStore(),
         wakeup_inspection_store=None,
-        service_factory=lambda: _Service(),
         overlay_live_background_progress=lambda operation, runs: operation,
         build_runtime_alert=lambda **kwargs: None,
         render_status_brief=lambda operation: "",
         render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
-        find_task_by_display_id=lambda operation, task_id: None,
     )
 
 
@@ -153,7 +149,7 @@ async def test_load_payload_builds_dashboard_payload() -> None:
         ),
     )
     service = OperationDashboardQueryService(
-        status_service=_delivery(store, inbox, trace_store),
+        status_service=_status_queries(store, trace_store),
         projection_service=OperationProjectionService(),
         command_inbox=inbox,
         event_reader=_EventReader(),

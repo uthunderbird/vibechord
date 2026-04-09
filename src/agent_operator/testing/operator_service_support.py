@@ -31,15 +31,15 @@ from agent_operator.application import (
     SupervisorBackedOperationRuntime,
 )
 from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
+from agent_operator.application.commands.operation_cancellation import OperationCancellationService
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
 from agent_operator.application.event_sourcing.event_sourced_commands import (
     EventSourcedCommandApplicationService,
 )
-from agent_operator.application.operation_cancellation import OperationCancellationService
-from agent_operator.application.operation_event_relay import OperationEventRelay
-from agent_operator.application.operation_process_dispatch import (
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
+from agent_operator.application.runtime.operation_process_dispatch import (
     OperationProcessSignalDispatcher,
 )
 from agent_operator.domain import (

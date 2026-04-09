@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_operator.application.operation_delivery_commands import OperationDeliveryCommandService
+from agent_operator.application.queries.operation_status_queries import OperationStatusQueryService
 from agent_operator.protocols import OperationStore
 from agent_operator.runtime import (
     AgendaSnapshot,
@@ -15,7 +15,7 @@ from agent_operator.runtime import (
 @dataclass(slots=True)
 class OperationAgendaQueryService:
     store: OperationStore
-    status_service: OperationDeliveryCommandService
+    status_service: OperationStatusQueryService
 
     async def load_snapshot(
         self,
@@ -26,9 +26,12 @@ class OperationAgendaQueryService:
         items = []
         for summary in await self.store.list_operations():
             try:
-                operation, _, brief_bundle, runtime_alert = await self.status_service.build_status_payload(
-                    summary.operation_id
-                )
+                (
+                    operation,
+                    _,
+                    brief_bundle,
+                    runtime_alert,
+                ) = await self.status_service.build_status_payload(summary.operation_id)
             except RuntimeError:
                 continue
             if operation is None:

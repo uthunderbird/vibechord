@@ -6,6 +6,10 @@
 
 Accepted
 
+## Implementation Status
+
+Implemented
+
 ## Context
 
 The `application/` layer has already grown into several distinct families:
@@ -186,19 +190,33 @@ Changes touching `application/` should preserve these conditions:
 
 ## Implementation Notes (2026-04-10)
 
-Current repository truth is partial rather than complete:
+Current repository truth is now implemented at the package-shape level:
 
-- `application/__init__.py` is export-only.
-- `application/drive/` and `application/event_sourcing/` already exist as explicit families.
-- the broader `commands/`, `queries/`, and `runtime/` families described here have not yet landed
-  as package moves; most of that code remains in flat `operation_*` modules.
+- `application/commands/`, `application/queries/`, and `application/runtime/` exist as canonical
+  homes for the families defined above.
+- `application/__init__.py` remains export-only and re-exports the public application surface from
+  canonical subpackage paths.
+- `application/drive/` and `application/event_sourcing/` remain explicit first-class families.
+- the former flat `application/operation_*.py` modules for migrated command/query/runtime
+  families have been removed rather than retained as permanent compatibility facades.
+- query-side status/inspect reads now live in a dedicated `OperationStatusQueryService` under
+  `application/queries/`, rather than remaining mixed into the delivery-command mutation service.
 
-That means this ADR is now an accepted placement rule, not an implemented package reshaping claim.
-The smallest verifiable guardrails currently enforced in-repo are:
+Remaining top-level `operation_*` modules are limited to orchestration-oriented modules that this
+ADR intentionally left in place:
+
+- `operation_entrypoints.py`
+- `operation_lifecycle.py`
+- `operation_turn_execution.py`
+
+The smallest verifiable guardrails now enforced in-repo are:
 
 - application modules must not import `agent_operator.cli.*`
 - `application/__init__.py` must remain export-only
-- `drive/` and `event_sourcing/` remain first-class subpackages
+- `application/commands/`, `application/queries/`, and `application/runtime/` remain first-class
+  canonical subpackages
+- `application/queries/` must not import `application.commands.*`
+- migrated flat `application/operation_*.py` family modules no longer exist
 
 ## Related
 
