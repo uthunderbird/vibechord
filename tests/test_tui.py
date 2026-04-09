@@ -10,8 +10,10 @@ from typer.testing import CliRunner
 
 import agent_operator.cli.main as cli_main
 from agent_operator.cli.tui import build_fleet_workbench_controller
+from agent_operator.cli.tui import models as tui_models_pkg
 from agent_operator.cli.tui_models import FleetWorkbenchState, dashboard_tasks, task_signal_text
 from agent_operator.cli.tui_rendering import (
+    render_forensic_transcript_panel,
     render_list_table,
     render_session_timeline,
     render_task_board,
@@ -19,6 +21,10 @@ from agent_operator.cli.tui_rendering import (
 
 runner = CliRunner()
 pytestmark = pytest.mark.anyio
+
+
+def test_tui_package_models_exports_state() -> None:
+    assert tui_models_pkg.FleetWorkbenchState is FleetWorkbenchState
 
 
 def _fleet_payload() -> dict[str, object]:
@@ -1116,6 +1122,76 @@ async def test_session_enter_opens_forensic_if_transcript_is_unavailable() -> No
     assert controller.state.last_message is None
 
 
+async def test_forensic_filter_matches_transcript_lines_live() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("/")
+    for key in "right pane":
+        await controller.handle_key(key)
+
+    assert controller.state.pending_forensic_filter_text == "right pane"
+    assert controller.state.forensic_filter_query == "right pane"
+    panel = render_forensic_transcript_panel(controller.state)
+    assert "wiring the right pane modes" in panel.plain
+    assert "starting task board" not in panel.plain
+
+    await controller.handle_key("\r")
+    assert controller.state.pending_forensic_filter_text is None
+    assert controller.state.forensic_filter_query == "right pane"
+    assert controller.state.last_message == "Applied forensic filter: right pane"
+
+
+async def test_forensic_filter_escape_restores_previous_query() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("/")
+    for key in "starting":
+        await controller.handle_key(key)
+    await controller.handle_key("\r")
+
+    assert controller.state.forensic_filter_query == "starting"
+
+    await controller.handle_key("/")
+    await controller.handle_key("\x7f")
+    await controller.handle_key("z")
+
+    assert controller.state.pending_forensic_filter_text == "startinz"
+    assert "No raw transcript lines match the current filter." in render_forensic_transcript_panel(
+        controller.state
+    ).plain
+
+    await controller.handle_key("\x1b")
+    assert controller.state.pending_forensic_filter_text is None
+    assert controller.state.forensic_filter_query == "starting"
+    assert controller.state.last_message == "Forensic filter input aborted."
+
+
 async def test_fleet_refresh_failure_is_reported_and_non_fatal() -> None:
     call_count = 0
 
@@ -1218,6 +1294,18 @@ def test_filtered_empty_session_timeline_shows_filter_specific_message() -> None
     assert "No session timeline events match the current filter." in console.export_text(
         styles=False
     )
+
+
+def test_filtered_empty_forensic_transcript_shows_filter_specific_message() -> None:
+    state = FleetWorkbenchState(
+        view_level="forensic",
+        forensic_filter_query="nomatch",
+        selected_operation_payload={
+            "upstream_transcript": {"events": ["assistant: starting task board"]}
+        },
+    )
+    panel = render_forensic_transcript_panel(state)
+    assert "No raw transcript lines match the current filter." in panel.plain
 
 
 def test_fleet_prefers_interactive_workbench_when_both_streams_are_ttys(

@@ -134,8 +134,16 @@ raw transcript` message.
 
 Available keys:
 
+- `/`: start forensic filter input; match by raw transcript/detail text
 - `Esc`: return to the session timeline
 - `q`: quit the workbench
+
+Forensic filter input:
+
+- type to update the transcript/detail lines live
+- `Enter`: apply the current filter text
+- `Esc`: abort the edit and restore the previous filter
+- submit an empty filter to clear it
 
 The forensic view currently shows:
 
@@ -183,5 +191,4 @@ Current limitations of the implemented UI:
   workflow.
 - Session drill-down depends on task-linked session data being present in the operation dashboard
   payload. Tasks without a linked session cannot open Level 2.
-- Filtering is now available at fleet, operation, and session levels. Forensic view does not yet
-  have an independent filter mode.
+- Filtering is now available at fleet, operation, session, and forensic levels.
