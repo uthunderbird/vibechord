@@ -4,7 +4,7 @@
 
 ## Status
 
-Planned
+Accepted
 
 ## Context
 
@@ -33,8 +33,8 @@ into these modules.
 The `application/` package should converge toward stable submodule families with explicit boundary
 rules.
 
-This ADR does not claim that the full refactor has already landed. It defines the intended
-placement authority for new work and the target shape for future decomposition.
+This ADR does not claim that the full refactor has already landed. It defines the placement
+authority that should govern new work and the target shape for future decomposition.
 
 ## Submodule Families
 
@@ -183,6 +183,22 @@ Changes touching `application/` should preserve these conditions:
 - new functionality is placed into the correct family instead of extending unrelated flat modules;
 - application code does not import CLI/TUI modules;
 - mutation and projection concerns remain separated.
+
+## Implementation Notes (2026-04-10)
+
+Current repository truth is partial rather than complete:
+
+- `application/__init__.py` is export-only.
+- `application/drive/` and `application/event_sourcing/` already exist as explicit families.
+- the broader `commands/`, `queries/`, and `runtime/` families described here have not yet landed
+  as package moves; most of that code remains in flat `operation_*` modules.
+
+That means this ADR is now an accepted placement rule, not an implemented package reshaping claim.
+The smallest verifiable guardrails currently enforced in-repo are:
+
+- application modules must not import `agent_operator.cli.*`
+- `application/__init__.py` must remain export-only
+- `drive/` and `event_sourcing/` remain first-class subpackages
 
 ## Related
 

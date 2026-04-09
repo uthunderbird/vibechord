@@ -72,6 +72,9 @@ Current repository truth is closer to that shape than before, but not fully ther
 
 - `implemented`: major workflow-authority services now exist as separate application units
 - `implemented`: `LoadedOperation` exists as the one-operation local mechanics boundary
+- `implemented`: `application/drive/` and `application/event_sourcing/` are already explicit
+  submodule families
+- `partial`: broader command/query/runtime application families still remain mostly flat
 - `partial`: `OperatorService` is thinner than the earlier monolith, but still hosts some
   top-layer callback glue and several remaining control/runtime responsibility clusters
 
