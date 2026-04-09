@@ -81,7 +81,8 @@ Operation view now renders the task board in grouped status lanes, including a `
 lane for dependency-blocked pending tasks, plus compact dependency and linked-session cue lines
 under task rows when that context is available, with a status glyph on each task row.
 `Enter` still drills into forensic even when a session has no raw transcript payload, falling back
-to event context plus an explicit empty-state message. For the
+to event context plus an explicit empty-state message, and forensic `q` now behaves like back-navigation
+to session level instead of quitting the whole workbench. For the
 current keymap, supported actions, and known limitations, see
 [TUI Workbench](docs/tui-workbench.md). For the current forensic drill-down behavior, see
 [TUI Forensic Workflow](docs/tui-forensic-workflow.md).

@@ -412,13 +412,13 @@ class FleetWorkbenchController:
         return True
 
     async def _handle_forensic_key(self, key: str) -> bool:
-        if key in {"q", "ctrl+c"}:
+        if key == "ctrl+c":
             return False
         if key == "?":
             self.state.help_overlay_active = True
             self.state.last_message = None
             return True
-        if key == "esc":
+        if key in {"esc", "q"}:
             self.state.view_level = "session"
             self._clear_forensic_filter()
             self.state.last_message = None

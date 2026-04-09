@@ -382,7 +382,9 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("a", "answer oldest blocking attention for current task"),
             ("n", "answer oldest non-blocking attention for current task"),
             ("A", "open attention picker for current task"),
-            *common,
+            ("?", "close help"),
+            ("Esc / q", "return to session timeline"),
+            ("ctrl+c", "quit"),
         ]
     return [
         ("j / k", "move operation selection"),
@@ -712,7 +714,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
     if state.last_message is not None:
         return Text(state.last_message)
     if state.view_level == "forensic":
-        return Text("a/n answer  A picker  / filter  Esc back to session timeline  q quit")
+        return Text("a/n answer  A picker  / filter  Esc/q back to session timeline  ctrl+c quit")
     if state.view_level == "session":
         return Text(
             "j/k move  / filter  Enter forensic  r forensic/raw transcript  Esc back  a/n answer"

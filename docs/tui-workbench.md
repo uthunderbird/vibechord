@@ -155,7 +155,8 @@ Available keys:
 - `A`: open the current-scope attention picker for the current task
 - `?`: show the current view help overlay
 - `Esc`: return to the session timeline
-- `q`: quit the workbench
+- `q`: return to the session timeline from forensic/raw-transcript view
+- `Ctrl+C`: quit the workbench
 
 Forensic filter input:
 

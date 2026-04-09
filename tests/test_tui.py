@@ -1532,6 +1532,29 @@ async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -
     assert controller.state.view_level == "session"
 
 
+async def test_forensic_q_returns_to_session_view() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("r")
+
+    assert controller.state.view_level == "forensic"
+
+    await controller.handle_key("q")
+    assert controller.state.view_level == "session"
+
+
 async def test_session_enter_opens_forensic_if_transcript_is_unavailable() -> None:
     calls: list[tuple[str, str | None]] = []
 
