@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Implemented
 
 ## Context
 
@@ -192,3 +192,51 @@ This ADR is satisfied when the repository can honestly claim:
 - CLI and TUI are aligned by scope and by projection truth
 - the public CLI has a real `session`-scope surface rather than only operation and forensic
   approximations
+
+## Verification Notes (2026-04-10)
+
+The tranche described here is now implemented in repository truth.
+
+Gate evidence:
+
+- **Gate 1 — Fleet**
+  - shared fleet workbench projection/query exists in
+    [operation_fleet_workbench_queries.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/operation_fleet_workbench_queries.py)
+    and
+    [operation_projections.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/operation_projections.py)
+  - CLI and TUI both consume that projection through
+    [workflows_views.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/workflows_views.py),
+    [rendering_fleet.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/rendering_fleet.py),
+    and
+    [tui_models.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui_models.py)
+- **Gate 2 — Operation**
+  - normalized `operation_brief` is emitted by the shared one-operation payload in
+    [operation_projections.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/operation_projections.py)
+  - TUI `Operation View` renders that brief directly in
+    [tui_rendering.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui_rendering.py)
+- **Gate 3 — Session**
+  - normalized `session_brief` and `session_views` are emitted by the shared dashboard payload in
+    [operation_projections.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/operation_projections.py)
+  - the public task-addressed session surface is implemented in
+    [commands_operation_detail.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/commands_operation_detail.py)
+  - TUI session and forensic drill-down consume the same shared semantics through
+    [tui_models.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui_models.py),
+    [tui_rendering.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui_rendering.py),
+    and
+    [tui_controller.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui_controller.py)
+
+Focused verification already present in the repository includes:
+
+- [test_operation_projections.py](/Users/thunderbird/Projects/operator/tests/test_operation_projections.py)
+- [test_operation_dashboard_queries.py](/Users/thunderbird/Projects/operator/tests/test_operation_dashboard_queries.py)
+- [test_cli.py](/Users/thunderbird/Projects/operator/tests/test_cli.py)
+- [test_tui.py](/Users/thunderbird/Projects/operator/tests/test_tui.py)
+- [test_tui_session_view.py](/Users/thunderbird/Projects/operator/tests/test_tui_session_view.py)
+
+Documentation is now aligned with the implemented tranche in:
+
+- [docs/reference/cli.md](/Users/thunderbird/Projects/operator/docs/reference/cli.md)
+- [docs/tui-workbench.md](/Users/thunderbird/Projects/operator/docs/tui-workbench.md)
+- [docs/tui-forensic-workflow.md](/Users/thunderbird/Projects/operator/docs/tui-forensic-workflow.md)
+- [design/VISION.md](/Users/thunderbird/Projects/operator/design/VISION.md)
+- [design/ARCHITECTURE.md](/Users/thunderbird/Projects/operator/design/ARCHITECTURE.md)

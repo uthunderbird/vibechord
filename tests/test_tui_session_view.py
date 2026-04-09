@@ -145,6 +145,7 @@ async def test_session_enter_opens_forensic_even_without_raw_transcript() -> Non
     console = Console(record=True, width=180, markup=False)
     console.print(controller.render())
     rendered = console.export_text(styles=False)
+    assert "Forensic Transcript" in rendered
     assert "No raw transcript available for the selected session." in rendered
 
 

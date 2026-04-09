@@ -662,7 +662,7 @@ async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -
     assert controller.state.view_level == "session"
 
 
-async def test_session_enter_stays_in_session_if_transcript_is_unavailable() -> None:
+async def test_session_enter_opens_forensic_if_transcript_is_unavailable() -> None:
     calls: list[tuple[str, str | None]] = []
 
     async def _interrupt(operation_id: str, task_id: str | None) -> str:
@@ -699,11 +699,8 @@ async def test_session_enter_stays_in_session_if_transcript_is_unavailable() -> 
     await controller.handle_key("\r")
     await controller.handle_key("\r")
 
-    assert controller.state.view_level == "session"
-    assert (
-        controller.state.last_message
-        == "No raw transcript for selected session; staying on session timeline."
-    )
+    assert controller.state.view_level == "forensic"
+    assert controller.state.last_message is None
 
 
 async def test_fleet_refresh_failure_is_reported_and_non_fatal() -> None:

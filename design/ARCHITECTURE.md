@@ -150,16 +150,16 @@ Examples:
 
 - CLI commands
 - machine-readable console output
+- TUI supervisory workbench
 
 > **Planned**: Python convenience APIs.
-> **Planned**: TUI supervisory workbench.
 
 Delivery composes the application layer, not duplicates its logic.
 
 In hexagonal terms, delivery surfaces are driving adapters over application-facing contracts.
 
 - CLI is the authoritative shell-facing driving adapter.
-- The future TUI is a supervisory driving adapter over the same underlying contracts.
+- The TUI is a supervisory driving adapter over the same underlying contracts.
 - State-changing delivery actions must drive the same application-facing command/use-case paths.
 - Supervisory and inspection delivery surfaces must consume shared application-facing
   query/projection services rather than delivery-local state assembly.
