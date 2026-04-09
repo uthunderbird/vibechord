@@ -13,6 +13,7 @@ from agent_operator.cli.tui import build_fleet_workbench_controller
 from agent_operator.cli.tui import models as tui_models_pkg
 from agent_operator.cli.tui_models import FleetWorkbenchState, dashboard_tasks, task_signal_text
 from agent_operator.cli.tui_rendering import (
+    render_attention_picker,
     render_forensic_transcript_panel,
     render_help_overlay,
     render_list_table,
@@ -712,6 +713,59 @@ async def test_fleet_view_n_dispatches_oldest_nonblocking_attention() -> None:
     assert answers == [("op-run", "att-2", "ok")]
     assert controller.state.pending_answer_operation_id is None
     assert controller.state.pending_answer_attention_id is None
+    assert controller.state.last_message == "answered op-run:att-2:ok"
+
+
+async def test_fleet_attention_picker_selects_specific_attention_item() -> None:
+    answers: list[tuple[str, str, str]] = []
+    active_attention_ids = ["att-3", "att-1", "att-2"]
+
+    async def _load_operation_payload_with_picker_items(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [
+            item
+            for item in payload["attention"]
+            if isinstance(item, dict) and item.get("attention_id") in active_attention_ids
+        ]
+        return payload
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        active_attention_ids[:] = [item for item in active_attention_ids if item != attention_id]
+        return f"answered {operation_id}:{attention_id}:{text}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_picker_items,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("A")
+
+    assert controller.state.attention_picker_active is True
+    console = Console(record=True, width=160, markup=False)
+    console.print(render_attention_picker(controller.state))
+    rendered = console.export_text(styles=False)
+    assert "att-3" in rendered
+    assert "att-2" in rendered
+    assert "non-blocking" in rendered
+
+    await controller.handle_key("j")
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("o")
+    await controller.handle_key("k")
+    await controller.handle_key("\r")
+
+    assert answers == [("op-run", "att-2", "ok")]
+    assert controller.state.attention_picker_active is False
+    assert controller.state.pending_answer_operation_id is None
     assert controller.state.last_message == "answered op-run:att-2:ok"
 
 

@@ -181,6 +181,10 @@ class FleetWorkbenchState:
     pending_answer_blocking: bool = True
     pending_answer_text: str = ""
     pending_answer_prompt: str = "Answer text: "
+    attention_picker_active: bool = False
+    attention_picker_operation_id: str | None = None
+    attention_picker_task_id: str | None = None
+    attention_picker_index: int = 0
     help_overlay_active: bool = False
     view_level: str = "fleet"
     selected_task_index: int = 0
@@ -663,6 +667,25 @@ def oldest_operation_blocking_attention(
     if not attentions:
         return None
     return sorted(attentions, key=_attention_sort_key)[0]
+
+
+def task_scope_attentions(
+    payload: dict[str, object],
+    *,
+    task_id: str | None,
+) -> list[AttentionSummary]:
+    attentions = [item for item in _operation_attentions(payload) if item.target_id == task_id]
+    return sorted(attentions, key=_attention_sort_key)
+
+
+def operation_scope_attentions(
+    payload: dict[str, object],
+    *,
+    operation_id: str,
+) -> list[AttentionSummary]:
+    _ = operation_id
+    attentions = list(_operation_attentions(payload))
+    return sorted(attentions, key=_attention_sort_key)
 
 
 def tasks_with_blocking_attention(

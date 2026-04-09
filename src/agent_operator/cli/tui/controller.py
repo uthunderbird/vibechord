@@ -12,7 +12,9 @@ from .models import (
     oldest_nonblocking_attention,
     oldest_task_blocking_attention,
     oldest_task_nonblocking_attention,
+    operation_scope_attentions,
     payload_items,
+    task_scope_attentions,
     tasks_with_blocking_attention,
 )
 from .rendering import render_workbench
@@ -99,6 +101,8 @@ class FleetWorkbenchController:
 
     async def handle_key(self, key: str) -> bool:
         normalized = normalize_key(key)
+        if self.state.attention_picker_active:
+            return self._handle_attention_picker_key(normalized)
         if self.state.pending_forensic_filter_text is not None:
             return self._handle_forensic_filter_key(key, normalized)
         if self.state.pending_session_filter_text is not None:
@@ -113,6 +117,9 @@ class FleetWorkbenchController:
             return await self._handle_confirmation_key(normalized)
         if self.state.help_overlay_active:
             return self._handle_help_overlay_key(normalized)
+        if key == "A":
+            self._open_attention_picker_for_scope()
+            return True
         if self.state.view_level == "forensic":
             return await self._handle_forensic_key(normalized)
         if self.state.view_level == "session":
@@ -174,6 +181,52 @@ class FleetWorkbenchController:
         if normalized == "c":
             self.state.pending_confirmation = selected.operation_id
             self.state.last_message = None
+            return True
+        return True
+
+    def _handle_attention_picker_key(self, key: str) -> bool:
+        if key in {"q", "ctrl+c"}:
+            return False
+        if key in {"esc", "A"}:
+            self._clear_attention_picker()
+            self.state.last_message = "Attention picker closed."
+            return True
+        if key in {"up", "k"}:
+            items = self._attention_picker_items()
+            if items:
+                self.state.attention_picker_index = (
+                    self.state.attention_picker_index - 1
+                ) % len(items)
+            return True
+        if key in {"down", "j"}:
+            items = self._attention_picker_items()
+            if items:
+                self.state.attention_picker_index = (
+                    self.state.attention_picker_index + 1
+                ) % len(items)
+            return True
+        if key == "enter":
+            items = self._attention_picker_items()
+            if not items:
+                self.state.last_message = "No attention item is available to select."
+                self._clear_attention_picker()
+                return True
+            selected = items[self.state.attention_picker_index]
+            operation_id = self.state.attention_picker_operation_id
+            if operation_id is None:
+                self.state.last_message = "Attention picker lost its operation context."
+                self._clear_attention_picker()
+                return True
+            task_id = self.state.attention_picker_task_id
+            self._clear_attention_picker()
+            self._set_answer_flow(
+                operation_id=operation_id,
+                attention_id=selected.attention_id,
+                task_id=task_id,
+                blocking=selected.blocking,
+                prompt="Answer text: ",
+            )
+            self.state.last_message = "Attention selected. Type text, Enter to send, Esc to cancel."
             return True
         return True
 
@@ -397,6 +450,45 @@ class FleetWorkbenchController:
             self.state.help_overlay_active = False
             self.state.last_message = None
         return True
+
+    def _open_attention_picker_for_scope(self) -> None:
+        if self.state.selected_operation_payload is None:
+            self.state.last_message = "No selected scope for attention picker."
+            return
+        operation_id = self.state.selected_item.operation_id if self.state.selected_item else None
+        task_id = (
+            self.state.selected_task.task_id
+            if self.state.view_level in {"operation", "session", "forensic"}
+            and self.state.selected_task is not None
+            else None
+        )
+        if operation_id is None:
+            self.state.last_message = "No selected scope for attention picker."
+            return
+        self.state.attention_picker_operation_id = operation_id
+        self.state.attention_picker_task_id = task_id
+        self.state.attention_picker_index = 0
+        self.state.attention_picker_active = bool(self._attention_picker_items())
+        self.state.last_message = (
+            None
+            if self.state.attention_picker_active
+            else "No attention items in the current scope."
+        )
+
+    def _attention_picker_items(self):
+        payload = self.state.selected_operation_payload
+        operation_id = self.state.attention_picker_operation_id
+        if not isinstance(payload, dict) or operation_id is None:
+            return []
+        if self.state.attention_picker_task_id is not None:
+            return task_scope_attentions(payload, task_id=self.state.attention_picker_task_id)
+        return operation_scope_attentions(payload, operation_id=operation_id)
+
+    def _clear_attention_picker(self) -> None:
+        self.state.attention_picker_active = False
+        self.state.attention_picker_operation_id = None
+        self.state.attention_picker_task_id = None
+        self.state.attention_picker_index = 0
 
     async def _handle_answer_key(self, key: str, normalized: str) -> bool:
         if key in {"\x1b", "\x03", "esc", "ctrl+c"}:

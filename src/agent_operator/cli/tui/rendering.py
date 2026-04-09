@@ -14,6 +14,7 @@ from .models import (
     filtered_memory_entries,
     filtered_raw_transcript_lines,
     filtered_session_timeline_events,
+    operation_scope_attentions,
     raw_transcript_lines,
     selected_session,
     session_brief,
@@ -24,6 +25,7 @@ from .models import (
     status_text,
     task_attention_titles,
     task_lane,
+    task_scope_attentions,
     task_session_summary,
     task_signal_text,
 )
@@ -95,6 +97,8 @@ def header_lines(state: FleetWorkbenchState) -> list[str]:
 
 
 def right_pane_title(state: FleetWorkbenchState) -> str:
+    if state.attention_picker_active:
+        return "Attention Picker"
     if state.help_overlay_active:
         return "Help"
     if state.view_level == "operation":
@@ -129,6 +133,8 @@ def render_left_pane(state: FleetWorkbenchState) -> Table:
 
 
 def render_right_pane(state: FleetWorkbenchState) -> Group | Table | Text:
+    if state.attention_picker_active:
+        return render_attention_picker(state)
     if state.help_overlay_active:
         return render_help_overlay(state)
     if state.view_level == "forensic":
@@ -341,6 +347,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("Tab", "jump to next blocking task attention"),
             ("a", "answer oldest blocking attention for selected task"),
             ("n", "answer oldest non-blocking attention for selected task"),
+            ("A", "open attention picker for selected task"),
             ("i / d / t / m", "switch right pane detail mode"),
             ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
             *common,
@@ -353,6 +360,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("r", "toggle raw transcript"),
             ("a", "answer oldest blocking attention for current task"),
             ("n", "answer oldest non-blocking attention for current task"),
+            ("A", "open attention picker for current task"),
             ("p / u / s / c", "pause, unpause, interrupt, cancel"),
             *common,
         ]
@@ -361,6 +369,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("/", "filter forensic transcript/detail"),
             ("a", "answer oldest blocking attention for current task"),
             ("n", "answer oldest non-blocking attention for current task"),
+            ("A", "open attention picker for current task"),
             *common,
         ]
     return [
@@ -370,9 +379,42 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
         ("Tab", "jump to next blocking attention"),
         ("a", "answer oldest blocking attention in selected operation"),
         ("n", "answer oldest non-blocking attention in selected operation"),
+        ("A", "open attention picker in selected operation"),
         ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
         *common,
     ]
+
+
+def render_attention_picker(state: FleetWorkbenchState) -> Table:
+    table = Table(expand=True, box=None, show_header=True)
+    table.add_column("", no_wrap=True)
+    table.add_column("Kind", no_wrap=True)
+    table.add_column("Attention", no_wrap=True)
+    table.add_column("Title")
+    table.add_column("Question")
+    items = _attention_picker_items(state)
+    if not items:
+        table.add_row("", "-", "-", "No attention items in the current scope.", "-")
+        return table
+    for index, item in enumerate(items):
+        table.add_row(
+            ">" if index == state.attention_picker_index else " ",
+            "blocking" if item.blocking else "non-blocking",
+            item.attention_id,
+            item.title or "-",
+            item.question or "-",
+        )
+    return table
+
+
+def _attention_picker_items(state: FleetWorkbenchState):
+    payload = state.selected_operation_payload
+    operation_id = state.attention_picker_operation_id
+    if not isinstance(payload, dict) or operation_id is None:
+        return []
+    if state.attention_picker_task_id is not None:
+        return task_scope_attentions(payload, task_id=state.attention_picker_task_id)
+    return operation_scope_attentions(payload, operation_id=operation_id)
 
 
 def render_detail_table(state: FleetWorkbenchState) -> Table:
@@ -622,6 +664,8 @@ def render_forensic_transcript_panel(state: FleetWorkbenchState) -> Text:
 
 def render_footer_text(state: FleetWorkbenchState) -> Text:
     selected = state.selected_item
+    if state.attention_picker_active:
+        return Text("j/k move  Enter select attention  A or Esc close  q quit")
     if state.help_overlay_active:
         return Text("? or Esc close help  q quit")
     if state.pending_filter_text is not None:
@@ -656,20 +700,22 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
     if state.last_message is not None:
         return Text(state.last_message)
     if state.view_level == "forensic":
-        return Text("a/n answer  / filter  Esc back to session timeline  q quit")
+        return Text("a/n answer  A picker  / filter  Esc back to session timeline  q quit")
     if state.view_level == "session":
         return Text(
             "j/k move  / filter  Enter forensic  r raw transcript  Esc back  a/n answer"
+            "  A picker"
             "  s interrupt task/session  p pause  u unpause  c cancel  q quit"
         )
     if state.view_level == "operation":
         return Text(
             "j/k move  Enter session  / filter  a/n answer"
+            "  A picker"
             "  i detail  d decisions  t events  m memory"
             "  Esc back  p pause  u unpause  s interrupt task/session  c cancel  r refresh  q quit"
         )
     help_line = Text(
-        "j/k or arrows move  Enter open  a/n answer  tab next-attention"
+        "j/k or arrows move  Enter open  a/n answer  A picker  tab next-attention"
         "  / filter  p pause  u unpause  s interrupt  c cancel  r refresh  q quit"
     )
     if selected is None:

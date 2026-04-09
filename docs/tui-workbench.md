@@ -43,6 +43,7 @@ Available keys:
 - `Enter`: open the selected operation in the Level 1 operation view
 - `Tab`: jump to the next operation with an alert or open attention
 - `n`: answer the oldest non-blocking attention in the selected operation
+- `A`: open the current-scope attention picker for the selected operation
 - `/`: start fleet filter input; match by operation id, objective, status, agent cue, project, or attention text
 - `p`: enqueue pause for the selected operation
 - `u`: enqueue unpause/resume for the selected operation
@@ -74,6 +75,7 @@ Available keys:
 - `j` / `k` or arrow keys: move the selected task
 - `Enter`: open the Level 2 session view for the selected task if it has a linked session
 - `n`: answer the oldest non-blocking attention for the selected task
+- `A`: open the current-scope attention picker for the selected task
 - `/`: start task filter input; match by task id, short id, title, status, agent, goal, or notes
 - `i`: show task detail
 - `d`: show decision memos for the selected task scope
@@ -113,6 +115,7 @@ Available keys:
 - `j` / `k` or arrow keys: move the selected timeline item
 - `/`: start session filter input; match by event type, summary, task id, session id, or iteration
 - `n`: answer the oldest non-blocking attention for the current task
+- `A`: open the current-scope attention picker for the current task
 - `a`: answer the oldest blocking attention for the current task
 - `Enter`: open the selected timeline item in the Level 3 forensic view
 - `r`: toggle the right pane between timeline detail and raw transcript
@@ -142,6 +145,7 @@ Available keys:
 
 - `/`: start forensic filter input; match by raw transcript/detail text
 - `n`: answer the oldest non-blocking attention for the current task
+- `A`: open the current-scope attention picker for the current task
 - `?`: show the current view help overlay
 - `Esc`: return to the session timeline
 - `q`: quit the workbench
@@ -172,6 +176,8 @@ Current interactive actions implemented in the workbench:
   directly to the next oldest blocking attention in the same scope when one remains
 - answer the oldest non-blocking attention in scope with `n`, using the same inline answer flow
   and same-scope chaining behavior
+- open a mixed current-scope attention picker with `A`, choose an exact attention item with
+  `j`/`k`, and then reuse the same inline answer flow
 - jump to the next attention-bearing operation from fleet
 - refresh fleet and operation views
 - pause an operation
@@ -197,8 +203,9 @@ Current limitations of the implemented UI:
   `operator session`. They do not yet provide adapter-specific forensic formatting or rich
   per-event timestamps.
 - The forensic view is read-only. It does not add deeper per-event actions beyond back-navigation.
-- Inline attention answering now supports both blocking (`a`) and non-blocking (`A`) oldest-first
-  same-scope flows, but the workbench still does not provide a richer multi-item picker UI.
+- Inline attention answering now supports oldest-first blocking (`a`), oldest-first non-blocking
+  (`n`), and a compact mixed attention picker (`A`), but it is still not a richer multi-pane
+  attention management surface.
 - Session drill-down depends on task-linked session data being present in the operation dashboard
   payload. Tasks without a linked session cannot open Level 2.
 - Filtering is now available at fleet, operation, session, and forensic levels.
