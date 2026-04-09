@@ -647,6 +647,41 @@ def test_operation_task_board_groups_tasks_into_status_lanes() -> None:
     assert "task-running" in rendered
 
 
+def test_operation_task_board_shows_compact_session_cue_lines() -> None:
+    state = FleetWorkbenchState(
+        view_level="operation",
+        selected_operation_payload={
+            "tasks": [
+                {
+                    "task_id": "task-1",
+                    "task_short_id": "task-1",
+                    "title": "Build the board",
+                    "status": "running",
+                    "linked_session_id": "session-1",
+                    "dependencies": [],
+                }
+            ],
+            "sessions": [
+                {
+                    "session_id": "session-1",
+                    "adapter_key": "codex_acp",
+                    "status": "running",
+                    "waiting_reason": "Waiting on operator reply.",
+                }
+            ],
+            "attention": [],
+        },
+    )
+
+    table = render_task_board(state)
+    console = Console(record=True, width=140, markup=False)
+    console.print(table)
+    rendered = console.export_text(styles=False)
+
+    assert "session" in rendered
+    assert "codex_acp [running] waiting=Waiting on operator reply." in rendered
+
+
 async def test_operation_view_navigation_follows_lane_order() -> None:
     async def _load_operation_payload_lane_order(operation_id: str) -> dict[str, object]:
         payload = await _load_operation_payload(operation_id)

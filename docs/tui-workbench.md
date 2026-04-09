@@ -71,6 +71,8 @@ Filter input:
 switches between task-focused detail modes for the selected task. The task board is grouped into
 status lanes in this order: `RUNNING`, `READY`, `BLOCKED`, `COMPLETED`, `FAILED`, `CANCELLED`.
 `BLOCKED` is a display alias for `pending` tasks that still have unresolved dependencies.
+Blocked tasks show a compact dependency continuation line, and tasks with linked session runtime
+state can show a compact session continuation line under the task row.
 
 Available keys:
 

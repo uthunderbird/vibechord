@@ -213,6 +213,9 @@ def render_task_board(state: FleetWorkbenchState) -> Table:
             )
             if lane == "BLOCKED" and task.dependencies:
                 table.add_row("", "deps", "", "", ", ".join(task.dependencies))
+            session_line = task_session_summary(state.selected_operation_payload or {}, task)
+            if session_line is not None:
+                table.add_row("", "session", "", "", session_line)
     return table
 
 

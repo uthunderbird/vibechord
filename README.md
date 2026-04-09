@@ -76,7 +76,8 @@ overlay for the current workbench level, `n` answers the oldest non-blocking att
 current scope with the same inline flow used for blocking attention, and `A` opens a compact
 current-scope attention picker so you can choose a specific attention item before answering.
 Operation view now renders the task board in grouped status lanes, including a `BLOCKED` display
-lane for dependency-blocked pending tasks.
+lane for dependency-blocked pending tasks, plus compact dependency and linked-session cue lines
+under task rows when that context is available.
 `Enter` still drills into forensic even when a session has no raw transcript payload, falling back
 to event context plus an explicit empty-state message. For the
 current keymap, supported actions, and known limitations, see
