@@ -21,6 +21,13 @@ No comparable first-priority TUI/workbench implementation gap remains that is bo
 The current workbench truth is therefore best represented by a status assessment rather than a new
 implementation claim.
 
+Since this note was first added, two previously in-flight fronts have landed and no longer act as
+blocking overlap:
+
+- `ADR 0121` application package reorganization is now implemented in repository truth.
+- forensic `q` now behaves as back-navigation to session level rather than quitting the whole
+  workbench.
+
 ## Vision/Architecture Matrix
 
 | Area | Status | Notes |
@@ -31,9 +38,9 @@ implementation claim.
 | Blocking badge propagation and oldest-first attention ordering | implemented | Present in projection/model/controller behavior and already called out in `ADR 0111`. |
 | Operation view task board with grouped lanes and dependency/session cue lines | implemented | `RUNNING`, `READY`, `BLOCKED`, `COMPLETED`, `FAILED`, `CANCELLED` rendering is present and documented. |
 | Session brief + timeline + selected-event detail | implemented | Shared `session_brief` payload and session drill-down are in repository truth. |
-| Forensic drill-down without requiring raw transcript presence | implemented | Forensic view opens with explicit empty-state messaging when transcript text is absent. |
+| Forensic drill-down without requiring raw transcript presence | implemented | Forensic view opens with explicit empty-state messaging when transcript text is absent, and `q` now returns to session level. |
 | CLI/TUI command parity for pause, unpause, interrupt, answer, cancel | implemented | Behavior is implemented; ADR status lag remains on `ADR 0112` only. |
-| Shared delivery substrate and shared projections | implemented | `ARCHITECTURE.md` and ADRs `0113` to `0118` match current package/query shape. |
+| Shared delivery substrate and shared projections | implemented | `ARCHITECTURE.md`, `ADR 0113` to `0118`, and landed `ADR 0121` package organization now match current query/runtime/application shape. |
 | Human-first fleet/operation/session briefs | implemented | Shared `fleet` / `operation_brief` / `session_brief` payloads exist and are used by CLI/TUI surfaces. |
 | Full multi-pane attention-management surface | partial | Current inline answer flow and attention picker are sufficient for parity, but not yet a richer dedicated management surface. |
 | Adapter-specific forensic formatting richness | partial | Current docs already call out that per-adapter forensic formatting remains limited. |
@@ -46,6 +53,7 @@ implementation claim.
 - `implemented`: the four-level hierarchy and supervision-first navigation model.
 - `implemented`: fleet-level answer flow without forced deep drill-down.
 - `implemented`: help overlays, filtering, task board grouping, and forensic escalation path.
+- `implemented`: forensic `q` now acts as exit from Level 3 back to the parent session view.
 - `partial`: the vision still describes some stronger presentational ambitions than current terminal
   tables provide; this is presentation debt, not a missing first-priority capability slice.
 - `blocked`: explicit nested sub-operator hierarchy support remains future-facing.
@@ -68,6 +76,7 @@ implementation claim.
 - `implemented`: documented partial package migration under `ADR 0123`; current TUI package lives
   under `agent_operator.cli.tui` with compatibility shims.
 - `implemented`: shared projection/query path for fleet, operation, and session surfaces.
+- `implemented`: `ADR 0121` is no longer an in-flight blocker to further TUI closure work.
 - `partial`: broader delivery package cleanup outside the TUI family remains intentionally deferred
   and is not a TUI slice blocker.
 
@@ -96,6 +105,7 @@ implementation claim.
 | 0116 | Implemented | accepted and feasible | Fleet/operation/session parity tranche claims are consistent with current docs/tests. |
 | 0117 | Implemented | accepted and feasible | Public task-addressed session surface exists. |
 | 0118 | Implemented | accepted and feasible | The tranche success condition is materially met. |
+| 0121 | Accepted + Implemented | accepted and feasible | Application command/query/runtime families now live in canonical subpackages and no longer block TUI read-surface follow-up work. |
 
 ## Verified Evidence Used For This Pass
 
@@ -107,9 +117,11 @@ implementation claim.
   - [README.md](/Users/thunderbird/Projects/operator/README.md)
   - [docs/tui-workbench.md](/Users/thunderbird/Projects/operator/docs/tui-workbench.md)
 - Current implementation/test surfaces inspected:
+  - [src/agent_operator/application/queries/operation_status_queries.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/queries/operation_status_queries.py)
   - [src/agent_operator/cli/tui/controller.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui/controller.py)
   - [src/agent_operator/cli/tui/rendering.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui/rendering.py)
   - [src/agent_operator/cli/tui/models.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui/models.py)
+  - [tests/test_application_structure.py](/Users/thunderbird/Projects/operator/tests/test_application_structure.py)
   - [tests/test_tui.py](/Users/thunderbird/Projects/operator/tests/test_tui.py)
   - [tests/test_tui_session_view.py](/Users/thunderbird/Projects/operator/tests/test_tui_session_view.py)
 
@@ -117,5 +129,8 @@ implementation claim.
 
 - `blocked`: nested sub-operator workbench hierarchy described in the TUI UX vision.
 - `partial`: richer adapter-specific forensic presentation.
+- `partial`: the TUI UX vision still describes stronger presentation ambition than the current
+  terminal tables and text panels provide, even though the core supervision workflow is now in
+  place.
 - `partial`: if desired, a future cleanup pass can update `ADR 0112` from `Accepted` to
   `Implemented` once the repository wants the ADR header to match current behavior explicitly.
