@@ -224,6 +224,8 @@ class _FleetWorkbenchController:
         normalized = _normalize_key(key)
         if self.state.pending_confirmation is not None:
             return await self._handle_confirmation_key(normalized)
+        if self.state.view_level == "forensic":
+            return await self._handle_forensic_key(normalized)
         if self.state.view_level == "session":
             return await self._handle_session_key(normalized)
         if self.state.view_level == "operation":
@@ -276,6 +278,9 @@ class _FleetWorkbenchController:
         left = Panel(
             self._render_left_pane(),
             title=(
+                "Event Context"
+                if self.state.view_level == "forensic"
+                else
                 "Timeline"
                 if self.state.view_level == "session"
                 else "Tasks"
@@ -377,6 +382,13 @@ class _FleetWorkbenchController:
         if key in {"down", "j"}:
             self._move_timeline_selection(1)
             return True
+        if key == "enter":
+            if self.state.selected_timeline_event is None:
+                self.state.last_message = "No timeline item is selected."
+                return True
+            self.state.view_level = "forensic"
+            self.state.last_message = None
+            return True
         selected = self.state.selected_item
         task = self.state.selected_task
         if selected is None:
@@ -410,6 +422,15 @@ class _FleetWorkbenchController:
             return True
         if key == "c":
             self.state.pending_confirmation = selected.operation_id
+            self.state.last_message = None
+            return True
+        return True
+
+    async def _handle_forensic_key(self, key: str) -> bool:
+        if key in {"q", "ctrl+c"}:
+            return False
+        if key == "esc":
+            self.state.view_level = "session"
             self.state.last_message = None
             return True
         return True
@@ -500,6 +521,8 @@ class _FleetWorkbenchController:
                 return
 
     def _render_left_pane(self) -> Table:
+        if self.state.view_level == "forensic":
+            return self._render_forensic_context()
         if self.state.view_level == "session":
             return self._render_session_timeline()
         if self.state.view_level == "operation":
@@ -507,6 +530,8 @@ class _FleetWorkbenchController:
         return self._render_list_table()
 
     def _render_right_pane(self) -> Table | Text:
+        if self.state.view_level == "forensic":
+            return self._render_forensic_transcript_panel()
         if self.state.view_level == "session":
             return self._render_session_panel()
         if self.state.view_level == "operation":
@@ -521,6 +546,15 @@ class _FleetWorkbenchController:
             breadcrumb += f" > {self.state.selected_item.operation_id}"
             if self.state.selected_task is not None:
                 breadcrumb += f" > {self.state.selected_task.task_short_id}"
+        if self.state.view_level == "forensic" and self.state.selected_item is not None:
+            breadcrumb += f" > {self.state.selected_item.operation_id}"
+            if self.state.selected_task is not None:
+                breadcrumb += f" > {self.state.selected_task.task_short_id}"
+            if self.state.selected_timeline_event is not None:
+                breadcrumb += (
+                    f" > iter-{self.state.selected_timeline_event.iteration}"
+                    f":{self.state.selected_timeline_event.event_type}"
+                )
         return [
             f"breadcrumb={breadcrumb}",
             (
@@ -544,6 +578,11 @@ class _FleetWorkbenchController:
             if event is not None:
                 return f"Timeline: iter {event.iteration}"
             return "Timeline"
+        if self.state.view_level == "forensic":
+            event = self.state.selected_timeline_event
+            if event is not None:
+                return f"Forensic Transcript: iter {event.iteration}"
+            return "Forensic Transcript"
         if self.state.selected_item is not None:
             return f"Detail: {self.state.selected_item.operation_id}"
         return "Detail"
@@ -613,6 +652,26 @@ class _FleetWorkbenchController:
                 event.event_type,
                 event.summary,
             )
+        return table
+
+    def _render_forensic_context(self) -> Table:
+        table = Table(expand=True, box=None, show_header=False)
+        table.add_column("Field", no_wrap=True, style="bold")
+        table.add_column("Value")
+        event = self.state.selected_timeline_event
+        task = self.state.selected_task
+        if event is None:
+            table.add_row("Event", "No forensic event selected.")
+            return table
+        if task is not None:
+            table.add_row("Task", f"{task.task_short_id} · {task.title}")
+        table.add_row("Type", event.event_type)
+        table.add_row("Iteration", str(event.iteration))
+        if event.task_id is not None:
+            table.add_row("Task id", event.task_id)
+        if event.session_id is not None:
+            table.add_row("Session", event.session_id)
+        table.add_row("Summary", event.summary)
         return table
 
     def _render_detail_table(self) -> Table:
@@ -775,9 +834,22 @@ class _FleetWorkbenchController:
     def _render_raw_transcript_panel(self) -> Text:
         payload = self.state.selected_operation_payload
         lines = _raw_transcript_lines(payload)
+        event = self.state.selected_timeline_event
+        prefix: list[str] = []
+        if event is not None:
+            prefix = [
+                f"Focused event: {event.summary}",
+                f"event_type={event.event_type} iteration={event.iteration}",
+                "",
+            ]
         if not lines:
-            return Text("No raw transcript available for the selected session.")
-        return Text("\n".join(lines))
+            return Text(
+                "\n".join(prefix + ["No raw transcript available for the selected session."])
+            )
+        return Text("\n".join(prefix + lines))
+
+    def _render_forensic_transcript_panel(self) -> Text:
+        return self._render_raw_transcript_panel()
 
     def _render_footer_text(self) -> Text:
         selected = self.state.selected_item
@@ -788,6 +860,8 @@ class _FleetWorkbenchController:
             )
         if self.state.last_message is not None:
             return Text(self.state.last_message)
+        if self.state.view_level == "forensic":
+            return Text("Esc back to session timeline  q quit")
         if self.state.view_level == "session":
             return Text(
                 "j/k move  r raw transcript toggle  Esc back  s interrupt task/session  "

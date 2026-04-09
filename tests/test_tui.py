@@ -238,6 +238,30 @@ async def test_session_view_toggles_raw_transcript_and_uses_task_scoped_interrup
     assert controller.state.last_message == "interrupt op-run:task-1"
 
 
+async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    assert controller.state.view_level == "forensic"
+    assert controller.state.selected_timeline_event is not None
+    assert controller.state.selected_timeline_event.event_type == "agent.invocation.started"
+
+    await controller.handle_key("\x1b")
+    assert controller.state.view_level == "session"
+
+
 def test_fleet_prefers_interactive_workbench_when_both_streams_are_ttys(
     monkeypatch: MonkeyPatch,
 ) -> None:
