@@ -188,6 +188,9 @@ class FleetWorkbenchState:
     pending_task_filter_restore_query: str = ""
     selected_timeline_index: int = 0
     session_panel_mode: str = "timeline"
+    session_filter_query: str = ""
+    pending_session_filter_text: str | None = None
+    pending_session_filter_restore_query: str = ""
     filter_query: str = ""
     pending_filter_text: str | None = None
     pending_filter_restore_query: str = ""
@@ -207,7 +210,11 @@ class FleetWorkbenchState:
 
     @property
     def selected_timeline_event(self) -> TimelineEventItem | None:
-        events = session_timeline_events(self.selected_operation_payload, self.selected_task)
+        events = filtered_session_timeline_events(
+            self.selected_operation_payload,
+            self.selected_task,
+            self.session_filter_query,
+        )
         if (
             not events
             or self.selected_timeline_index < 0
@@ -358,6 +365,36 @@ def session_timeline_events(
         return events
     filtered = [item for item in events if item.session_id == session_id or item.task_id == task_id]
     return filtered or events
+
+
+def filtered_session_timeline_events(
+    payload: dict[str, object] | None,
+    task: OperationTaskItem | None,
+    query: str,
+) -> list[TimelineEventItem]:
+    events = session_timeline_events(payload, task)
+    normalized = query.strip().lower()
+    if not normalized:
+        return events
+    terms = [term for term in normalized.split() if term]
+    if not terms:
+        return events
+    return [event for event in events if _timeline_event_matches_filter(event, terms)]
+
+
+def _timeline_event_matches_filter(event: TimelineEventItem, terms: list[str]) -> bool:
+    haystack = " ".join(
+        value.lower()
+        for value in (
+            event.event_type,
+            event.summary,
+            event.task_id or "",
+            event.session_id or "",
+            str(event.iteration),
+        )
+        if value
+    )
+    return all(term in haystack for term in terms)
 
 
 def session_brief(

@@ -107,6 +107,7 @@ selected task's session timeline. The right pane defaults to a split session scr
 Available keys:
 
 - `j` / `k` or arrow keys: move the selected timeline item
+- `/`: start session filter input; match by event type, summary, task id, session id, or iteration
 - `a`: answer the oldest blocking attention for the current task
 - `Enter`: open the selected timeline item in the Level 3 forensic view
 - `r`: toggle the right pane between timeline detail and raw transcript
@@ -116,6 +117,13 @@ Available keys:
 - `u`: enqueue unpause/resume for the parent operation
 - `c`: start cancel confirmation for the parent operation
 - `q`: quit the workbench
+
+Session filter input:
+
+- type to update the timeline rows live
+- `Enter`: apply the current filter text
+- `Esc`: abort the edit and restore the previous filter
+- submit an empty filter to clear it
 
 ## Forensic Level
 
@@ -175,5 +183,5 @@ Current limitations of the implemented UI:
   workflow.
 - Session drill-down depends on task-linked session data being present in the operation dashboard
   payload. Tasks without a linked session cannot open Level 2.
-- Filtering is now available at fleet and operation levels. Session and forensic views do not yet
-  have independent filter modes.
+- Filtering is now available at fleet, operation, and session levels. Forensic view does not yet
+  have an independent filter mode.

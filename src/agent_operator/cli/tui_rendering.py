@@ -12,13 +12,13 @@ from .tui_models import (
     filtered_dashboard_tasks,
     filtered_decisions,
     filtered_memory_entries,
+    filtered_session_timeline_events,
     raw_transcript_lines,
     selected_session,
     session_brief,
     session_event_glyph,
     session_event_label,
     session_identity_text,
-    session_timeline_events,
     signal_text,
     status_text,
     task_attention_titles,
@@ -71,7 +71,10 @@ def header_lines(state: FleetWorkbenchState) -> list[str]:
             )
     lines = [f"breadcrumb={breadcrumb}"]
     if state.view_level == "session":
-        lines.append(session_identity_text(state.selected_operation_payload, state.selected_task))
+        identity = session_identity_text(state.selected_operation_payload, state.selected_task)
+        if state.session_filter_query:
+            identity += f"  session_filter={state.session_filter_query}"
+        lines.append(identity)
         return lines
     scope = (f"project={state.project}" if state.project is not None else "project=all") + (
         f"  operations={state.total_operations}"
@@ -258,9 +261,23 @@ def render_session_timeline(state: FleetWorkbenchState) -> Table:
     table.add_column("", no_wrap=True)
     table.add_column("Event", no_wrap=True)
     table.add_column("Summary")
-    events = session_timeline_events(state.selected_operation_payload, state.selected_task)
+    events = filtered_session_timeline_events(
+        state.selected_operation_payload,
+        state.selected_task,
+        state.session_filter_query,
+    )
     if not events:
-        table.add_row("", "-", "-", "-", "No session timeline events.")
+        table.add_row(
+            "",
+            "-",
+            "-",
+            "-",
+            (
+                "No session timeline events match the current filter."
+                if state.session_filter_query
+                else "No session timeline events."
+            ),
+        )
         return table
     for index, event in enumerate(events):
         table.add_row(
@@ -538,6 +555,11 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
             "task filter: "
             f"{state.pending_task_filter_text}  Enter apply  Esc cancel  Backspace edit"
         )
+    if state.pending_session_filter_text is not None:
+        return Text(
+            "session filter: "
+            f"{state.pending_session_filter_text}  Enter apply  Esc cancel  Backspace edit"
+        )
     if state.pending_answer_operation_id is not None:
         instruction = state.pending_answer_prompt
         return Text(
@@ -554,7 +576,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         return Text("a answer  Esc back to session timeline  q quit")
     if state.view_level == "session":
         return Text(
-            "j/k move  Enter forensic  r raw transcript  Esc back  a answer"
+            "j/k move  / filter  Enter forensic  r raw transcript  Esc back  a answer"
             "  s interrupt task/session  p pause  u unpause  c cancel  q quit"
         )
     if state.view_level == "operation":

@@ -7,11 +7,11 @@ from .tui_models import (
     dashboard_tasks,
     filter_fleet_items,
     filtered_dashboard_tasks,
+    filtered_session_timeline_events,
     normalize_key,
     oldest_blocking_attention,
     oldest_task_blocking_attention,
     payload_items,
-    session_timeline_events,
     task_signal_text,
     tasks_with_blocking_attention,
 )
@@ -99,6 +99,8 @@ class FleetWorkbenchController:
 
     async def handle_key(self, key: str) -> bool:
         normalized = normalize_key(key)
+        if self.state.pending_session_filter_text is not None:
+            return self._handle_session_filter_key(key, normalized)
         if self.state.pending_task_filter_text is not None:
             return self._handle_task_filter_key(key, normalized)
         if self.state.pending_filter_text is not None:
@@ -235,6 +237,7 @@ class FleetWorkbenchController:
                 return True
             self.state.view_level = "session"
             self.state.session_panel_mode = "timeline"
+            self._clear_session_filter()
             self._restore_selected_timeline_event(None)
             return True
         if key in {"i", "d", "t", "m"}:
@@ -281,6 +284,7 @@ class FleetWorkbenchController:
             return False
         if key == "esc":
             self.state.view_level = "operation"
+            self._clear_session_filter()
             self.state.last_message = None
             return True
         if key in {"up", "k"}:
@@ -291,6 +295,9 @@ class FleetWorkbenchController:
             return True
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
+            return True
+        if key == "/":
+            self._start_session_filter_input()
             return True
         if key == "enter":
             if self.state.selected_timeline_event is None:
@@ -434,8 +441,10 @@ class FleetWorkbenchController:
         self.state.selected_task_index = min(self.state.selected_task_index, len(tasks) - 1)
 
     def _restore_selected_timeline_event(self, selected_summary: str | None) -> None:
-        events = session_timeline_events(
-            self.state.selected_operation_payload, self.state.selected_task
+        events = filtered_session_timeline_events(
+            self.state.selected_operation_payload,
+            self.state.selected_task,
+            self.state.session_filter_query,
         )
         if not events:
             self.state.selected_timeline_index = 0
@@ -463,8 +472,10 @@ class FleetWorkbenchController:
             self._restore_selected_timeline_event(None)
 
     def _move_timeline_selection(self, delta: int) -> None:
-        events = session_timeline_events(
-            self.state.selected_operation_payload, self.state.selected_task
+        events = filtered_session_timeline_events(
+            self.state.selected_operation_payload,
+            self.state.selected_task,
+            self.state.session_filter_query,
         )
         if events:
             self.state.selected_timeline_index = (self.state.selected_timeline_index + delta) % len(
@@ -692,6 +703,74 @@ class FleetWorkbenchController:
         self.state.task_filter_query = ""
         self.state.pending_task_filter_text = None
         self.state.pending_task_filter_restore_query = ""
+
+    def _handle_session_filter_key(self, key: str, normalized: str) -> bool:
+        selected_summary = (
+            self.state.selected_timeline_event.summary
+            if self.state.selected_timeline_event is not None
+            else None
+        )
+        if key in {"\x1b", "\x03", "esc", "ctrl+c"}:
+            self.state.session_filter_query = self.state.pending_session_filter_restore_query
+            self.state.pending_session_filter_text = None
+            self._apply_session_filter(selected_summary)
+            self.state.last_message = "Session filter input aborted."
+            return True
+        if normalized == "enter":
+            committed = (self.state.pending_session_filter_text or "").strip()
+            self.state.session_filter_query = committed
+            self.state.pending_session_filter_text = None
+            self._apply_session_filter(selected_summary)
+            self.state.last_message = (
+                f"Applied session filter: {committed}"
+                if committed
+                else "Cleared session filter."
+            )
+            return True
+        if key in {"\x7f", "\b"}:
+            if self.state.pending_session_filter_text:
+                self.state.pending_session_filter_text = self.state.pending_session_filter_text[:-1]
+            self.state.session_filter_query = self.state.pending_session_filter_text or ""
+            self._apply_session_filter(selected_summary)
+            return True
+        if len(key) == 1 and key.isprintable():
+            current = self.state.pending_session_filter_text or ""
+            self.state.pending_session_filter_text = current + key
+            self.state.session_filter_query = self.state.pending_session_filter_text
+            self._apply_session_filter(selected_summary)
+        return True
+
+    def _start_session_filter_input(self) -> None:
+        self.state.pending_session_filter_restore_query = self.state.session_filter_query
+        self.state.pending_session_filter_text = self.state.session_filter_query
+        self.state.last_message = None
+        self.state.pending_confirmation = None
+
+    def _apply_session_filter(self, selected_summary: str | None) -> None:
+        events = filtered_session_timeline_events(
+            self.state.selected_operation_payload,
+            self.state.selected_task,
+            self.state.session_filter_query,
+        )
+        if not events:
+            self.state.selected_timeline_index = 0
+            return
+        if selected_summary is not None:
+            for index, event in enumerate(events):
+                if event.summary == selected_summary:
+                    self.state.selected_timeline_index = index
+                    break
+            else:
+                self.state.selected_timeline_index = 0
+            return
+        self.state.selected_timeline_index = min(
+            self.state.selected_timeline_index, len(events) - 1
+        )
+
+    def _clear_session_filter(self) -> None:
+        self.state.session_filter_query = ""
+        self.state.pending_session_filter_text = None
+        self.state.pending_session_filter_restore_query = ""
 
     def _start_filter_input(self) -> None:
         self.state.pending_filter_restore_query = self.state.filter_query

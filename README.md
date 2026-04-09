@@ -69,7 +69,9 @@ switch to raw transcript, and use `a` from fleet, operation, or session to answe
 blocking attention in scope, chaining directly to the next oldest blocking attention in the same
 scope when one remains. Fleet view also supports `/` for a live filter over operation id,
 objective, status, agent cue, project, and attention text, and operation view supports `/` for a
-live task filter over task id, title, status, agent, goal, and notes. `Enter` still drills into forensic even when a session has no raw
+live task filter over task id, title, status, agent, goal, and notes. Session view also supports
+`/` for a live timeline filter over event type, summary, task id, session id, and iteration.
+`Enter` still drills into forensic even when a session has no raw
 transcript payload, falling back to event context plus an explicit empty-state message. For the
 current keymap, supported actions, and known limitations, see
 [TUI Workbench](docs/tui-workbench.md). For the current forensic drill-down behavior, see
