@@ -107,7 +107,8 @@ Task filter input:
 ## Session Level
 
 `Enter` on a task with a linked session opens the Level 2 session view. The left pane shows the
-selected task's session timeline. The right pane defaults to a split session screen:
+selected task's session timeline, ordered newest-first. The right pane defaults to a split session
+screen:
 
 - a compact session brief with `Now`, `Wait`, `Attention`, and `Latest output`
 - a selected-event detail block for the currently highlighted timeline item

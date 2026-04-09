@@ -357,11 +357,13 @@ def session_timeline_events(
     if session_view is not None:
         raw_events = session_view.get("timeline")
         if isinstance(raw_events, list):
-            return [
-                TimelineEventItem.from_payload(item)
-                for item in raw_events
-                if isinstance(item, dict)
-            ]
+            return sort_session_timeline_events(
+                [
+                    TimelineEventItem.from_payload(item)
+                    for item in raw_events
+                    if isinstance(item, dict)
+                ]
+            )
     if not isinstance(payload, dict):
         return []
     raw_events = payload.get("timeline_events")
@@ -371,9 +373,15 @@ def session_timeline_events(
     task_id = task.task_id if task is not None else None
     events = [TimelineEventItem.from_payload(item) for item in raw_events if isinstance(item, dict)]
     if session_id is None and task_id is None:
-        return events
+        return sort_session_timeline_events(events)
     filtered = [item for item in events if item.session_id == session_id or item.task_id == task_id]
-    return filtered or events
+    return sort_session_timeline_events(filtered or events)
+
+
+def sort_session_timeline_events(events: list[TimelineEventItem]) -> list[TimelineEventItem]:
+    indexed = list(enumerate(events))
+    indexed.sort(key=lambda item: (-item[1].iteration, -item[0]))
+    return [event for _, event in indexed]
 
 
 def filtered_session_timeline_events(

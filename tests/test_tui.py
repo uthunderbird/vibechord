@@ -1464,6 +1464,47 @@ async def test_session_timeline_uses_human_event_labels() -> None:
     assert "agent completed" in rendered
 
 
+def test_session_timeline_renders_newest_event_first() -> None:
+    state = FleetWorkbenchState(
+        view_level="session",
+        selected_operation_payload={
+            "tasks": [
+                {
+                    "task_id": "task-1",
+                    "task_short_id": "task-1",
+                    "title": "Build the board",
+                    "status": "running",
+                    "linked_session_id": "session-1",
+                }
+            ],
+            "timeline_events": [
+                {
+                    "event_type": "agent.invocation.started",
+                    "iteration": 1,
+                    "task_id": "task-1",
+                    "session_id": "session-1",
+                    "summary": "started first",
+                },
+                {
+                    "event_type": "agent.invocation.completed",
+                    "iteration": 2,
+                    "task_id": "task-1",
+                    "session_id": "session-1",
+                    "summary": "completed later",
+                },
+            ]
+        },
+        selected_task_index=0,
+    )
+
+    table = render_session_timeline(state)
+    console = Console(record=True, width=140, markup=False)
+    console.print(table)
+    rendered = console.export_text(styles=False)
+
+    assert rendered.index("completed later") < rendered.index("started first")
+
+
 async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -> None:
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
@@ -1483,7 +1524,7 @@ async def test_session_timeline_enter_opens_forensic_view_and_escape_returns() -
 
     assert controller.state.view_level == "forensic"
     assert controller.state.selected_timeline_event is not None
-    assert controller.state.selected_timeline_event.event_type == "agent.invocation.started"
+    assert controller.state.selected_timeline_event.event_type == "agent.invocation.completed"
 
     await controller.handle_key("\x1b")
     assert controller.state.view_level == "session"
