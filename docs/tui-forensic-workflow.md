@@ -14,8 +14,12 @@ selected session.` message.
 ## Current actions
 
 - `a`: answer the oldest blocking attention for the current task without backing out of forensic
+- `n`: answer the oldest non-blocking attention for the current task
+- `A`: open the current-scope attention picker for the current task
+- `/`: filter the current raw transcript/detail text
+- `?`: show the forensic help overlay
 - `Esc`: return to the session timeline
-- `q`: quit the workbench
+- `q`: return to the session timeline
 
 ## Scope rule
 
