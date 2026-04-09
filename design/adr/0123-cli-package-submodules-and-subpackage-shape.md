@@ -12,8 +12,10 @@ Current repository truth on 2026-04-10:
 
 - `implemented`: `cli/workflows/` now exists as a real package with `control.py`, `views.py`,
   `workspace.py`, and `__init__.py`
-- `implemented`: top-level `cli/workflows.py` now acts as a compatibility facade over that package
-- `partial`: `cli/commands/`, `cli/rendering/`, and `cli/tui/` package moves have not landed yet
+- `implemented`: `cli/tui/` now exists as a real package with `controller.py`, `io.py`,
+  `models.py`, `rendering.py`, and `__init__.py`
+- `implemented`: compatibility shims remain at top-level `cli/tui_*.py` module paths
+- `partial`: `cli/commands/` and `cli/rendering/` package moves have not landed yet
 - `deferred`: `cli/helpers/` remains explicitly deferred pending a later cohesion review
 
 This ADR is therefore accepted as the package-shape direction, but only partially implemented in
@@ -344,10 +346,10 @@ This ADR is fully implemented when:
 As of 2026-04-10, the repository satisfies this subset:
 
 1. `cli/workflows/` exists as a package and owns the workflow-family implementation
-2. top-level `cli/workflows.py` remains as a thin compatibility facade
-3. CLI imports still resolve through the compatibility surface
-4. `cli/commands/`, `cli/rendering/`, and `cli/tui/` do not yet exist as packages, so the full ADR
-   remains incomplete
+2. `cli/tui/` exists as a package and owns the TUI-family implementation
+3. compatibility imports still resolve through top-level CLI module paths
+4. `cli/commands/` and `cli/rendering/` do not yet exist as packages, so the full ADR remains
+   incomplete
 
 ## Related
 

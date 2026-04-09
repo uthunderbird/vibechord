@@ -180,8 +180,11 @@ Current repository truth under `ADR 0123` is only partial:
 
 - `implemented`: the workflow family now lives under `agent_operator.cli.workflows` with a
   top-level compatibility facade at `agent_operator.cli.workflows.py`
-- `partial`: commands, rendering, and TUI still use flat top-level `commands_*`, `rendering_*`,
-  and `tui_*` modules
+- `implemented`: the TUI family now lives under `agent_operator.cli.tui` with package-local
+  `controller`, `io`, `models`, and `rendering` modules, while top-level `tui_*` modules remain as
+  compatibility shims
+- `partial`: commands and rendering still use flat top-level `commands_*` and `rendering_*`
+  modules
 - `deferred`: helpers remain flat by design pending a later cohesion review rather than moving for
   symmetry alone
 
