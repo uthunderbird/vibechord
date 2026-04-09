@@ -254,7 +254,6 @@ def _seed_operation(tmp_path: Path) -> str:
                 event_type="operation.cycle_finished",
                 operation_id=operation_id,
                 iteration=1,
-            
                 category="trace",
             )
         )
@@ -281,6 +280,36 @@ def _seed_operation(tmp_path: Path) -> str:
             status=BackgroundRunStatus.RUNNING,
         )
         (background_dir / "run-1.json").write_text(run.model_dump_json(indent=2), encoding="utf-8")
+
+    anyio.run(_seed)
+    return operation_id
+
+
+def _seed_operation_without_linked_session(tmp_path: Path) -> str:
+    operation_id = "op-cli-no-session"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Inspect unlinked task workflow"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            tasks=[
+                TaskState(
+                    task_id="task-nolink",
+                    title="Unlinked task",
+                    goal="Prepare documentation update",
+                    definition_of_done="Task can be referenced without a linked session.",
+                    status=TaskStatus.READY,
+                    brain_priority=30,
+                    effective_priority=30,
+                    assigned_agent="codex_acp",
+                )
+            ],
+        )
+        await store.save_operation(state)
 
     anyio.run(_seed)
     return operation_id
@@ -540,7 +569,6 @@ def _seed_dashboard_operation(tmp_path: Path) -> tuple[str, Path]:
                     "target_agent": "codex_acp",
                     "rationale": "Need a cohesive live workbench surface.",
                 },
-            
                 category="trace",
             )
         )
@@ -554,7 +582,6 @@ def _seed_dashboard_operation(tmp_path: Path) -> tuple[str, Path]:
                     "adapter_key": "codex_acp",
                     "session_name": "dashboard-workbench",
                 },
-            
                 category="trace",
             )
         )
@@ -1405,8 +1432,6 @@ def test_run_with_attach_session_requires_attach_agent(tmp_path: Path, monkeypat
     assert "--attach-agent is required" in (result.stdout + result.stderr)
 
 
-
-
 def test_inspect_default_is_brief_first(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     _seed_command(tmp_path, operation_id)
@@ -1907,6 +1932,49 @@ def test_log_json_emits_machine_readable_opencode_payload(tmp_path: Path, monkey
     assert '"category": "session"' in result.stdout
 
 
+def test_session_command_prints_session_snapshot_for_task_short_id(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
+
+    assert result.exit_code == 0
+    assert "Session scope for Primary objective" in result.stdout
+    assert "Operation: op-cli-1" in result.stdout
+    assert "Session: session-1" in result.stdout
+    assert "Recent events:" in result.stdout
+    assert "Selected event:" in result.stdout
+    assert "Transcript: operator log op-cli-1 --agent codex" in result.stdout
+
+
+def test_session_command_json_emits_machine_readable_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--json"])
+
+    assert result.exit_code == 0
+    assert '"operation_id": "op-cli-1"' in result.stdout
+    assert '"task": {' in result.stdout
+    assert '"session_id": "session-1"' in result.stdout
+    assert '"session": {' in result.stdout
+    assert '"timeline_events":' in result.stdout
+
+
+def test_session_command_errors_when_task_has_no_linked_session(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation_without_linked_session(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-nolink"])
+
+    assert result.exit_code == 2
+    assert "is not linked to a session" in result.stderr
+
+
 def test_wakeups_default_shows_pending_and_claimed(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -2330,9 +2398,7 @@ def test_command_can_clear_success_criteria(tmp_path: Path, monkeypatch) -> None
     assert record.command.payload["success_criteria"] == []
 
 
-def test_command_requires_allowed_agent_for_set_allowed_agents(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_command_requires_allowed_agent_for_set_allowed_agents(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
@@ -2681,9 +2747,7 @@ def test_policy_record_list_inspect_and_revoke(tmp_path: Path, monkeypatch) -> N
     )
     assert revoke.exit_code == 0
     records = _read_control_intents(tmp_path)
-    assert {
-        item.command.command_type.value for item in records if item.command is not None
-    } == {
+    assert {item.command.command_type.value for item in records if item.command is not None} == {
         OperationCommandType.RECORD_POLICY_DECISION.value,
         OperationCommandType.REVOKE_POLICY_DECISION.value,
     }
@@ -2777,7 +2841,6 @@ def test_run_with_project_uses_profile_defaults_and_cli_overrides(
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             captured["goal"] = goal
             captured["policy"] = policy
@@ -2858,7 +2921,6 @@ def test_run_auto_discovers_operator_profile_yaml_from_cwd(tmp_path: Path, monke
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             captured["goal"] = goal
             return OperationOutcome(
@@ -2934,7 +2996,6 @@ def test_run_uses_profile_default_objective_when_cli_objective_is_omitted(
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             captured["goal"] = goal
             return OperationOutcome(
@@ -3068,7 +3129,6 @@ def test_run_success_criteria_override_replaces_project_defaults(
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             captured["goal"] = goal
             captured["policy"] = policy
@@ -3125,7 +3185,6 @@ def test_run_with_project_sets_policy_scope_in_goal_metadata(
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             captured["goal"] = goal
             return OperationOutcome(
@@ -3166,7 +3225,6 @@ def test_run_with_project_applies_profile_adapter_settings(
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             return OperationOutcome(
                 operation_id="op-project-run",
@@ -3276,7 +3334,6 @@ def test_run_streams_live_events_in_human_mode(tmp_path: Path, monkeypatch) -> N
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             assert self._event_sink is not None
             await self._event_sink.emit(
@@ -3285,7 +3342,6 @@ def test_run_streams_live_events_in_human_mode(tmp_path: Path, monkeypatch) -> N
                     operation_id=operation_id or "op-live-run",
                     iteration=0,
                     payload={"objective": goal.objective_text},
-                
                     category="trace",
                 )
             )
@@ -3299,7 +3355,6 @@ def test_run_streams_live_events_in_human_mode(tmp_path: Path, monkeypatch) -> N
                         "target_agent": "codex_acp",
                         "rationale": "Need a repo-aware coding agent.",
                     },
-                
                     category="trace",
                 )
             )
@@ -3314,7 +3369,6 @@ def test_run_streams_live_events_in_human_mode(tmp_path: Path, monkeypatch) -> N
                         "session_id": "session-live-1",
                         "session_name": "repo-audit",
                     },
-                
                     category="trace",
                 )
             )
@@ -3371,7 +3425,6 @@ def test_run_json_streams_event_objects_and_outcome(tmp_path: Path, monkeypatch)
             policy=None,
             budget=None,
             runtime_hints=None,
-            
         ):
             assert self._event_sink is not None
             await self._event_sink.emit(
@@ -3380,7 +3433,6 @@ def test_run_json_streams_event_objects_and_outcome(tmp_path: Path, monkeypatch)
                     operation_id=operation_id or "op-live-json",
                     iteration=0,
                     payload={"objective": goal.objective_text},
-                
                     category="trace",
                 )
             )
@@ -3394,7 +3446,6 @@ def test_run_json_streams_event_objects_and_outcome(tmp_path: Path, monkeypatch)
                         "goal_satisfied": True,
                         "summary": "Goal satisfied.",
                     },
-                
                     category="trace",
                 )
             )
@@ -3439,7 +3490,6 @@ def test_resume_streams_live_events(tmp_path: Path, monkeypatch) -> None:
                         "command_type": "resume_operator",
                         "status": "applied",
                     },
-                
                     category="trace",
                 )
             )
@@ -3494,7 +3544,6 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
                 operation_id=operation_id,
                 iteration=0,
                 payload={"objective": "Inspect the repo"},
-            
                 category="trace",
             )
         )
@@ -3508,7 +3557,6 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
                     "adapter_key": "codex_acp",
                     "session_name": "repo-audit",
                 },
-            
                 category="trace",
             )
         )
@@ -3545,7 +3593,6 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
                     "status": "success",
                     "output_text": "Repo inspection finished.",
                 },
-            
                 category="trace",
             )
         )

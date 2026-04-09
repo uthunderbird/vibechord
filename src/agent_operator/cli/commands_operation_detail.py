@@ -1,0 +1,627 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from pathlib import Path
+
+import anyio
+import typer
+
+from agent_operator.bootstrap import build_store, build_trace_store
+from agent_operator.domain import TaskState
+from agent_operator.runtime import (
+    find_codex_session_log,
+    format_claude_log_event,
+    format_codex_log_event,
+    iter_claude_log_events,
+    iter_codex_log_events,
+    load_claude_log_events,
+    load_codex_log_events,
+)
+
+from .app import app
+from .helpers_logs import (
+    format_opencode_log_event,
+    iter_opencode_log_events,
+    load_opencode_log_events,
+    resolve_claude_log_path_for_session,
+    resolve_jsonl_log_path_for_session,
+    resolve_log_target,
+)
+from .helpers_rendering import (
+    PROJECTIONS,
+    artifact_preview,
+    format_task_line,
+    memory_payload,
+    shorten_live_text,
+    summarize_task_counts,
+)
+from .helpers_resolution import resolve_operation_id, resolve_operation_id_async
+from .helpers_services import (
+    build_delivery_commands_service,
+    build_operation_dashboard_query_service,
+    load_settings,
+)
+from .options import CODEX_HOME_OPTION, JSON_OPTION, MEMORY_ALL_OPTION, WATCH_POLL_INTERVAL_OPTION
+from .workflows import dashboard_async, watch_async
+
+
+def _resolve_task(operation, task_ref: str) -> TaskState:
+    key = task_ref.removeprefix("task-")
+    direct = [task for task in operation.tasks if task.task_id == task_ref]
+    if len(direct) > 1:
+        raise typer.BadParameter(f"Task reference {task_ref!r} is ambiguous.")
+    if direct:
+        return direct[0]
+    matches = [task for task in operation.tasks if task.task_short_id == key]
+    if not matches:
+        raise typer.BadParameter(f"Task {task_ref!r} was not found.")
+    if len(matches) > 1:
+        raise typer.BadParameter(
+            f"Task reference {task_ref!r} is ambiguous: "
+            + ", ".join(sorted(task.task_id for task in matches))
+        )
+    return matches[0]
+
+
+def _resolve_task_session_payload(
+    operation_payload: dict[str, object],
+    session_id: str,
+) -> dict[str, object]:
+    sessions = operation_payload.get("sessions")
+    if isinstance(sessions, list):
+        for session in sessions:
+            if not isinstance(session, dict):
+                continue
+            if str(session.get("session_id") or "") == session_id:
+                return session
+    raise typer.BadParameter(f"Session {session_id!r} was not found.")
+
+
+def _format_session_events(payload: dict[str, object], session_id: str) -> list[dict[str, object]]:
+    raw_events = payload.get("timeline_events")
+    if not isinstance(raw_events, list):
+        return []
+    events = [item for item in raw_events if isinstance(item, dict)]
+    return [item for item in events if str(item.get("session_id") or "") == session_id]
+
+
+def _extract_task_attention(payload: dict[str, object], task_id: str) -> list[str]:
+    raw_attention = payload.get("open_attention")
+    if not isinstance(raw_attention, list):
+        return []
+    titles: list[str] = []
+    for item in raw_attention:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("target_scope")) != "task":
+            continue
+        if str(item.get("target_id") or "") != task_id:
+            continue
+        title = item.get("title")
+        if isinstance(title, str) and title.strip():
+            titles.append(title.strip())
+    return titles
+
+
+def _shorten(value: object) -> str:
+    if not isinstance(value, str):
+        return "-"
+    return shorten_live_text(value, limit=120)
+
+
+def _session_agent_hint(adapter_key: str | None) -> str | None:
+    if adapter_key is None:
+        return None
+    if adapter_key.startswith("claude"):
+        return "claude"
+    if adapter_key.startswith("opencode"):
+        return "opencode"
+    if adapter_key.startswith("codex"):
+        return "codex"
+    return None
+
+
+@app.command()
+def attention(
+    operation_ref: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    settings = load_settings()
+    store = build_store(settings)
+
+    async def _attention() -> None:
+        resolved_operation_id = await resolve_operation_id_async(operation_ref)
+        operation = await store.load_operation(resolved_operation_id)
+        if operation is None:
+            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        payload = [item.model_dump(mode="json") for item in operation.attention_requests]
+        if json_mode:
+            typer.echo(
+                json.dumps(
+                    {"operation_id": resolved_operation_id, "attention_requests": payload},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        typer.echo(f"Operation {resolved_operation_id}")
+        typer.echo("Attention requests:")
+        if not payload:
+            typer.echo("- none")
+            return
+        for item in payload:
+            status = item["status"]
+            attention_type = item["attention_type"]
+            blocking = item["blocking"]
+            typer.echo(
+                f"- {item['attention_id']} [{status}] type={attention_type} blocking={blocking}"
+            )
+            typer.echo(f"  title: {item['title']}")
+            typer.echo(f"  question: {item['question']}")
+            if item.get("context_brief"):
+                typer.echo(f"  context: {item['context_brief']}")
+            if item.get("suggested_options"):
+                typer.echo(
+                    "  options: " + ", ".join(str(option) for option in item["suggested_options"])
+                )
+            if item.get("answer_text"):
+                typer.echo(f"  answer: {item['answer_text']}")
+
+    anyio.run(_attention)
+
+
+@app.command()
+def tasks(
+    operation_ref: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    settings = load_settings()
+    store = build_store(settings)
+
+    async def _tasks() -> None:
+        resolved_operation_id = await resolve_operation_id_async(operation_ref)
+        operation = await store.load_operation(resolved_operation_id)
+        if operation is None:
+            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        payload = [task.model_dump(mode="json") for task in operation.tasks]
+        if json_mode:
+            typer.echo(
+                json.dumps(
+                    {
+                        "operation_id": resolved_operation_id,
+                        "task_counts": summarize_task_counts(operation),
+                        "tasks": payload,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        typer.echo(f"Operation {resolved_operation_id}")
+        typer.echo(f"Task counts: {summarize_task_counts(operation) or 'none'}")
+        typer.echo("Tasks:")
+        if not operation.tasks:
+            typer.echo("- none")
+            return
+        for task in sorted(
+            operation.tasks,
+            key=lambda item: (-item.effective_priority, item.created_at, item.task_id),
+        ):
+            task_scope = task.linked_session_id or "-"
+            agent = task.assigned_agent or "-"
+            typer.echo(
+                f"- {task.title} [{task.status.value}] task-{task.task_short_id} ({task.task_id})"
+            )
+            typer.echo(f"  priority={task.effective_priority} agent={agent} session={task_scope}")
+            typer.echo(f"  goal: {task.goal}")
+            typer.echo(f"  done: {task.definition_of_done}")
+            if task.dependencies:
+                typer.echo(f"  depends_on: {', '.join(task.dependencies)}")
+            if task.notes:
+                typer.echo(f"  notes: {' | '.join(task.notes)}")
+            if task.memory_refs:
+                typer.echo(f"  memory_refs: {', '.join(task.memory_refs)}")
+            if task.artifact_refs:
+                typer.echo(f"  artifact_refs: {', '.join(task.artifact_refs)}")
+
+    anyio.run(_tasks)
+
+
+@app.command()
+def memory(
+    operation_ref: str,
+    include_all: bool = MEMORY_ALL_OPTION,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    settings = load_settings()
+    store = build_store(settings)
+
+    async def _memory() -> None:
+        resolved_operation_id = await resolve_operation_id_async(operation_ref)
+        operation = await store.load_operation(resolved_operation_id)
+        if operation is None:
+            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        entries = memory_payload(operation, include_inactive=include_all)
+        payload = [entry.model_dump(mode="json") for entry in entries]
+        if json_mode:
+            typer.echo(
+                json.dumps(
+                    {"operation_id": resolved_operation_id, "memory_entries": payload},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        typer.echo(f"Operation {resolved_operation_id}")
+        typer.echo("Memory:")
+        if not entries:
+            typer.echo("- none")
+            return
+        for entry in entries:
+            scope_id = entry.scope_id
+            scope_value = entry.scope.value
+            freshness = entry.freshness.value
+            typer.echo(f"- {entry.memory_id} [{scope_value}:{scope_id}] {freshness}")
+            typer.echo(f"  summary: {entry.summary}")
+            if entry.scope.value == "task":
+                typer.echo(f"  target: {format_task_line(operation, entry.scope_id)}")
+            if entry.source_refs:
+                typer.echo(
+                    "  sources: "
+                    + ", ".join(f"{ref.kind}:{ref.ref_id}" for ref in entry.source_refs)
+                )
+
+    anyio.run(_memory)
+
+
+@app.command()
+def artifacts(
+    operation_ref: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    settings = load_settings()
+    store = build_store(settings)
+
+    async def _artifacts() -> None:
+        resolved_operation_id = await resolve_operation_id_async(operation_ref)
+        operation = await store.load_operation(resolved_operation_id)
+        if operation is None:
+            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        payload = [artifact.model_dump(mode="json") for artifact in operation.artifacts]
+        if json_mode:
+            typer.echo(
+                json.dumps(
+                    {"operation_id": resolved_operation_id, "artifacts": payload},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        typer.echo(f"Operation {resolved_operation_id}")
+        typer.echo("Artifacts:")
+        if not operation.artifacts:
+            typer.echo("- none")
+            return
+        for artifact in operation.artifacts:
+            task_ref = format_task_line(operation, artifact.task_id)
+            artifact_session = artifact.session_id or "-"
+            typer.echo(
+                f"- {artifact.artifact_id} [{artifact.kind}] producer={artifact.producer} "
+                f"task={task_ref} session={artifact_session}"
+            )
+            typer.echo(f"  content: {artifact_preview(artifact)}")
+            if artifact.raw_ref:
+                typer.echo(f"  raw_ref: {artifact.raw_ref}")
+
+    anyio.run(_artifacts)
+
+
+@app.command()
+def report(
+    operation_id: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit a machine-readable report payload."),
+) -> None:
+    settings = load_settings()
+    trace_store = build_trace_store(settings)
+    delivery = build_delivery_commands_service(settings)
+
+    async def _report() -> None:
+        try:
+            operation, outcome, brief, _ = await delivery.build_status_payload(operation_id)
+        except RuntimeError as exc:
+            raise typer.BadParameter(f"Report for {operation_id!r} was not found.") from exc
+        report_text = await trace_store.load_report(operation_id)
+        if operation is None or report_text is None:
+            raise typer.BadParameter(f"Report for {operation_id!r} was not found.")
+        if json_mode:
+            payload = {
+                "operation_id": operation_id,
+                "brief": brief.model_dump(mode="json") if brief is not None else None,
+                "outcome": outcome.model_dump(mode="json") if outcome is not None else None,
+                "report": report_text,
+                "durable_truth": PROJECTIONS.build_durable_truth_payload(
+                    operation, include_inactive_memory=True
+                ),
+            }
+            typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+            return
+        typer.echo(report_text)
+
+    anyio.run(_report)
+
+
+@app.command()
+def dashboard(
+    operation_id: str,
+    once: bool = typer.Option(False, "--once", help="Render a single dashboard snapshot and exit."),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Emit a machine-readable dashboard snapshot."
+    ),
+    poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
+    codex_home: Path = CODEX_HOME_OPTION,
+) -> None:
+    anyio.run(dashboard_async, operation_id, once, json_mode, poll_interval, codex_home)
+
+
+@app.command()
+def watch(
+    operation_id: str,
+    json_mode: bool = JSON_OPTION,
+    poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
+) -> None:
+    anyio.run(watch_async, operation_id, json_mode, poll_interval)
+
+
+@app.command()
+def log(
+    operation_ref: str,
+    limit: int = typer.Option(40, "--limit", min=1, help="Maximum events to print."),
+    follow: bool = typer.Option(False, "--follow", help="Follow the agent transcript."),
+    agent: str = typer.Option("auto", "--agent", help="auto, codex, claude, or opencode."),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    codex_home: Path = CODEX_HOME_OPTION,
+) -> None:
+    resolved_operation_id = resolve_operation_id(operation_ref)
+    settings = load_settings()
+    store = build_store(settings)
+
+    async def _log() -> None:
+        operation = await store.load_operation(resolved_operation_id)
+        if operation is None:
+            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        log_kind, session = resolve_log_target(operation, agent=agent)
+        if log_kind == "codex":
+            path = find_codex_session_log(codex_home, session.session_id)
+            if path is None:
+                raise typer.BadParameter(
+                    "Codex transcript for session "
+                    f"{session.session_id!r} was not found under {str(codex_home)!r}."
+                )
+            if follow:
+                typer.echo(f"# Codex log for operation {resolved_operation_id}")
+                typer.echo(f"# session={session.session_id}")
+                typer.echo(f"# file={path}")
+                for event in iter_codex_log_events(path, follow=True):
+                    typer.echo(
+                        json.dumps(asdict(event), ensure_ascii=False)
+                        if json_mode
+                        else format_codex_log_event(event)
+                    )
+                return
+            events = load_codex_log_events(path)[-limit:]
+            if json_mode:
+                typer.echo(
+                    json.dumps(
+                        {
+                            "operation_id": resolved_operation_id,
+                            "session_id": session.session_id,
+                            "path": str(path),
+                            "agent": "codex",
+                            "events": [asdict(event) for event in events],
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                )
+                return
+            typer.echo(f"# Codex log for operation {resolved_operation_id}")
+            typer.echo(f"# session={session.session_id}")
+            typer.echo(f"# file={path}")
+            for event in events:
+                typer.echo(format_codex_log_event(event))
+            return
+        if log_kind == "claude":
+            path = resolve_claude_log_path_for_session(session)
+            if follow:
+                typer.echo(f"# Claude log for operation {resolved_operation_id}")
+                typer.echo(f"# session={session.session_id}")
+                typer.echo(f"# file={path}")
+                for event in iter_claude_log_events(path, follow=True):
+                    typer.echo(
+                        json.dumps(asdict(event), ensure_ascii=False)
+                        if json_mode
+                        else format_claude_log_event(event)
+                    )
+                return
+            events = load_claude_log_events(path)[-limit:]
+            if json_mode:
+                typer.echo(
+                    json.dumps(
+                        {
+                            "operation_id": resolved_operation_id,
+                            "session_id": session.session_id,
+                            "path": str(path),
+                            "agent": "claude",
+                            "events": [asdict(event) for event in events],
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                )
+                return
+            typer.echo(f"# Claude log for operation {resolved_operation_id}")
+            typer.echo(f"# session={session.session_id}")
+            typer.echo(f"# file={path}")
+            for event in events:
+                typer.echo(format_claude_log_event(event))
+            return
+        path = resolve_jsonl_log_path_for_session(session, provider="OpenCode")
+        if follow:
+            typer.echo(f"# OpenCode log for operation {resolved_operation_id}")
+            typer.echo(f"# session={session.session_id}")
+            typer.echo(f"# file={path}")
+            for event in iter_opencode_log_events(path, follow=True):
+                typer.echo(
+                    json.dumps(asdict(event), ensure_ascii=False)
+                    if json_mode
+                    else format_opencode_log_event(event)
+                )
+            return
+        events = load_opencode_log_events(path)[-limit:]
+        if json_mode:
+            typer.echo(
+                json.dumps(
+                    {
+                        "operation_id": resolved_operation_id,
+                        "session_id": session.session_id,
+                        "path": str(path),
+                        "agent": "opencode",
+                        "events": [asdict(event) for event in events],
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        typer.echo(f"# OpenCode log for operation {resolved_operation_id}")
+        typer.echo(f"# session={session.session_id}")
+        typer.echo(f"# file={path}")
+        for event in events:
+            typer.echo(format_opencode_log_event(event))
+
+    anyio.run(_log)
+
+
+@app.command()
+def session(
+    operation_ref: str,
+    task: str = typer.Option(
+        ..., "--task", help="Task ID (UUID or task-XXXX short ID) that owns the session to view."
+    ),
+    follow: bool = typer.Option(
+        False, "--follow", help="Follow the selected session snapshot in-place."
+    ),
+    once: bool = typer.Option(False, "--once", help="Render a single snapshot and exit."),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable session payload."),
+    poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
+    codex_home: Path = CODEX_HOME_OPTION,
+) -> None:
+    resolved_operation_id = resolve_operation_id(operation_ref)
+    settings = load_settings()
+    store = build_store(settings)
+
+    async def _session() -> None:
+        operation = await store.load_operation(resolved_operation_id)
+        if operation is None:
+            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        task_record = _resolve_task(operation, task)
+        if task_record.linked_session_id is None:
+            raise typer.BadParameter(
+                f"Task {task!r} is not linked to a session. Use a task that has a linked session."
+            )
+        queries = build_operation_dashboard_query_service(
+            settings,
+            operation_id=resolved_operation_id,
+            codex_home=codex_home,
+        )
+
+        async def _render_once() -> None:
+            payload = await queries.load_payload(resolved_operation_id)
+            operation_brief = payload.get("operation_brief", {})
+            session_payload_data = _resolve_task_session_payload(
+                payload, task_record.linked_session_id
+            )
+            session_events = _format_session_events(payload, task_record.linked_session_id)
+            latest_event = session_events[-1] if session_events else None
+            attention = _extract_task_attention(payload, task_record.task_id)
+            session_snapshot = {
+                "operation_id": resolved_operation_id,
+                "task": task_record.model_dump(mode="json"),
+                "session_id": task_record.linked_session_id,
+                "session": session_payload_data,
+                "now": _shorten(operation_brief.get("now")),
+                "wait": _shorten(operation_brief.get("wait")),
+                "attention": "; ".join(attention) if attention else "-",
+                "latest_output": _shorten(
+                    latest_event.get("summary") if isinstance(latest_event, dict) else None
+                ),
+                "timeline_events": [event for event in session_events if isinstance(event, dict)],
+                "selected_event": latest_event if isinstance(latest_event, dict) else None,
+            }
+            if json_mode:
+                typer.echo(json.dumps(session_snapshot, indent=2, ensure_ascii=False))
+                return
+            task_line = format_task_line(operation, task_record.task_id)
+            if task_line is None:
+                task_line = task_record.task_id
+            typer.echo(f"Session scope for {task_line}")
+            typer.echo(f"Operation: {resolved_operation_id}")
+            adapter_key = str(session_payload_data.get("adapter_key") or "-")
+            session_status = str(session_payload_data.get("status") or "-")
+            bound_tasks = ", ".join(
+                task_id for task_id in session_payload_data.get("bound_task_ids", [])
+            )
+            if not bound_tasks:
+                bound_tasks = "-"
+            typer.echo(
+                f"Session: {task_record.linked_session_id} [{adapter_key}] state={session_status}"
+            )
+            typer.echo(f"Bound tasks: {bound_tasks}")
+            typer.echo(f"Now: {_shorten(operation_brief.get('now'))}")
+            typer.echo(f"Wait: {_shorten(operation_brief.get('wait'))}")
+            if attention:
+                typer.echo(f"Attention: {'; '.join(attention)}")
+            else:
+                typer.echo("Attention: -")
+            latest_output = _shorten(
+                latest_event.get("summary") if isinstance(latest_event, dict) else None
+            )
+            typer.echo(f"Latest output: {latest_output}")
+            typer.echo("Recent events:")
+            if session_events:
+                for event in session_events[-4:]:
+                    event_line = (
+                        f"  - iter={event.get('iteration', '-')}: {event.get('event_type', '-')}"
+                    )
+                    summary = event.get("summary")
+                    if isinstance(summary, str) and summary:
+                        event_line += f" {shorten_live_text(summary, limit=120)}"
+                    typer.echo(event_line)
+            else:
+                typer.echo("  - none")
+            if latest_event is not None:
+                typer.echo(f"Selected event: {latest_event.get('event_type', '-')}")
+                typer.echo(f"  iteration: {latest_event.get('iteration', '-')}")
+                typer.echo(f"  task: {latest_event.get('task_id', '-')}")
+                typer.echo(f"  session: {latest_event.get('session_id', '-')}")
+            else:
+                typer.echo("Selected event: none")
+            adapter_hint = _session_agent_hint(session_payload_data.get("adapter_key"))
+            if adapter_hint is not None:
+                typer.echo(
+                    f"Transcript: operator log {resolved_operation_id} --agent {adapter_hint}"
+                )
+            else:
+                typer.echo(f"Transcript: operator log {resolved_operation_id}")
+
+        if follow:
+            while True:
+                await _render_once()
+                if once:
+                    break
+                await anyio.sleep(poll_interval)
+            return
+        await _render_once()
+
+    anyio.run(_session)
