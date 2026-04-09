@@ -73,6 +73,7 @@ status lanes in this order: `RUNNING`, `READY`, `BLOCKED`, `COMPLETED`, `FAILED`
 `BLOCKED` is a display alias for `pending` tasks that still have unresolved dependencies.
 Blocked tasks show a compact dependency continuation line, and tasks with linked session runtime
 state can show a compact session continuation line under the task row.
+Task rows now include a compact status glyph before the task short id.
 
 Available keys:
 

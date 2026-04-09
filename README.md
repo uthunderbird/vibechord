@@ -79,7 +79,7 @@ current scope with the same inline flow used for blocking attention, and `A` ope
 current-scope attention picker so you can choose a specific attention item before answering.
 Operation view now renders the task board in grouped status lanes, including a `BLOCKED` display
 lane for dependency-blocked pending tasks, plus compact dependency and linked-session cue lines
-under task rows when that context is available.
+under task rows when that context is available, with a status glyph on each task row.
 `Enter` still drills into forensic even when a session has no raw transcript payload, falling back
 to event context plus an explicit empty-state message. For the
 current keymap, supported actions, and known limitations, see

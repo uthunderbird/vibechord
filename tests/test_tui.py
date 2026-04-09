@@ -642,9 +642,11 @@ def test_operation_task_board_groups_tasks_into_status_lanes() -> None:
 
     assert rendered.index("[RUNNING]") < rendered.index("[READY]") < rendered.index("[BLOCKED]")
     assert rendered.index("[BLOCKED]") < rendered.index("[COMPLETED]")
-    assert ">        task-ready" in rendered
+    assert ">       ○ task-ready" in rendered
+    assert "▶ task-running" in rendered
+    assert "◐ task-blocked" in rendered
+    assert "✓ task-done" in rendered
     assert "deps" in rendered
-    assert "task-running" in rendered
 
 
 def test_operation_task_board_shows_compact_session_cue_lines() -> None:

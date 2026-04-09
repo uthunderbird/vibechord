@@ -29,6 +29,7 @@ from .models import (
     task_scope_attentions,
     task_session_summary,
     task_signal_text,
+    task_status_glyph,
 )
 
 
@@ -206,7 +207,7 @@ def render_task_board(state: FleetWorkbenchState) -> Table:
         for index, task in lane_items:
             table.add_row(
                 ">" if index == state.selected_task_index else " ",
-                task.task_short_id,
+                f"{task_status_glyph(task)} {task.task_short_id}",
                 task_signal_text(state.selected_operation_payload or {}, task),
                 task.status,
                 task.title,

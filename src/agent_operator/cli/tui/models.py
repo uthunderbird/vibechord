@@ -578,6 +578,23 @@ def task_lane(task: OperationTaskItem) -> str:
     return "READY"
 
 
+def task_status_glyph(task: OperationTaskItem) -> str:
+    lane = task_lane(task)
+    if lane == "RUNNING":
+        return "▶"
+    if lane == "READY":
+        return "○"
+    if lane == "BLOCKED":
+        return "◐"
+    if lane == "COMPLETED":
+        return "✓"
+    if lane == "FAILED":
+        return "✕"
+    if lane == "CANCELLED":
+        return "⊘"
+    return "·"
+
+
 TASK_LANE_ORDER = (
     "RUNNING",
     "READY",
