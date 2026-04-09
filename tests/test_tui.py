@@ -596,6 +596,154 @@ def test_filtered_empty_task_board_shows_filter_specific_message() -> None:
     assert "No tasks match the current filter." in console.export_text(styles=False)
 
 
+def test_operation_task_board_groups_tasks_into_status_lanes() -> None:
+    state = FleetWorkbenchState(
+        view_level="operation",
+        selected_task_index=1,
+        selected_operation_payload={
+            "tasks": [
+                {
+                    "task_id": "task-ready",
+                    "task_short_id": "task-ready",
+                    "title": "Ready task",
+                    "status": "pending",
+                    "dependencies": [],
+                },
+                {
+                    "task_id": "task-running",
+                    "task_short_id": "task-running",
+                    "title": "Running task",
+                    "status": "running",
+                    "dependencies": [],
+                },
+                {
+                    "task_id": "task-blocked",
+                    "task_short_id": "task-blocked",
+                    "title": "Blocked task",
+                    "status": "pending",
+                    "dependencies": ["task-running"],
+                },
+                {
+                    "task_id": "task-done",
+                    "task_short_id": "task-done",
+                    "title": "Completed task",
+                    "status": "completed",
+                    "dependencies": [],
+                },
+            ],
+            "attention": [],
+        },
+    )
+
+    table = render_task_board(state)
+    console = Console(record=True, width=140, markup=False)
+    console.print(table)
+    rendered = console.export_text(styles=False)
+
+    assert rendered.index("[RUNNING]") < rendered.index("[READY]") < rendered.index("[BLOCKED]")
+    assert rendered.index("[BLOCKED]") < rendered.index("[COMPLETED]")
+    assert ">        task-ready" in rendered
+    assert "deps" in rendered
+    assert "task-running" in rendered
+
+
+async def test_operation_view_navigation_follows_lane_order() -> None:
+    async def _load_operation_payload_lane_order(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["tasks"] = [
+            {
+                "task_id": "task-ready",
+                "task_short_id": "task-ready",
+                "title": "Ready task",
+                "goal": "Handle ready work.",
+                "definition_of_done": "Ready work visible.",
+                "status": "pending",
+                "priority": 60,
+                "dependencies": [],
+                "assigned_agent": "codex_acp",
+                "linked_session_id": None,
+                "memory_refs": [],
+                "artifact_refs": [],
+                "notes": [],
+            },
+            {
+                "task_id": "task-done",
+                "task_short_id": "task-done",
+                "title": "Completed task",
+                "goal": "Already finished.",
+                "definition_of_done": "Done.",
+                "status": "completed",
+                "priority": 10,
+                "dependencies": [],
+                "assigned_agent": "codex_acp",
+                "linked_session_id": None,
+                "memory_refs": [],
+                "artifact_refs": [],
+                "notes": [],
+            },
+            {
+                "task_id": "task-blocked",
+                "task_short_id": "task-blocked",
+                "title": "Blocked task",
+                "goal": "Wait on dependency.",
+                "definition_of_done": "Dependency resolved.",
+                "status": "pending",
+                "priority": 40,
+                "dependencies": ["task-running"],
+                "assigned_agent": "codex_acp",
+                "linked_session_id": None,
+                "memory_refs": [],
+                "artifact_refs": [],
+                "notes": [],
+            },
+            {
+                "task_id": "task-running",
+                "task_short_id": "task-running",
+                "title": "Running task",
+                "goal": "Current work.",
+                "definition_of_done": "Still active.",
+                "status": "running",
+                "priority": 90,
+                "dependencies": [],
+                "assigned_agent": "codex_acp",
+                "linked_session_id": "session-1",
+                "memory_refs": [],
+                "artifact_refs": [],
+                "notes": [],
+            },
+        ]
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_lane_order,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-running"
+
+    await controller.handle_key("j")
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-ready"
+
+    await controller.handle_key("j")
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-blocked"
+
+    await controller.handle_key("j")
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-done"
+
+
 async def test_operation_view_a_reports_oldest_blocking_attention_for_task() -> None:
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,

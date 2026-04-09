@@ -325,11 +325,11 @@ def filtered_dashboard_tasks(
     tasks = dashboard_tasks(payload)
     normalized = query.strip().lower()
     if not normalized:
-        return tasks
+        return sort_dashboard_tasks(tasks)
     terms = [term for term in normalized.split() if term]
     if not terms:
-        return tasks
-    return [task for task in tasks if _task_matches_filter(task, terms)]
+        return sort_dashboard_tasks(tasks)
+    return sort_dashboard_tasks([task for task in tasks if _task_matches_filter(task, terms)])
 
 
 def _task_matches_filter(task: OperationTaskItem, terms: list[str]) -> bool:
@@ -568,6 +568,21 @@ def task_lane(task: OperationTaskItem) -> str:
     if task.dependencies:
         return "BLOCKED"
     return "READY"
+
+
+TASK_LANE_ORDER = (
+    "RUNNING",
+    "READY",
+    "BLOCKED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+)
+
+
+def sort_dashboard_tasks(tasks: list[OperationTaskItem]) -> list[OperationTaskItem]:
+    lane_rank = {lane: index for index, lane in enumerate(TASK_LANE_ORDER)}
+    return sorted(tasks, key=lambda task: lane_rank.get(task_lane(task), len(TASK_LANE_ORDER)))
 
 
 def task_session_summary(payload: dict[str, object], task: OperationTaskItem) -> str | None:

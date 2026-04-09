@@ -7,6 +7,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .models import (
+    TASK_LANE_ORDER,
     FleetWorkbenchState,
     event_detail_lines,
     filtered_dashboard_tasks,
@@ -180,7 +181,6 @@ def render_list_table(state: FleetWorkbenchState) -> Table:
 def render_task_board(state: FleetWorkbenchState) -> Table:
     table = Table(expand=True, box=None, show_header=True)
     table.add_column("", no_wrap=True)
-    table.add_column("Lane", no_wrap=True)
     table.add_column("Task", no_wrap=True)
     table.add_column("Signal", no_wrap=True)
     table.add_column("State", no_wrap=True)
@@ -192,19 +192,27 @@ def render_task_board(state: FleetWorkbenchState) -> Table:
             "-",
             "-",
             "-",
-            "-",
             "No tasks match the current filter." if state.task_filter_query else "No tasks.",
         )
         return table
+    tasks_by_lane = {lane: [] for lane in TASK_LANE_ORDER}
     for index, task in enumerate(tasks):
-        table.add_row(
-            ">" if index == state.selected_task_index else " ",
-            task_lane(task),
-            task.task_short_id,
-            task_signal_text(state.selected_operation_payload or {}, task),
-            task.status,
-            task.title,
-        )
+        tasks_by_lane.setdefault(task_lane(task), []).append((index, task))
+    for lane in TASK_LANE_ORDER:
+        lane_items = tasks_by_lane.get(lane, [])
+        if not lane_items:
+            continue
+        table.add_row("", f"[{lane}]", "", "", "", style="bold")
+        for index, task in lane_items:
+            table.add_row(
+                ">" if index == state.selected_task_index else " ",
+                task.task_short_id,
+                task_signal_text(state.selected_operation_payload or {}, task),
+                task.status,
+                task.title,
+            )
+            if lane == "BLOCKED" and task.dependencies:
+                table.add_row("", "deps", "", "", ", ".join(task.dependencies))
     return table
 
 

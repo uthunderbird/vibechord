@@ -75,6 +75,8 @@ Forensic view now supports `/` for a live raw-transcript/detail filter, `?` open
 overlay for the current workbench level, `n` answers the oldest non-blocking attention in the
 current scope with the same inline flow used for blocking attention, and `A` opens a compact
 current-scope attention picker so you can choose a specific attention item before answering.
+Operation view now renders the task board in grouped status lanes, including a `BLOCKED` display
+lane for dependency-blocked pending tasks.
 `Enter` still drills into forensic even when a session has no raw transcript payload, falling back
 to event context plus an explicit empty-state message. For the
 current keymap, supported actions, and known limitations, see
