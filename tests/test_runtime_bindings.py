@@ -10,6 +10,7 @@ from agent_operator.adapters import build_agent_runtime_bindings
 from agent_operator.config import (
     ClaudeAcpAdapterSettings,
     CodexAcpAdapterSettings,
+    OpencodeAcpAdapterSettings,
     OperatorSettings,
 )
 
@@ -18,19 +19,25 @@ def test_build_agent_runtime_bindings_exposes_runtime_factories_and_descriptors(
     settings = OperatorSettings(
         claude_acp=ClaudeAcpAdapterSettings(substrate_backend="sdk", stdio_limit_bytes=123456),
         codex_acp=CodexAcpAdapterSettings(substrate_backend="bespoke", stdio_limit_bytes=654321),
+        opencode_acp=OpencodeAcpAdapterSettings(substrate_backend="sdk", stdio_limit_bytes=222222),
     )
 
     bindings = build_agent_runtime_bindings(settings)
 
-    assert sorted(bindings) == ["claude_acp", "codex_acp"]
+    assert sorted(bindings) == ["claude_acp", "codex_acp", "opencode_acp"]
     claude_binding = bindings["claude_acp"]
     codex_binding = bindings["codex_acp"]
+    opencode_binding = bindings["opencode_acp"]
     assert claude_binding.agent_key == "claude_acp"
     assert codex_binding.agent_key == "codex_acp"
+    assert opencode_binding.agent_key == "opencode_acp"
     assert claude_binding.descriptor.key == "claude_acp"
     assert codex_binding.descriptor.key == "codex_acp"
+    assert opencode_binding.descriptor.key == "opencode_acp"
+    assert opencode_binding.descriptor.display_name == "OpenCode via ACP"
     assert claude_binding.descriptor.supports_follow_up is True
     assert codex_binding.descriptor.supports_follow_up is True
+    assert opencode_binding.descriptor.supports_follow_up is True
 
     claude_adapter_runtime = claude_binding.build_adapter_runtime(
         working_directory=Path("/tmp/claude"),
@@ -40,12 +47,19 @@ def test_build_agent_runtime_bindings_exposes_runtime_factories_and_descriptors(
         working_directory=Path("/tmp/codex"),
         log_path=Path("/tmp/codex.jsonl"),
     )
+    opencode_adapter_runtime = opencode_binding.build_adapter_runtime(
+        working_directory=Path("/tmp/opencode"),
+        log_path=Path("/tmp/opencode.jsonl"),
+    )
 
     assert isinstance(claude_adapter_runtime, AcpAdapterRuntime)
     assert isinstance(codex_adapter_runtime, AcpAdapterRuntime)
+    assert isinstance(opencode_adapter_runtime, AcpAdapterRuntime)
     assert isinstance(claude_adapter_runtime._connection, AcpSdkConnection)  # type: ignore[attr-defined]
     assert isinstance(codex_adapter_runtime._connection, AcpSubprocessConnection)  # type: ignore[attr-defined]
+    assert isinstance(opencode_adapter_runtime._connection, AcpSdkConnection)  # type: ignore[attr-defined]
     assert claude_adapter_runtime._connection._stdio_limit_bytes == 123456  # type: ignore[attr-defined]
+    assert opencode_adapter_runtime._connection._stdio_limit_bytes == 222222  # type: ignore[attr-defined]
 
     session_runtime = claude_binding.build_session_runtime(
         working_directory=Path("/tmp/claude"),

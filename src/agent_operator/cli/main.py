@@ -2,21 +2,27 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Callable
-from dataclasses import asdict
+import time
+from collections.abc import Callable, Iterator
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import anyio
 import typer
-from rich.columns import Columns
 from rich.console import Console as RichConsole
 from rich.console import Group
 from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
 from typer.main import get_command as typer_get_command
 
+from agent_operator.application import (
+    OperationAgendaQueryService,
+    OperationDashboardQueryService,
+    OperationDeliveryCommandService,
+    OperationProjectDashboardQueryService,
+    OperationProjectionService,
+)
 from agent_operator.bootstrap import (
     build_background_run_inspection_store,
     build_command_inbox,
@@ -28,22 +34,54 @@ from agent_operator.bootstrap import (
     build_trace_store,
     build_wakeup_inbox,
 )
+from agent_operator.cli.rendering import (
+    render_dashboard as _render_dashboard_view,
+)
+from agent_operator.cli.rendering import (
+    render_fleet_dashboard as _render_fleet_dashboard_view,
+)
+from agent_operator.cli.rendering import (
+    render_project_dashboard as _render_project_dashboard_view,
+)
+from agent_operator.cli.rendering_text import (
+    emit_context_lines as _emit_context_lines_view,
+)
+from agent_operator.cli.rendering_text import (
+    format_live_event as _format_live_event_view,
+)
+from agent_operator.cli.rendering_text import (
+    format_live_snapshot as _format_live_snapshot_view,
+)
+from agent_operator.cli.rendering_text import (
+    render_inspect_summary as _render_inspect_summary_view,
+)
+from agent_operator.cli.rendering_text import (
+    render_operation_list_line as _render_operation_list_line_view,
+)
+from agent_operator.cli.rendering_text import (
+    render_status_brief as _render_status_brief_view,
+)
+from agent_operator.cli.tui import (
+    build_fleet_workbench_controller as _build_fleet_workbench_controller,
+)
+from agent_operator.cli.tui import (
+    run_fleet_workbench as _run_fleet_workbench,
+)
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AgentSessionHandle,
     AgentTurnBrief,
     ArtifactRecord,
+    AttentionRequest,
     AttentionStatus,
     BackgroundRunStatus,
     BackgroundRuntimeMode,
     CommandTargetScope,
     ExecutionBudget,
     ExecutionState,
-    FocusKind,
     InvolvementLevel,
     MemoryEntry,
     MemoryFreshness,
-    OperationCommand,
     OperationCommandType,
     OperationGoal,
     OperationOutcome,
@@ -59,7 +97,6 @@ from agent_operator.domain import (
     RuntimeHints,
     SchedulerState,
     SessionRecord,
-    SessionStatus,
     TaskState,
     TaskStatus,
     TraceBriefBundle,
@@ -71,10 +108,7 @@ from agent_operator.runtime import (
     AgendaItem,
     AgendaSnapshot,
     ProjectingEventSink,
-    agenda_matches_project,
     apply_project_profile_settings,
-    build_agenda_item,
-    build_agenda_snapshot,
     committed_default_profile_path,
     committed_profile_dir,
     discover_local_project_profile,
@@ -106,6 +140,89 @@ smoke_app = typer.Typer(no_args_is_help=True)
 debug_app = typer.Typer(no_args_is_help=False)
 project_app = typer.Typer(no_args_is_help=True)
 policy_app = typer.Typer(no_args_is_help=True)
+_PROJECTIONS = OperationProjectionService()
+
+
+def _delivery_commands_service() -> OperationDeliveryCommandService:
+    settings = _load_settings()
+    return _build_delivery_commands_service(settings)
+
+
+def _build_agenda_query_service(settings: OperatorSettings) -> OperationAgendaQueryService:
+    return OperationAgendaQueryService(
+        store=build_store(settings),
+        status_service=_build_delivery_commands_service(settings),
+    )
+
+
+def _build_project_dashboard_query_service(
+    settings: OperatorSettings,
+) -> OperationProjectDashboardQueryService:
+    return OperationProjectDashboardQueryService(
+        agenda_queries=_build_agenda_query_service(settings),
+        projection_service=_PROJECTIONS,
+        policy_store=build_policy_store(settings),
+    )
+
+
+def _build_operation_dashboard_query_service(
+    settings: OperatorSettings,
+    *,
+    operation_id: str,
+    codex_home: Path,
+) -> OperationDashboardQueryService:
+    return OperationDashboardQueryService(
+        status_service=_build_delivery_commands_service(settings),
+        projection_service=_PROJECTIONS,
+        command_inbox=build_command_inbox(settings),
+        event_reader=build_event_sink(settings, operation_id),
+        build_upstream_transcript=lambda operation: _build_dashboard_upstream_transcript(
+            operation,
+            codex_home=codex_home,
+        ),
+    )
+
+
+def _build_delivery_commands_service(
+    settings: OperatorSettings,
+    *,
+    service_factory: Callable[[], object] | None = None,
+) -> OperationDeliveryCommandService:
+    factory = service_factory or (lambda: build_service(settings))
+    return OperationDeliveryCommandService(
+        store=build_store(settings),
+        command_inbox=build_command_inbox(settings),
+        projection_service=_PROJECTIONS,
+        trace_store=build_trace_store(settings),
+        background_inspection_store=build_background_run_inspection_store(settings),
+        wakeup_inspection_store=build_wakeup_inbox(settings),
+        service_factory=factory,
+        overlay_live_background_progress=_overlay_live_background_progress,
+        build_runtime_alert=_build_runtime_alert,
+        render_status_brief=_render_status_brief,
+        render_inspect_summary=_render_inspect_summary,
+        find_task_by_display_id=_find_task_by_display_id,
+    )
+
+
+def _build_projecting_delivery_commands_service(
+    settings: OperatorSettings,
+    *,
+    operation_id: str | None,
+    projector: _CliEventProjector,
+) -> OperationDeliveryCommandService:
+    return _build_delivery_commands_service(
+        settings,
+        service_factory=lambda: build_service(
+            settings,
+            event_sink=ProjectingEventSink(
+                build_event_sink(settings, operation_id),
+                projector.handle_event,
+            ),
+        ),
+    )
+
+
 MAX_ITERATIONS_OPTION = typer.Option(None, help="Maximum operator iterations.")
 ALLOWED_AGENT_OPTION = typer.Option(None, help="Allowed adapter keys.")
 RUN_AGENT_OPTION = typer.Option(
@@ -379,7 +496,7 @@ def main(
         raise typer.Exit()
     if ctx.resilient_parsing or ctx.invoked_subcommand is not None:
         return
-    if sys.stdout.isatty():
+    if sys.stdout.isatty() and sys.stdin.isatty():
         anyio.run(_fleet_async, None, False, False, False, 0.5)
         raise typer.Exit()
     has_operations = anyio.run(_has_any_operations_async)
@@ -477,67 +594,6 @@ def _write_default_project_profile(
         encoding="utf-8",
     )
     return path
-
-
-def _build_command_payload(
-    command_type: OperationCommandType,
-    text: str | None,
-    success_criteria: list[str] | None = None,
-    clear_success_criteria: bool = False,
-    allowed_agents: list[str] | None = None,
-    max_iterations: int | None = None,
-) -> dict[str, object]:
-    if command_type in {
-        OperationCommandType.PATCH_OBJECTIVE,
-        OperationCommandType.PATCH_HARNESS,
-        OperationCommandType.INJECT_OPERATOR_MESSAGE,
-        OperationCommandType.ANSWER_ATTENTION_REQUEST,
-    }:
-        if text is None or not text.strip():
-            raise typer.BadParameter("--text is required for this command type.")
-        return {"text": text.strip()}
-    if command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA:
-        if text is not None:
-            raise typer.BadParameter("--text is not supported for this command type.")
-        if clear_success_criteria:
-            if success_criteria:
-                raise typer.BadParameter(
-                    "--success-criterion cannot be combined with --clear-success-criteria."
-                )
-            return {"success_criteria": []}
-        normalized = [item.strip() for item in success_criteria or [] if item.strip()]
-        if not normalized:
-            raise typer.BadParameter(
-                "--success-criterion or --clear-success-criteria is required for this command type."
-            )
-        return {"success_criteria": normalized}
-    if command_type is OperationCommandType.SET_ALLOWED_AGENTS:
-        if text is not None:
-            raise typer.BadParameter("--text is not supported for this command type.")
-        if success_criteria or clear_success_criteria:
-            raise typer.BadParameter(
-                "--success-criterion and --clear-success-criteria are not supported for this "
-                "command type."
-            )
-        if max_iterations is not None:
-            raise typer.BadParameter("--max-iterations is not supported for this command type.")
-        if allowed_agents is None:
-            raise typer.BadParameter("--allowed-agent is required for this command type.")
-        allowed_agents_payload = [item.strip() for item in allowed_agents if item.strip()]
-        if not allowed_agents_payload:
-            raise typer.BadParameter("--allowed-agent cannot be empty.")
-        return {"allowed_agents": allowed_agents_payload}
-    if command_type is OperationCommandType.SET_INVOLVEMENT_LEVEL:
-        if text is None or not text.strip():
-            raise typer.BadParameter("--text is required for this command type.")
-        return {"level": text.strip()}
-    if success_criteria or clear_success_criteria:
-        raise typer.BadParameter(
-            "--success-criterion is not supported for this command type."
-        )
-    if text is not None:
-        raise typer.BadParameter("--text is not supported for this command type.")
-    return {}
 
 
 def _policy_applicability_payload(
@@ -964,134 +1020,24 @@ def _render_inspect_summary(
     *,
     runtime_alert: str | None,
 ) -> str:
-    operation_brief = brief.operation_brief if brief is not None else None
-    latest_turn = _latest_agent_turn_brief(brief)
-    now_lines: list[str] = []
-    if runtime_alert is not None:
-        now_lines.append(f"alert: {runtime_alert}")
-    blocker = (
-        operation_brief.blocker_brief
-        if operation_brief is not None
-        else operation.final_summary
+    return _render_inspect_summary_view(
+        operation,
+        summary=_PROJECTIONS.build_inspect_summary_payload(
+            operation,
+            brief,
+            runtime_alert=runtime_alert,
+        ),
+        brief=brief,
+        recent_iteration_briefs=_recent_iteration_briefs,
+        recent_agent_turn_briefs=_recent_agent_turn_briefs,
+        shorten_paragraph_text=lambda text: _shorten_paragraph_text(text, limit=180),
+        turn_work_summary=_turn_work_summary,
+        turn_verification_summary=_turn_verification_summary,
+        turn_blockers_summary=_turn_blockers_summary,
+        turn_next_step=_turn_next_step,
+        open_attention_requests=_open_attention_requests,
+        render_section=_render_section,
     )
-    if blocker:
-        now_lines.append(f"blocker: {_shorten_paragraph_text(blocker, limit=220)}")
-    latest = _turn_work_summary(latest_turn)
-    if latest is None and operation_brief is not None:
-        latest = _shorten_block_text(operation_brief.latest_outcome_brief, limit=320)
-    if latest:
-        now_lines.append(f"latest: {latest}")
-    verification = _turn_verification_summary(latest_turn)
-    if verification:
-        now_lines.append(f"verification: {verification}")
-    blockers = _turn_blockers_summary(latest_turn)
-    if blockers:
-        now_lines.append(f"remaining blockers: {blockers}")
-    next_step = _turn_next_step(latest_turn)
-    if next_step:
-        now_lines.append(f"recommended next step: {next_step}")
-
-    operation_lines = [
-        f"status: {operation.status.value}",
-        (
-            f"scheduler: {operation.scheduler_state.value}"
-            if operation.scheduler_state is not SchedulerState.ACTIVE
-            else ""
-        ),
-        (
-            f"involvement: {operation.involvement_level.value}"
-            if operation.involvement_level is not InvolvementLevel.AUTO
-            else ""
-        ),
-        (
-            f"focus: {operation_brief.focus_brief}"
-            if operation_brief is not None and operation_brief.focus_brief
-            else ""
-        ),
-    ]
-    objective_lines = [
-        f"objective: {operation_brief.objective_brief}"
-        if operation_brief is not None
-        else f"objective: {_shorten_paragraph_text(operation.goal.objective, limit=220)}",
-        (
-            f"harness: {_shorten_paragraph_text(operation_brief.harness_brief, limit=220)}"
-            if operation_brief is not None and operation_brief.harness_brief
-            else ""
-        ),
-    ]
-    iteration_lines: list[str] = []
-    for item in _recent_iteration_briefs(brief):
-        iteration_lines.append(f"- Iteration {item.iteration}")
-        iteration_lines.append(
-            f"  intent: {_shorten_paragraph_text(item.operator_intent_brief, limit=180) or '-'}"
-        )
-        if item.assignment_brief:
-            iteration_lines.append(
-                f"  assignment: {_shorten_paragraph_text(item.assignment_brief, limit=200) or '-'}"
-            )
-        if item.result_brief:
-            iteration_lines.append(
-                f"  result: {_shorten_paragraph_text(item.result_brief, limit=200) or '-'}"
-            )
-        iteration_lines.append(
-            f"  status: {_shorten_paragraph_text(item.status_brief, limit=180) or '-'}"
-        )
-    turn_lines: list[str] = []
-    for turn in _recent_agent_turn_briefs(brief):
-        session_label = turn.session_display_name or turn.session_id
-        turn_lines.append(f"- {turn.agent_key} ({session_label}) [{turn.status}]")
-        turn_lines.append(
-            f"  assignment: {_shorten_paragraph_text(turn.assignment_brief, limit=200) or '-'}"
-        )
-        work = _turn_work_summary(turn)
-        if work:
-            turn_lines.append(f"  work: {work}")
-        verification = _turn_verification_summary(turn)
-        if verification:
-            turn_lines.append(f"  verification: {verification}")
-        blockers = _turn_blockers_summary(turn)
-        if blockers:
-            turn_lines.append(f"  blockers: {blockers}")
-        next_step = _turn_next_step(turn)
-        if next_step:
-            turn_lines.append(f"  next: {next_step}")
-        if turn.raw_log_refs:
-            turn_lines.append(
-                "  refs: raw_logs="
-                + ", ".join(turn.raw_log_refs[:2])
-                + ("…" if len(turn.raw_log_refs) > 2 else "")
-            )
-
-    open_attention = [a for a in operation.attention_requests if a.status is AttentionStatus.OPEN]
-    attention_lines: list[str] = []
-    for attention in open_attention:
-        blocking_label = "blocking" if attention.blocking else "non-blocking"
-        attention_lines.append(
-            f"- [{attention.attention_type.value}] {attention.title} ({blocking_label})"
-        )
-        if attention.question:
-            attention_lines.append(
-                f"  {_shorten_paragraph_text(attention.question, limit=180)}"
-            )
-        attention_lines.append(
-            f"  → operator answer {operation.operation_id} "
-            f"--attention {attention.attention_id} --text '...'"
-        )
-
-    lines = [f"Operation {operation.operation_id}", ""]
-    for section in (
-        _render_section("Operation", operation_lines),
-        _render_section("Objective", objective_lines),
-        _render_section("Now", now_lines),
-        _render_section("Open Attention", attention_lines),
-        _render_section("Recent Iterations", iteration_lines),
-        _render_section("Recent Agent Turns", turn_lines),
-    ):
-        if section:
-            if lines and lines[-1] != "":
-                lines.append("")
-            lines.extend(section)
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def _render_operation_list_line(
@@ -1106,142 +1052,28 @@ def _render_operation_list_line(
     scheduler: str | None = None,
     involvement: str | None = None,
 ) -> str:
-    parts = [f"{operation_id} [{status}] {objective}"]
-    if focus:
-        parts.append(f"focus={focus}")
-    if latest:
-        parts.append(f"latest={latest}")
-    if blocker:
-        parts.append(f"blocker={blocker}")
-    if scheduler:
-        parts.append(f"scheduler={scheduler}")
-    if involvement:
-        parts.append(f"involvement={involvement}")
-    if runtime_alert:
-        parts.append(f"alert={runtime_alert}")
-    return " | ".join(parts)
-
-
-def _build_brief_summary_payload(
-    operation: OperationState,
-    brief: TraceBriefBundle | None,
-    *,
-    runtime_alert: str | None,
-) -> dict[str, object]:
-    operation_brief = brief.operation_brief if brief is not None else None
-    latest_turn = _latest_agent_turn_brief(brief)
-    return {
-        "objective": (
-            operation_brief.objective_brief
-            if operation_brief is not None
-            else _shorten_paragraph_text(operation.goal.objective, limit=220)
-        ),
-        "harness": (
-            _shorten_paragraph_text(operation_brief.harness_brief, limit=220)
-            if operation_brief is not None and operation_brief.harness_brief
-            else None
-        ),
-        "focus": operation_brief.focus_brief if operation_brief is not None else None,
-        "latest": _turn_work_summary(latest_turn)
-        or (
-            _shorten_block_text(operation_brief.latest_outcome_brief, limit=320)
-            if operation_brief is not None
-            else None
-        ),
-        "verification": _turn_verification_summary(latest_turn),
-        "blockers": _turn_blockers_summary(latest_turn),
-        "next_step": _turn_next_step(latest_turn),
-        "blocker": (
-            _shorten_paragraph_text(operation_brief.blocker_brief, limit=220)
-            if operation_brief is not None and operation_brief.blocker_brief
-            else None
-        ),
-        "runtime_alert": runtime_alert,
-    }
+    return _render_operation_list_line_view(
+        operation_id,
+        status,
+        objective=objective,
+        focus=focus,
+        latest=latest,
+        blocker=blocker,
+        runtime_alert=runtime_alert,
+        scheduler=scheduler,
+        involvement=involvement,
+    )
 
 
 def _format_live_event(event: RunEvent) -> str | None:
-    payload = event.payload if isinstance(event.payload, dict) else {}
-    prefix = f"[iter {event.iteration}] " if event.iteration > 0 else ""
-    if event.event_type == "operation.started":
-        objective = _shorten_live_text(str(payload.get("objective", "")).strip())
-        if objective is not None:
-            return f"starting: {objective}"
-        return "starting operation"
-    if event.event_type == "brain.decision.made":
-        action = str(payload.get("action_type", "")).strip() or "unknown"
-        target_agent = str(payload.get("target_agent", "")).strip() or None
-        rationale = _shorten_live_text(str(payload.get("rationale", "")).strip())
-        rendered = f"{prefix}decision: {action}"
-        if target_agent is not None:
-            rendered += f" -> {target_agent}"
-        if rationale is not None:
-            rendered += f" | {rationale}"
-        return rendered
-    if event.event_type == "agent.invocation.started":
-        adapter_key = str(payload.get("adapter_key", "")).strip() or "agent"
-        rendered = f"{prefix}agent started: {adapter_key}"
-        if event.session_id is not None:
-            rendered += f" session={event.session_id}"
-        session_name = str(payload.get("session_name", "")).strip() or None
-        if session_name is not None:
-            rendered += f" name={session_name}"
-        return rendered
-    if event.event_type == "agent.invocation.background_started":
-        adapter_key = str(payload.get("adapter_key", "")).strip() or "agent"
-        rendered = f"{prefix}background agent started: {adapter_key}"
-        run_id = str(payload.get("run_id", "")).strip() or None
-        if run_id is not None:
-            rendered += f" run={run_id}"
-        return rendered
-    if event.event_type == "agent.invocation.completed":
-        status = str(payload.get("status", "")).strip() or "unknown"
-        output_text = _shorten_live_text(str(payload.get("output_text", "")).strip())
-        rendered = f"{prefix}agent completed: {status}"
-        if output_text is not None:
-            rendered += f" | {output_text}"
-        return rendered
-    if event.event_type == "evaluation.completed":
-        should_continue = bool(payload.get("should_continue"))
-        goal_satisfied = bool(payload.get("goal_satisfied"))
-        summary = _shorten_live_text(str(payload.get("summary", "")).strip())
-        if should_continue:
-            rendered = f"{prefix}evaluation: continue"
-        elif goal_satisfied:
-            rendered = f"{prefix}evaluation: goal satisfied"
-        else:
-            rendered = f"{prefix}evaluation: stop"
-        if summary is not None:
-            rendered += f" | {summary}"
-        return rendered
-    if event.event_type == "command.applied":
-        command_type = str(payload.get("command_type", "")).strip() or "unknown"
-        return f"{prefix}command applied: {command_type}"
-    if event.event_type == "command.rejected":
-        command_type = str(payload.get("command_type", "")).strip() or "unknown"
-        reason = _shorten_live_text(str(payload.get("rejection_reason", "")).strip())
-        rendered = f"{prefix}command rejected: {command_type}"
-        if reason is not None:
-            rendered += f" | {reason}"
-        return rendered
-    if event.event_type == "planning_trigger.enqueued":
-        reason = str(payload.get("reason", "")).strip() or "unknown"
-        return f"{prefix}planning trigger enqueued: {reason}"
-    if event.event_type == "planning_trigger.coalesced":
-        reason = str(payload.get("reason", "")).strip() or "unknown"
-        return f"{prefix}planning trigger coalesced: {reason}"
-    if event.event_type == "planning_trigger.applied":
-        reason = str(payload.get("reason", "")).strip() or "unknown"
-        return f"{prefix}planning trigger applied: {reason}"
-    if event.event_type == "background_wakeup.reconciled":
-        run_id = str(payload.get("run_id", "")).strip() or "unknown"
-        return f"{prefix}background wakeup reconciled: run={run_id}"
-    if event.event_type == "background_run.stale_detected":
-        run_id = str(payload.get("run_id", "")).strip() or "unknown"
-        return f"{prefix}stale background run detected: run={run_id}"
-    if event.event_type == "operation.cycle_finished":
-        return None
-    return f"{prefix}{event.event_type}"
+    return _format_live_event_view(
+        event,
+        shorten_live_text=lambda text: _shorten_live_text(text, limit=100),
+    )
+
+
+def _open_attention_requests(operation: OperationState) -> list[AttentionRequest]:
+    return [item for item in operation.attention_requests if item.status is AttentionStatus.OPEN]
 
 
 def _build_live_snapshot(
@@ -1249,91 +1081,15 @@ def _build_live_snapshot(
     operation: OperationState | None,
     outcome: OperationOutcome | None,
 ) -> dict[str, object]:
-    payload: dict[str, object] = {"operation_id": operation_id}
-    if operation is None:
-        payload["status"] = outcome.status.value if outcome is not None else "unknown"
-        payload["summary"] = outcome.summary if outcome is not None else "Operation not found."
-        return payload
-    payload["status"] = operation.status.value
-    payload["scheduler_state"] = operation.scheduler_state.value
-    payload["involvement_level"] = operation.involvement_level.value
-    payload["updated_at"] = operation.updated_at.isoformat()
-    if operation.current_focus is not None:
-        payload["focus"] = (
-            f"{operation.current_focus.kind.value}:{operation.current_focus.target_id}"
-        )
-        if operation.current_focus.blocking_reason:
-            payload["blocking_reason"] = operation.current_focus.blocking_reason
-    active_session = operation.active_session_record
-    if active_session is not None:
-        payload["session_id"] = active_session.session_id
-        payload["adapter_key"] = active_session.adapter_key
-        payload["session_status"] = active_session.status.value
-        if active_session.waiting_reason:
-            payload["waiting_reason"] = active_session.waiting_reason
-    if operation.attention_requests:
-        open_attention = [
-            item for item in operation.attention_requests if item.status is AttentionStatus.OPEN
-        ]
-        if open_attention:
-            payload["open_attention_count"] = len(open_attention)
-            payload["attention_title"] = open_attention[0].title
-            payload["attention_brief"] = (
-                f"[{open_attention[0].attention_type.value}] {open_attention[0].title}"
-            )
-    summary = outcome.summary if outcome is not None else operation.final_summary
-    if summary:
-        payload["summary"] = summary
-    return payload
+    return _delivery_commands_service().build_live_snapshot(operation_id, operation, outcome)
 
 
 def _format_live_snapshot(snapshot: dict[str, object]) -> str:
-    parts = [f"state: {snapshot.get('status', 'unknown')}"]
-    scheduler_state = snapshot.get("scheduler_state")
-    if isinstance(scheduler_state, str) and scheduler_state:
-        parts.append(f"scheduler={scheduler_state}")
-    session_id = snapshot.get("session_id")
-    if isinstance(session_id, str) and session_id:
-        parts.append(f"session={session_id}")
-    adapter_key = snapshot.get("adapter_key")
-    if isinstance(adapter_key, str) and adapter_key:
-        parts.append(f"agent={adapter_key}")
-    session_status = snapshot.get("session_status")
-    if isinstance(session_status, str) and session_status and session_status != "idle":
-        parts.append(f"session_status={session_status}")
-    focus = snapshot.get("focus")
-    if isinstance(focus, str) and focus:
-        parts.append(f"focus={focus}")
-    waiting_reason_raw = snapshot.get("waiting_reason")
-    waiting_reason = _shorten_live_text(
-        str(waiting_reason_raw) if waiting_reason_raw is not None else None
+    return _format_live_snapshot_view(
+        snapshot,
+        base_formatter=_PROJECTIONS.format_live_snapshot,
+        shorten_live_text=lambda text: _shorten_live_text(text, limit=100),
     )
-    if waiting_reason is not None:
-        parts.append(f"waiting={waiting_reason}")
-    blocking_reason_raw = snapshot.get("blocking_reason")
-    blocking_reason = _shorten_live_text(
-        str(blocking_reason_raw) if blocking_reason_raw is not None else None
-    )
-    if blocking_reason is not None:
-        parts.append(f"blocked_by={blocking_reason}")
-    attention_brief_raw = snapshot.get("attention_brief")
-    attention_brief = _shorten_live_text(
-        str(attention_brief_raw) if attention_brief_raw is not None else None
-    )
-    if attention_brief is None:
-        attention_title_raw = snapshot.get("attention_title")
-        attention_brief = _shorten_live_text(
-            str(attention_title_raw) if attention_title_raw is not None else None
-        )
-    if attention_brief is not None:
-        count = snapshot.get("open_attention_count")
-        if isinstance(count, int) and count > 0:
-            parts.append(f"attention={count}:{attention_brief}")
-    summary_raw = snapshot.get("summary")
-    summary = _shorten_live_text(str(summary_raw) if summary_raw is not None else None)
-    if summary is not None:
-        parts.append(f"summary={summary}")
-    return " | ".join(parts)
 
 
 def _format_agenda_item(item: AgendaItem) -> list[str]:
@@ -1393,385 +1149,44 @@ def _print_agenda_section(title: str, items: list[AgendaItem]) -> None:
             typer.echo(line)
 
 
-def _build_fleet_payload(
-    snapshot: AgendaSnapshot,
-    *,
-    project: str | None,
-) -> dict[str, object]:
-    return {
-        "project": project,
-        "total_operations": snapshot.total_operations,
-        "mix": _build_fleet_mix(snapshot),
-        "needs_attention": [item.model_dump(mode="json") for item in snapshot.needs_attention],
-        "active": [item.model_dump(mode="json") for item in snapshot.active],
-        "recent": [item.model_dump(mode="json") for item in snapshot.recent],
-        "control_hints": _build_fleet_control_hints(snapshot),
-    }
-
-
-def _build_fleet_mix(snapshot: AgendaSnapshot) -> dict[str, dict[str, int]]:
-    items = [
-        *snapshot.needs_attention,
-        *snapshot.active,
-        *snapshot.recent,
-    ]
-    return {
-        "bucket_counts": {
-            "needs_attention": len(snapshot.needs_attention),
-            "active": len(snapshot.active),
-            "recent": len(snapshot.recent),
-        },
-        "status_counts": _count_items_by_key(items, lambda item: item.status.value),
-        "scheduler_counts": _count_items_by_key(items, lambda item: item.scheduler_state.value),
-        "involvement_counts": _count_items_by_key(items, lambda item: item.involvement_level.value),
-    }
-
-
-def _count_items_by_key(
-    items: list[AgendaItem],
-    key_fn: Callable[[AgendaItem], str],
-) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        key = key_fn(item)
-        counts[key] = counts.get(key, 0) + 1
-    return counts
-
-
-def _build_fleet_control_hints(snapshot: AgendaSnapshot) -> list[str]:
+def _projection_control_hints(payload: dict[str, object]) -> list[str]:
+    actions = payload.get("actions")
+    if not isinstance(actions, list):
+        return []
     hints: list[str] = []
-
-    def _append_hint(text: str) -> None:
-        if text not in hints:
-            hints.append(text)
-
-    if snapshot.needs_attention:
-        item = snapshot.needs_attention[0]
-        _append_hint(f"operator dashboard {item.operation_id}")
-        _append_hint(f"operator context {item.operation_id}")
-        if item.runtime_alert is not None:
-            _append_hint(f"operator resume {item.operation_id}")
-        if item.open_attention_count > 0 or item.status is OperationStatus.NEEDS_HUMAN:
-            _append_hint(f"operator attention {item.operation_id}")
-        if item.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}:
-            _append_hint(f"operator unpause {item.operation_id}")
-    if snapshot.active:
-        item = snapshot.active[0]
-        _append_hint(f"operator dashboard {item.operation_id}")
-        _append_hint(f"operator watch {item.operation_id}")
-        _append_hint(f"operator context {item.operation_id}")
-        _append_hint(f"operator pause {item.operation_id}")
-    if snapshot.recent:
-        item = snapshot.recent[0]
-        _append_hint(f"operator report {item.operation_id}")
+    for item in actions:
+        if not isinstance(item, dict):
+            continue
+        cli_command = item.get("cli_command")
+        enabled = item.get("enabled", True)
+        if isinstance(cli_command, str) and cli_command and enabled and cli_command not in hints:
+            hints.append(cli_command)
     return hints
 
 
-def _render_fleet_items_table(items: list[dict[str, object]]) -> Table:
-    table = Table(expand=True)
-    table.add_column("Operation", no_wrap=True)
-    table.add_column("State", no_wrap=True)
-    table.add_column("Objective")
-    table.add_column("Focus")
-    table.add_column("Attention / Alert")
-    table.add_column("Latest")
-    if not items:
-        table.add_row("-", "-", "none", "-", "-", "-")
-        return table
-    for item in items[:8]:
-        state = str(item.get("status") or "-")
-        scheduler_state = str(item.get("scheduler_state") or "")
-        if scheduler_state and scheduler_state != SchedulerState.ACTIVE.value:
-            state += f" / {scheduler_state}"
-        attention_bits: list[str] = []
-        runtime_alert = _shorten_live_text(str(item.get("runtime_alert") or ""), limit=48)
-        if runtime_alert is not None:
-            attention_bits.append(runtime_alert)
-        else:
-            attention_briefs = item.get("attention_briefs")
-            if isinstance(attention_briefs, list) and attention_briefs:
-                attention_bits.append(
-                    _shorten_live_text(str(attention_briefs[0]), limit=48)
-                    or str(attention_briefs[0])
-                )
-            blocker_brief = _shorten_live_text(str(item.get("blocker_brief") or ""), limit=48)
-            if blocker_brief is not None:
-                attention_bits.append(blocker_brief)
-        latest = _shorten_live_text(str(item.get("latest_outcome_brief") or "-"), limit=56) or "-"
-        focus = _shorten_live_text(str(item.get("focus_brief") or "-"), limit=28) or "-"
-        objective = _shorten_live_text(str(item.get("objective_brief") or "-"), limit=56) or "-"
-        table.add_row(
-            str(item.get("operation_id") or "-"),
-            state,
-            objective,
-            focus,
-            " | ".join(attention_bits) if attention_bits else "-",
-            latest,
-        )
-    return table
+def _cli_projection_payload(payload: dict[str, object]) -> dict[str, object]:
+    payload["control_hints"] = _projection_control_hints(payload)
+    return payload
 
 
 def _render_fleet_dashboard(payload: dict[str, object]) -> Group:
-    needs_attention = payload.get("needs_attention")
-    active = payload.get("active")
-    recent = payload.get("recent")
-    hints = payload.get("control_hints")
-    mix = payload.get("mix")
-    header_lines = [
-        f"total_operations={payload.get('total_operations', 0)}",
-        (
-            f"project={payload.get('project')}"
-            if isinstance(payload.get("project"), str) and payload.get("project")
-            else "project=all"
-        ),
-        (
-            f"needs_attention={len(needs_attention)} active={len(active)} recent={len(recent)}"
-            if isinstance(needs_attention, list)
-            and isinstance(active, list)
-            and isinstance(recent, list)
-            else "needs_attention=0 active=0 recent=0"
-        ),
-    ]
-    if isinstance(mix, dict):
-        status_counts = mix.get("status_counts")
-        scheduler_counts = mix.get("scheduler_counts")
-        involvement_counts = mix.get("involvement_counts")
-        if isinstance(status_counts, dict) and status_counts:
-            header_lines.append("status_mix=" + _format_fleet_mix_counts(status_counts))
-        if isinstance(scheduler_counts, dict) and scheduler_counts:
-            header_lines.append("scheduler_mix=" + _format_fleet_mix_counts(scheduler_counts))
-        if isinstance(involvement_counts, dict) and involvement_counts:
-            header_lines.append("involvement_mix=" + _format_fleet_mix_counts(involvement_counts))
-    hint_renderable = "\n".join(str(item) for item in hints if isinstance(item, str)) or "- none"
-    recent_renderable = _render_fleet_items_table(recent) if isinstance(recent, list) else "-"
-    return Group(
-        Panel("\n".join(header_lines), title="Fleet Dashboard", border_style="cyan"),
-        Columns(
-            [
-                Panel(
-                    (
-                        _render_fleet_items_table(needs_attention)
-                        if isinstance(needs_attention, list)
-                        else "-"
-                    ),
-                    title=(
-                        f"Needs Attention ({len(needs_attention)})"
-                        if isinstance(needs_attention, list)
-                        else "Needs Attention"
-                    ),
-                    border_style="yellow",
-                ),
-                Panel(
-                    _render_fleet_items_table(active) if isinstance(active, list) else "-",
-                    title=f"Active ({len(active)})" if isinstance(active, list) else "Active",
-                    border_style="green",
-                ),
-            ]
-        ),
-        Columns(
-            [
-                Panel(
-                    recent_renderable,
-                    title=f"Recent ({len(recent)})" if isinstance(recent, list) else "Recent",
-                    border_style="blue",
-                ),
-                Panel(hint_renderable, title="Suggested Next Commands", border_style="magenta"),
-            ]
-        ),
+    return _render_fleet_dashboard_view(
+        payload,
+        shorten_live_text=lambda text: _shorten_live_text(text, limit=48),
     )
-
-
-def _build_project_dashboard_payload(
-    *,
-    profile: ProjectProfile,
-    resolved: dict[str, object],
-    profile_path: Path,
-    fleet: dict[str, object],
-    active_policies: list[PolicyEntry],
-) -> dict[str, object]:
-    active_policy_payloads = [_policy_payload(item) for item in active_policies]
-    category_counts: dict[str, int] = {}
-    for policy in active_policies:
-        key = policy.category.value
-        category_counts[key] = category_counts.get(key, 0) + 1
-    return {
-        "project": profile.name,
-        "profile_path": str(profile_path),
-        "profile": profile.model_dump(mode="json"),
-        "resolved": resolved,
-        "policy_scope": f"profile:{profile.name}",
-        "active_policies": active_policy_payloads,
-        "policy_summary": {
-            "active_count": len(active_policy_payloads),
-            "category_counts": category_counts,
-        },
-        "fleet": fleet,
-        "control_hints": _build_project_dashboard_control_hints(profile.name, fleet=fleet),
-    }
-
-
-def _build_project_dashboard_control_hints(
-    project_name: str,
-    *,
-    fleet: dict[str, object],
-) -> list[str]:
-    hints = [
-        f'operator run --project {project_name} "<objective>"',
-        f"operator project inspect {project_name}",
-        f"operator project resolve {project_name}",
-        f"operator fleet --project {project_name} --all --once",
-        f"operator policy list --project profile:{project_name}",
-    ]
-    fleet_hints = fleet.get("control_hints")
-    if isinstance(fleet_hints, list):
-        for item in fleet_hints:
-            if isinstance(item, str) and item not in hints:
-                hints.append(item)
-    return hints
-
-
-def _render_project_policy_table(items: list[dict[str, object]]) -> Table:
-    table = Table(expand=True)
-    table.add_column("Policy", no_wrap=True)
-    table.add_column("Category", no_wrap=True)
-    table.add_column("Applicability")
-    table.add_column("Rule")
-    if not items:
-        table.add_row("-", "-", "none", "-")
-        return table
-    for item in items[:8]:
-        table.add_row(
-            str(item.get("policy_id") or "-"),
-            str(item.get("category") or "-"),
-            _shorten_live_text(str(item.get("applicability_summary") or "-"), limit=44) or "-",
-            _shorten_live_text(str(item.get("rule_text") or "-"), limit=58) or "-",
-        )
-    return table
 
 
 def _render_project_dashboard(payload: dict[str, object]) -> Group:
-    resolved = payload.get("resolved")
-    fleet = payload.get("fleet")
-    policy_summary = payload.get("policy_summary")
-    active_policies = payload.get("active_policies")
-    hints = payload.get("control_hints")
-    header_lines = [
-        f"project={payload.get('project')}",
-        f"profile_path={payload.get('profile_path')}",
-    ]
-    if isinstance(resolved, dict):
-        cwd = resolved.get("cwd")
-        if cwd:
-            header_lines.append(f"cwd={cwd}")
-        agents = resolved.get("default_agents")
-        if isinstance(agents, list) and agents:
-            header_lines.append("default_agents=" + ", ".join(str(item) for item in agents))
-        header_lines.append(
-            "max_iterations="
-            + str(resolved.get("max_iterations", "-"))
-            + " involvement="
-            + str(resolved.get("involvement_level", "-"))
-        )
-    if isinstance(policy_summary, dict):
-        header_lines.append(f"active_policies={policy_summary.get('active_count', 0)}")
-        category_counts = policy_summary.get("category_counts")
-        if isinstance(category_counts, dict) and category_counts:
-            header_lines.append("policy_mix=" + _format_fleet_mix_counts(category_counts))
-
-    resolved_lines = ["- none"]
-    if isinstance(resolved, dict):
-        resolved_lines = []
-        if resolved.get("cwd"):
-            resolved_lines.append(f"cwd={resolved['cwd']}")
-        agents = resolved.get("default_agents")
-        if isinstance(agents, list) and agents:
-            resolved_lines.append("default_agents=" + ", ".join(str(item) for item in agents))
-        harness = (
-            _shorten_live_text(str(resolved.get("harness_instructions") or "-"), limit=88) or "-"
-        )
-        resolved_lines.append(f"harness={harness}")
-        success_criteria = resolved.get("success_criteria")
-        if isinstance(success_criteria, list) and success_criteria:
-            resolved_lines.append(
-                "success_criteria=" + " | ".join(str(item) for item in success_criteria[:3])
-            )
-        resolved_lines.append(f"max_iterations={resolved.get('max_iterations', '-')}")
-        resolved_lines.append(f"involvement={resolved.get('involvement_level', '-')}")
-        overrides = resolved.get("overrides")
-        if isinstance(overrides, list) and overrides:
-            resolved_lines.append("overrides=" + ", ".join(str(item) for item in overrides))
-
-    fleet_payload = fleet if isinstance(fleet, dict) else {}
-    needs_attention = fleet_payload.get("needs_attention")
-    active = fleet_payload.get("active")
-    recent = fleet_payload.get("recent")
-    mix = fleet_payload.get("mix")
-    fleet_lines = [f"total_operations={fleet_payload.get('total_operations', 0)}"]
-    if isinstance(mix, dict):
-        bucket_counts = mix.get("bucket_counts")
-        if isinstance(bucket_counts, dict) and bucket_counts:
-            fleet_lines.append("buckets=" + _format_fleet_mix_counts(bucket_counts))
-    hint_renderable = "\n".join(str(item) for item in hints if isinstance(item, str)) or "- none"
-    return Group(
-        Panel(
-            "\n".join(header_lines),
-            title=f"Project Dashboard: {payload.get('project')}",
-            border_style="cyan",
-        ),
-        Columns(
-            [
-                Panel("\n".join(resolved_lines), title="Resolved Defaults", border_style="green"),
-                Panel(
-                    _render_project_policy_table(active_policies)
-                    if isinstance(active_policies, list)
-                    else "-",
-                    title=(
-                        f"Active Policies ({len(active_policies)})"
-                        if isinstance(active_policies, list)
-                        else "Active Policies"
-                    ),
-                    border_style="yellow",
-                ),
-            ]
-        ),
-        Panel("\n".join(fleet_lines), title="Fleet Summary", border_style="blue"),
-        Columns(
-            [
-                Panel(
-                    _render_fleet_items_table(needs_attention)
-                    if isinstance(needs_attention, list)
-                    else "-",
-                    title=(
-                        f"Needs Attention ({len(needs_attention)})"
-                        if isinstance(needs_attention, list)
-                        else "Needs Attention"
-                    ),
-                    border_style="yellow",
-                ),
-                Panel(
-                    _render_fleet_items_table(active) if isinstance(active, list) else "-",
-                    title=f"Active ({len(active)})" if isinstance(active, list) else "Active",
-                    border_style="green",
-                ),
-            ]
-        ),
-        Columns(
-            [
-                Panel(
-                    _render_fleet_items_table(recent) if isinstance(recent, list) else "-",
-                    title=f"Recent ({len(recent)})" if isinstance(recent, list) else "Recent",
-                    border_style="blue",
-                ),
-                Panel(hint_renderable, title="Suggested Next Commands", border_style="magenta"),
-            ]
-        ),
+    return _render_project_dashboard_view(
+        payload,
+        shorten_live_text=lambda text: _shorten_live_text(text, limit=88),
     )
 
 
-def _format_fleet_mix_counts(counts: dict[str, int]) -> str:
-    return ", ".join(
-        f"{key}={count}"
-        for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+def _render_dashboard(payload: dict[str, object]) -> Group:
+    return _render_dashboard_view(
+        payload,
+        shorten_live_text=lambda text: _shorten_live_text(text, limit=60),
     )
 
 
@@ -1887,338 +1302,23 @@ def _memory_payload(
     return [entry for entry in entries if entry.freshness is MemoryFreshness.CURRENT]
 
 
-def _build_durable_truth_payload(operation: OperationState) -> dict[str, object]:
-    return {
-        "task_counts": _summarize_task_counts(operation),
-        "tasks": [task.model_dump(mode="json") for task in operation.tasks],
-        "memory": {
-            "current": [
-                entry.model_dump(mode="json")
-                for entry in _memory_payload(operation, include_inactive=False)
-            ],
-            "inactive": [
-                entry.model_dump(mode="json")
-                for entry in _memory_payload(operation, include_inactive=True)
-                if entry.freshness is not MemoryFreshness.CURRENT
-            ],
-        },
-        "artifacts": [artifact.model_dump(mode="json") for artifact in operation.artifacts],
-    }
+def _operation_payload(operation: OperationState) -> dict[str, object]:
+    return _PROJECTIONS.operation_payload(operation)
 
 
 def _session_payload(session: SessionRecord) -> dict[str, object]:
-    payload = session.model_dump(mode="json")
-    payload["session_id"] = session.session_id
-    payload["adapter_key"] = session.adapter_key
-    payload["status"] = session.status.value
-    payload["session_name"] = session.handle.session_name
-    payload["display_name"] = session.handle.display_name
-    return payload
+    return _PROJECTIONS.session_payload(session)
 
 
-def _operation_payload(operation: OperationState) -> dict[str, object]:
-    payload = operation.model_dump(mode="json")
-    payload["sessions"] = [_session_payload(item) for item in operation.sessions]
-    return payload
-
-
-def _resolve_run_mode(operation: OperationState) -> str:
-    raw_mode = operation.runtime_hints.metadata.get("run_mode")
-    if isinstance(raw_mode, str) and raw_mode.strip():
-        return raw_mode.strip()
-    return RunMode.ATTACHED.value
-
-
-def _available_agent_descriptors_payload(operation: OperationState) -> list[dict[str, object]]:
-    raw = operation.runtime_hints.metadata.get("available_agent_descriptors")
-    if not isinstance(raw, list):
-        return []
-    rendered: list[dict[str, object]] = []
-    for item in raw:
-        if isinstance(item, dict):
-            rendered.append(item)
-    return rendered
-
-
-def _build_operation_context_payload(operation: OperationState) -> dict[str, object]:
-    metadata = operation.goal.metadata
-    payload: dict[str, object] = {
-        "operation_id": operation.operation_id,
-        "status": operation.status.value,
-        "scheduler_state": operation.scheduler_state.value,
-        "run_mode": _resolve_run_mode(operation),
-        "objective": operation.objective_state.objective,
-        "harness_instructions": operation.objective_state.harness_instructions,
-        "success_criteria": list(operation.objective_state.success_criteria),
-        "allowed_agents": list(operation.policy.allowed_agents),
-        "available_agent_descriptors": _available_agent_descriptors_payload(operation),
-        "max_iterations": operation.execution_budget.max_iterations,
-        "involvement_level": operation.involvement_level.value,
-    }
-    if operation.current_focus is not None:
-        payload["current_focus"] = operation.current_focus.model_dump(mode="json")
-    active_session = operation.active_session_record
-    if active_session is not None:
-        payload["active_session"] = {
-            "session_id": active_session.session_id,
-            "adapter_key": active_session.adapter_key,
-            "session_name": active_session.handle.session_name,
-            "status": active_session.status.value,
-            "waiting_reason": active_session.waiting_reason,
-        }
-    open_attention = [
-        attention.model_dump(mode="json")
-        for attention in operation.attention_requests
-        if attention.status is AttentionStatus.OPEN
-    ]
-    payload["open_attention"] = open_attention
-    resolved_profile = metadata.get("resolved_project_profile")
-    resolved_launch = metadata.get("resolved_operator_launch")
-    payload["project_context"] = {
-        "profile_name": (
-            metadata.get("project_profile_name")
-            if isinstance(metadata.get("project_profile_name"), str)
-            else None
-        ),
-        "policy_scope": (
-            metadata.get("policy_scope") if isinstance(metadata.get("policy_scope"), str) else None
-        ),
-        "resolved_profile": resolved_profile if isinstance(resolved_profile, dict) else None,
-        "resolved_launch": resolved_launch if isinstance(resolved_launch, dict) else None,
-    }
-    payload["policy_coverage"] = operation.policy_coverage.model_dump(mode="json")
-    payload["active_policies"] = [
-        _policy_payload(policy, operation) for policy in operation.active_policies
-    ]
-    return payload
-
-
-def _emit_context_lines(operation: OperationState) -> list[str]:
-    payload = _build_operation_context_payload(operation)
-    lines = [f"Operation {operation.operation_id}", "Goal:"]
-    lines.append(f"- Objective: {payload['objective']}")
-    harness = payload.get("harness_instructions")
-    lines.append(f"- Harness: {harness or '-'}")
-    success_criteria = payload.get("success_criteria")
-    if isinstance(success_criteria, list) and success_criteria:
-        lines.append("- Success criteria: " + " | ".join(str(item) for item in success_criteria))
-    else:
-        lines.append("- Success criteria: -")
-
-    lines.append("Runtime:")
-    lines.append(f"- Status: {payload['status']}")
-    lines.append(f"- Scheduler: {payload['scheduler_state']}")
-    lines.append(f"- Run mode: {payload['run_mode']}")
-    lines.append(f"- Involvement: {payload['involvement_level']}")
-    allowed_agents = payload.get("allowed_agents")
-    if isinstance(allowed_agents, list) and allowed_agents:
-        lines.append("- Allowed agents: " + ", ".join(str(item) for item in allowed_agents))
-    else:
-        lines.append("- Allowed agents: -")
-    descriptors = payload.get("available_agent_descriptors")
-    if isinstance(descriptors, list) and descriptors:
-        lines.append("- Agent capabilities:")
-        for descriptor in descriptors:
-            if not isinstance(descriptor, dict):
-                continue
-            capabilities = descriptor.get("capabilities")
-            capability_names = (
-                ", ".join(
-                    str(item.get("name"))
-                    for item in capabilities
-                    if isinstance(item, dict) and item.get("name")
-                )
-                if isinstance(capabilities, list)
-                else "-"
-            )
-            descriptor_line = (
-                f"  {descriptor.get('key') or '-'}"
-                f" ({descriptor.get('display_name') or '-'})"
-                f": capabilities={capability_names}"
-            )
-            if descriptor.get("supports_follow_up") is not None:
-                descriptor_line += (
-                    f" follow_up={'yes' if descriptor.get('supports_follow_up') else 'no'}"
-                )
-            lines.append(descriptor_line)
-    else:
-        lines.append("- Agent capabilities: -")
-    lines.append(f"- Max iterations: {payload['max_iterations']}")
-
-    current_focus = payload.get("current_focus")
-    if isinstance(current_focus, dict):
-        focus_kind = current_focus.get("kind")
-        focus_target = current_focus.get("target_id")
-        focus_mode = current_focus.get("mode")
-        lines.append(f"- Current focus: {focus_kind}:{focus_target} mode={focus_mode}")
-
-    active_session = payload.get("active_session")
-    if isinstance(active_session, dict):
-        session_line = (
-            "- Active session: "
-            f"{active_session.get('session_id')} [{active_session.get('adapter_key')}] "
-            f"status={active_session.get('status')}"
-        )
-        session_name = active_session.get("session_name")
-        if isinstance(session_name, str) and session_name:
-            session_line += f" name={session_name}"
-        lines.append(session_line)
-        waiting_reason = active_session.get("waiting_reason")
-        if isinstance(waiting_reason, str) and waiting_reason.strip():
-            lines.append(f"  waiting: {waiting_reason.strip()}")
-
-    open_attention = payload.get("open_attention")
-    if isinstance(open_attention, list):
-        lines.append(f"- Open attention: {len(open_attention)}")
-
-    project_context = payload.get("project_context")
-    lines.append("Project context:")
-    if isinstance(project_context, dict):
-        lines.append(f"- Profile: {project_context.get('profile_name') or '-'}")
-        lines.append(f"- Policy scope: {project_context.get('policy_scope') or '-'}")
-        resolved_launch = project_context.get("resolved_launch")
-        if isinstance(resolved_launch, dict):
-            lines.append(f"- Data dir: {resolved_launch.get('data_dir') or '-'}")
-            lines.append(f"- Data dir source: {resolved_launch.get('data_dir_source') or '-'}")
-            lines.append(
-                f"- Profile selection: {resolved_launch.get('profile_source') or 'none'}"
-            )
-        resolved_profile = project_context.get("resolved_profile")
-        if isinstance(resolved_profile, dict):
-            resolved_cwd = resolved_profile.get("cwd") or "-"
-            resolved_agents = resolved_profile.get("default_agents") or []
-            resolved_harness = resolved_profile.get("harness_instructions") or "-"
-            resolved_involvement = resolved_profile.get("involvement_level") or "-"
-            resolved_iterations = resolved_profile.get("max_iterations") or "-"
-            overrides = resolved_profile.get("overrides") or []
-            lines.append(f"- Resolved cwd: {resolved_cwd}")
-            lines.append(
-                "- Resolved agents: "
-                + (", ".join(str(item) for item in resolved_agents) if resolved_agents else "-")
-            )
-            lines.append(f"- Resolved harness: {resolved_harness}")
-            lines.append(f"- Resolved involvement: {resolved_involvement}")
-            lines.append(f"- Resolved max iterations: {resolved_iterations}")
-            lines.append(
-                "- CLI/profile overrides: "
-                + (", ".join(str(item) for item in overrides) if overrides else "none")
-            )
-    policy_coverage = payload.get("policy_coverage")
-    if isinstance(policy_coverage, dict):
-        lines.append(
-            "- Policy coverage: "
-            f"{policy_coverage.get('status') or '-'} "
-            f"(scope_entries={policy_coverage.get('scoped_policy_count') or 0}, "
-            f"active_now={policy_coverage.get('active_policy_count') or 0})"
-        )
-        summary = policy_coverage.get("summary")
-        if isinstance(summary, str) and summary:
-            lines.append(f"  summary: {summary}")
-
-    active_policies = payload.get("active_policies")
-    lines.append("Active policy:")
-    if not isinstance(active_policies, list) or not active_policies:
-        lines.append("- none")
-        return lines
-    for policy in active_policies:
-        if not isinstance(policy, dict):
-            continue
-        lines.append(
-            f"- {policy.get('policy_id')} [{policy.get('category')}] {policy.get('title')}"
-        )
-        lines.append(f"  rule: {policy.get('rule_text')}")
-        applicability = policy.get("applicability_summary")
-        if isinstance(applicability, str) and applicability:
-            lines.append(f"  applies: {applicability}")
-        match_reasons = policy.get("match_reasons")
-        if isinstance(match_reasons, list) and match_reasons:
-            lines.append("  matched_by: " + " | ".join(str(item) for item in match_reasons))
-        rationale = policy.get("rationale")
-        if isinstance(rationale, str) and rationale:
-            lines.append(f"  rationale: {rationale}")
-    return lines
-
-
-def _format_dashboard_command(command: OperationCommand) -> str:
-    rendered = (
-        f"{command.command_type.value} [{command.status.value}] "
-        f"target={command.target_scope.value}:{command.target_id or '-'}"
-    )
-    payload_text = _shorten_live_text(json.dumps(command.payload, ensure_ascii=False), limit=80)
-    if payload_text is not None and payload_text != "{}":
-        rendered += f" | payload={payload_text}"
-    if command.rejection_reason:
-        rendered += f" | reason={command.rejection_reason}"
-    return rendered
-
-
-def _build_dashboard_control_hints(operation: OperationState) -> list[str]:
-    hints = [
-        f"operator context {operation.operation_id}",
-        f"operator watch {operation.operation_id}",
-    ]
-    policy_scope = operation.policy_coverage.project_scope
-    if operation.status is OperationStatus.RUNNING:
-        if operation.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}:
-            hints.append(f"operator unpause {operation.operation_id}")
-        else:
-            hints.append(f"operator pause {operation.operation_id}")
-        if (
-            operation.active_session_record is not None
-            and operation.scheduler_state is not SchedulerState.DRAINING
-        ):
-            hints.append(f"operator interrupt {operation.operation_id}")
-    open_attention = [
-        attention
-        for attention in operation.attention_requests
-        if attention.status is AttentionStatus.OPEN
-    ]
-    if any(session.adapter_key in {"codex_acp", "claude_acp"} for session in operation.sessions):
-        hints.append(f"operator log {operation.operation_id}")
-    if open_attention:
-        hints.append(
-            "operator answer "
-            f"{operation.operation_id} {open_attention[0].attention_id} --text '...'"
-        )
-    if (
-        operation.policy_coverage.status.value == "uncovered"
-        and isinstance(policy_scope, str)
-        and policy_scope.startswith("profile:")
-    ):
-        hints.append(f"operator policy list --project {policy_scope.removeprefix('profile:')}")
-    return hints
-
-
-def _status_action_hint(operation: OperationState) -> str | None:
-    open_attention = [
-        attention
-        for attention in operation.attention_requests
-        if attention.status is AttentionStatus.OPEN
-    ]
-    if open_attention:
-        return (
-            f"operator answer {operation.operation_id} "
-            f"{open_attention[0].attention_id} --text '...'"
-        )
-    if (
-        operation.active_session_record is not None
-        and operation.scheduler_state is not SchedulerState.DRAINING
-    ):
-        return f"operator interrupt {operation.operation_id}"
-    if operation.scheduler_state in {SchedulerState.PAUSED, SchedulerState.PAUSE_REQUESTED}:
-        return f"operator unpause {operation.operation_id}"
-    return None
+def _emit_context_lines(payload: dict[str, object], *, operation_id: str) -> list[str]:
+    return _emit_context_lines_view(payload, operation_id=operation_id)
 
 
 def _render_status_brief(operation: OperationState) -> str:
-    attention_count = sum(
-        1 for attention in operation.attention_requests if attention.status is AttentionStatus.OPEN
-    )
-    return (
-        f"{operation.operation_id} {operation.status.value.upper()} "
-        f"iter={len(operation.iterations)}/{operation.execution_budget.max_iterations} "
-        f"tasks={_summarize_task_counts(operation) or 'none'} "
-        f"att=[!!{attention_count}]"
+    return _render_status_brief_view(
+        operation,
+        open_attention_count=len(_open_attention_requests(operation)),
+        summarize_task_counts=_summarize_task_counts,
     )
 
 
@@ -2257,17 +1357,125 @@ def _resolve_history_entry(
 def _resolve_claude_log_path_for_session(
     session: AgentSessionHandle,
 ) -> Path:
+    return _resolve_jsonl_log_path_for_session(session, provider="Claude")
+
+
+def _resolve_jsonl_log_path_for_session(
+    session: AgentSessionHandle,
+    *,
+    provider: str,
+) -> Path:
     raw_path = session.metadata.get("log_path")
     if not isinstance(raw_path, str) or not raw_path.strip():
         raise typer.BadParameter(
-            f"Claude log path for session {session.session_id!r} is not available."
+            f"{provider} log path for session {session.session_id!r} is not available."
         )
     path = Path(raw_path)
     if not path.exists():
         raise typer.BadParameter(
-            f"Claude log for session {session.session_id!r} was not found at {str(path)!r}."
+            f"{provider} log for session {session.session_id!r} was not found at {str(path)!r}."
         )
     return path
+
+
+def _first_non_empty_str(*items: object) -> str | None:
+    for item in items:
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+    return None
+
+
+@dataclass(slots=True)
+class OpencodeLogEvent:
+    timestamp: str
+    category: str
+    summary: str
+    details: dict[str, Any]
+
+
+def _parse_opencode_log_line(raw: str) -> OpencodeLogEvent | None:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return OpencodeLogEvent(
+            timestamp="-",
+            category="raw",
+            summary=_shorten_live_text(raw, limit=120) or "",
+            details={"raw": raw},
+        )
+    if not isinstance(payload, dict):
+        return OpencodeLogEvent(
+            timestamp="-",
+            category="raw",
+            summary=_shorten_live_text(str(payload), limit=120) or "",
+            details={"raw": payload},
+        )
+    timestamp = str(payload.get("timestamp", "-"))
+    category = (
+        _first_non_empty_str(
+            payload.get("type"),
+            payload.get("category"),
+            payload.get("event"),
+            payload.get("kind"),
+            payload.get("subtype"),
+        )
+        or "event"
+    )
+    summary = (
+        _first_non_empty_str(
+            payload.get("summary"),
+            payload.get("message"),
+            payload.get("result"),
+            payload.get("text"),
+            payload.get("content"),
+        )
+        or _shorten_live_text(json.dumps(payload, ensure_ascii=False), limit=120)
+        or "-"
+    )
+    return OpencodeLogEvent(
+        timestamp=timestamp,
+        category=category,
+        summary=summary,
+        details=payload,
+    )
+
+
+def load_opencode_log_events(path: Path) -> list[OpencodeLogEvent]:
+    events: list[OpencodeLogEvent] = []
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            raw = line.strip()
+            if not raw:
+                continue
+            parsed = _parse_opencode_log_line(raw)
+            if parsed is not None:
+                events.append(parsed)
+    return events
+
+
+def iter_opencode_log_events(
+    path: Path,
+    *,
+    follow: bool = False,
+    poll_interval_seconds: float = 1.0,
+) -> Iterator[OpencodeLogEvent]:
+    with path.open(encoding="utf-8") as handle:
+        while True:
+            position = handle.tell()
+            line = handle.readline()
+            if line:
+                parsed = _parse_opencode_log_line(line.strip())
+                if parsed is not None:
+                    yield parsed
+                continue
+            if not follow:
+                break
+            handle.seek(position)
+            time.sleep(poll_interval_seconds)
+
+
+def format_opencode_log_event(event: OpencodeLogEvent) -> str:
+    return f"{event.timestamp} [{event.category}] {event.summary}"
 
 
 def _resolve_claude_log_path(operation: OperationState) -> tuple[AgentSessionHandle, Path]:
@@ -2290,8 +1498,10 @@ def _resolve_log_target(
     agent: str,
 ) -> tuple[str, AgentSessionHandle]:
     normalized = agent.strip().lower()
-    if normalized not in {"auto", "codex", "claude"}:
-        raise typer.BadParameter("--agent must be one of: auto, codex, claude")
+    if normalized not in {"auto", "codex", "claude", "opencode"}:
+        raise typer.BadParameter(
+            "--agent must be one of: auto, codex, claude, or opencode"
+        )
     session_handles: list[AgentSessionHandle] = [session.handle for session in operation.sessions]
     if normalized == "codex":
         session = next((item for item in session_handles if item.adapter_key == "codex_acp"), None)
@@ -2307,23 +1517,39 @@ def _resolve_log_target(
                 f"Operation {operation.operation_id!r} does not have a claude_acp session."
             )
         return "claude", session
+    if normalized == "opencode":
+        session = next(
+            (item for item in session_handles if item.adapter_key == "opencode_acp"),
+            None,
+        )
+        if session is None:
+            raise typer.BadParameter(
+                f"Operation {operation.operation_id!r} does not have an opencode_acp session."
+            )
+        return "opencode", session
     active = operation.active_session
     if active is not None:
         if active.adapter_key == "codex_acp":
             return "codex", active
         if active.adapter_key == "claude_acp":
             return "claude", active
+        if active.adapter_key == "opencode_acp":
+            return "opencode", active
     supported = [
         item
         for item in session_handles
-        if item.adapter_key in {"codex_acp", "claude_acp"}
+        if item.adapter_key in {"codex_acp", "claude_acp", "opencode_acp"}
     ]
     adapter_keys = sorted({item.adapter_key for item in supported})
     if len(adapter_keys) == 1 and supported:
-        return ("codex" if adapter_keys[0] == "codex_acp" else "claude"), supported[-1]
+        if adapter_keys[0] == "codex_acp":
+            return "codex", supported[-1]
+        if adapter_keys[0] == "claude_acp":
+            return "claude", supported[-1]
+        return "opencode", supported[-1]
     raise typer.BadParameter(
         f"Operation {operation.operation_id!r} has multiple agent transcript candidates. "
-        "Use --agent codex or --agent claude."
+        "Use --agent codex, --agent claude, or --agent opencode."
     )
 
 
@@ -2371,379 +1597,23 @@ def _build_dashboard_upstream_transcript(
                 ],
                 "command_hint": f"operator log {operation.operation_id} --agent claude",
             }
+        if session.adapter_key == "opencode_acp":
+            try:
+                path = _resolve_jsonl_log_path_for_session(session, provider="OpenCode")
+            except typer.BadParameter:
+                continue
+            return {
+                "adapter_key": session.adapter_key,
+                "session_id": session.session_id,
+                "title": "OpenCode Log",
+                "path": str(path),
+                "events": [
+                    format_opencode_log_event(event)
+                    for event in load_opencode_log_events(path)[-6:]
+                ],
+                "command_hint": f"operator log {operation.operation_id} --agent opencode",
+            }
     return None
-
-
-def _build_dashboard_payload(
-    operation: OperationState,
-    *,
-    brief: TraceBriefBundle | None,
-    outcome: OperationOutcome | None,
-    runtime_alert: str | None,
-    commands: list[OperationCommand],
-    events: list[RunEvent],
-    upstream_transcript: dict[str, object] | None,
-) -> dict[str, object]:
-    active_session = operation.active_session_record
-    context_payload = _build_operation_context_payload(operation)
-    open_attention = [
-        attention
-        for attention in operation.attention_requests
-        if attention.status is AttentionStatus.OPEN
-    ]
-    recent_events = [
-        rendered
-        for rendered in (_format_live_event(event) for event in events[-8:])
-        if rendered is not None
-    ]
-    tasks = [
-        {
-            "task_id": task.task_id,
-            "task_short_id": f"task-{task.task_short_id}",
-            "title": task.title,
-            "status": task.status.value,
-            "priority": task.effective_priority,
-            "assigned_agent": task.assigned_agent,
-            "linked_session_id": task.linked_session_id,
-        }
-        for task in sorted(
-            operation.tasks,
-            key=lambda item: (-item.effective_priority, item.created_at, item.task_id),
-        )[:8]
-    ]
-    sessions = [
-        {
-            "session_id": session.session_id,
-            "adapter_key": session.adapter_key,
-            "status": session.status.value,
-            "session_name": session.handle.session_name,
-            "waiting_reason": session.waiting_reason,
-            "bound_task_ids": list(session.bound_task_ids),
-        }
-        for session in sorted(
-            operation.sessions,
-            key=lambda item: (item.created_at, item.session_id),
-        )
-    ]
-    payload: dict[str, object] = {
-        "operation_id": operation.operation_id,
-        "status": operation.status.value,
-        "scheduler_state": operation.scheduler_state.value,
-        "run_mode": _resolve_run_mode(operation),
-        "involvement_level": operation.involvement_level.value,
-        "objective": operation.objective_state.objective,
-        "harness_instructions": operation.objective_state.harness_instructions,
-        "summary": outcome.summary if outcome is not None else operation.final_summary,
-        "focus": (
-            f"{operation.current_focus.kind.value}:{operation.current_focus.target_id}"
-            if operation.current_focus is not None
-            else None
-        ),
-        "brief_summary": _build_brief_summary_payload(
-            operation,
-            brief,
-            runtime_alert=runtime_alert,
-        ),
-        "task_counts": _summarize_task_counts(operation),
-        "runtime_alert": runtime_alert,
-        "active_session": (
-            {
-                "session_id": active_session.session_id,
-                "adapter_key": active_session.adapter_key,
-                "status": active_session.status.value,
-                "session_name": active_session.handle.session_name,
-                "waiting_reason": active_session.waiting_reason,
-            }
-            if active_session is not None
-            else None
-        ),
-        "available_agent_descriptors": context_payload.get("available_agent_descriptors"),
-        "project_context": context_payload.get("project_context"),
-        "policy_coverage": context_payload.get("policy_coverage"),
-        "active_policies": context_payload.get("active_policies"),
-        "attention": [
-            {
-                "attention_id": attention.attention_id,
-                "attention_type": attention.attention_type.value,
-                "blocking": attention.blocking,
-                "title": attention.title,
-                "question": attention.question,
-                "context_brief": attention.context_brief,
-                "suggested_options": list(attention.suggested_options),
-            }
-            for attention in open_attention
-        ],
-        "tasks": tasks,
-        "sessions": sessions,
-        "recent_events": recent_events,
-        "recent_commands": [
-            {
-                "command_id": command.command_id,
-                "command_type": command.command_type.value,
-                "status": command.status.value,
-                "target_scope": command.target_scope.value,
-                "target_id": command.target_id,
-                "payload": command.payload,
-                "rejection_reason": command.rejection_reason,
-                "summary": _format_dashboard_command(command),
-            }
-            for command in sorted(commands, key=lambda item: item.submitted_at)[-6:]
-        ],
-        "upstream_transcript": upstream_transcript,
-        "codex_log": (
-            list(upstream_transcript.get("events", []))
-            if isinstance(upstream_transcript, dict)
-            and upstream_transcript.get("adapter_key") == "codex_acp"
-            else []
-        ),
-        "control_hints": _build_dashboard_control_hints(operation),
-    }
-    return payload
-
-
-def _render_dashboard(payload: dict[str, object]) -> Group:
-    active_session = payload.get("active_session")
-    brief_summary = payload.get("brief_summary")
-    project_context = payload.get("project_context")
-    policy_coverage = payload.get("policy_coverage")
-    active_policies = payload.get("active_policies")
-    header_lines = [
-        f"status={payload.get('status')} scheduler={payload.get('scheduler_state')} "
-        f"run_mode={payload.get('run_mode')} involvement={payload.get('involvement_level')}",
-        (
-            f"objective: {brief_summary.get('objective')}"
-            if isinstance(brief_summary, dict) and brief_summary.get("objective")
-            else f"objective: {payload.get('objective')}"
-        ),
-        (
-            f"harness: {brief_summary.get('harness')}"
-            if isinstance(brief_summary, dict) and brief_summary.get("harness")
-            else f"harness: {payload.get('harness_instructions') or '-'}"
-        ),
-        (
-            f"focus: {brief_summary.get('focus') or '-'}"
-            if isinstance(brief_summary, dict)
-            else f"focus: {payload.get('focus') or '-'}"
-        ),
-        f"task_counts: {payload.get('task_counts') or 'none'}",
-    ]
-    if isinstance(active_session, dict):
-        session_line = (
-            "active session: "
-            f"{active_session.get('session_id')} [{active_session.get('adapter_key')}] "
-            f"status={active_session.get('status')}"
-        )
-        if active_session.get("session_name"):
-            session_line += f" name={active_session.get('session_name')}"
-        header_lines.append(session_line)
-        waiting_reason = active_session.get("waiting_reason")
-        if isinstance(waiting_reason, str) and waiting_reason.strip():
-            header_lines.append(f"waiting: {waiting_reason.strip()}")
-    if isinstance(brief_summary, dict):
-        latest = brief_summary.get("latest")
-        if isinstance(latest, str) and latest.strip():
-            header_lines.append(f"latest: {latest.strip()}")
-        verification = brief_summary.get("verification")
-        if isinstance(verification, str) and verification.strip():
-            header_lines.append(f"verification: {verification.strip()}")
-        blockers = brief_summary.get("blockers")
-        if isinstance(blockers, str) and blockers.strip():
-            header_lines.append(f"blockers: {blockers.strip()}")
-        next_step = brief_summary.get("next_step")
-        if isinstance(next_step, str) and next_step.strip():
-            header_lines.append(f"next: {next_step.strip()}")
-        blocker = brief_summary.get("blocker")
-        if isinstance(blocker, str) and blocker.strip():
-            header_lines.append(f"blocker: {blocker.strip()}")
-        runtime_alert = brief_summary.get("runtime_alert")
-    else:
-        summary = payload.get("summary")
-        if isinstance(summary, str) and summary.strip():
-            header_lines.append(f"summary: {summary.strip()}")
-        runtime_alert = payload.get("runtime_alert")
-    if isinstance(runtime_alert, str) and runtime_alert.strip():
-        header_lines.append(f"alert: {runtime_alert.strip()}")
-
-    context_lines = []
-    if isinstance(project_context, dict):
-        context_lines.append(f"profile: {project_context.get('profile_name') or '-'}")
-        context_lines.append(f"policy_scope: {project_context.get('policy_scope') or '-'}")
-        resolved_profile = project_context.get("resolved_profile")
-        if isinstance(resolved_profile, dict):
-            context_lines.append(f"cwd: {resolved_profile.get('cwd') or '-'}")
-            agents = resolved_profile.get("default_agents") or []
-            context_lines.append(
-                "default_agents: " + (", ".join(str(item) for item in agents) if agents else "-")
-            )
-    available_agent_descriptors = payload.get("available_agent_descriptors")
-    if isinstance(available_agent_descriptors, list) and available_agent_descriptors:
-        for descriptor in available_agent_descriptors:
-            if not isinstance(descriptor, dict):
-                continue
-            capabilities = descriptor.get("capabilities")
-            capability_names = (
-                ", ".join(
-                    str(item.get("name"))
-                    for item in capabilities
-                    if isinstance(item, dict) and item.get("name")
-                )
-                if isinstance(capabilities, list)
-                else "-"
-            )
-            context_lines.append(
-                f"agent: {descriptor.get('key') or '-'}"
-                f" | follow_up={'yes' if descriptor.get('supports_follow_up') else 'no'}"
-                f" | capabilities: {capability_names}"
-            )
-    if isinstance(policy_coverage, dict):
-        context_lines.append(
-            "policy_coverage: "
-            f"{policy_coverage.get('status') or '-'} "
-            f"(scope_entries={policy_coverage.get('scoped_policy_count') or 0}, "
-            f"active_now={policy_coverage.get('active_policy_count') or 0})"
-        )
-        summary = policy_coverage.get("summary")
-        if isinstance(summary, str) and summary:
-            context_lines.append(f"coverage_summary: {summary}")
-    if isinstance(active_policies, list) and active_policies:
-        for policy in active_policies[:3]:
-            if isinstance(policy, dict):
-                policy_line = (
-                    f"policy: {policy.get('policy_id')} [{policy.get('category')}] "
-                    f"{policy.get('title')}"
-                )
-                applicability = policy.get("applicability_summary")
-                if isinstance(applicability, str) and applicability:
-                    policy_line += f" | applies: {applicability}"
-                match_reasons = policy.get("match_reasons")
-                if isinstance(match_reasons, list) and match_reasons:
-                    policy_line += " | matched_by: " + ", ".join(
-                        str(item) for item in match_reasons
-                    )
-                context_lines.append(policy_line)
-    if not context_lines:
-        context_lines.append("- none")
-
-    attention_table = Table(expand=True)
-    attention_table.add_column("Type")
-    attention_table.add_column("Title")
-    attention_table.add_column("Blocking", justify="center")
-    attention_items = payload.get("attention")
-    if isinstance(attention_items, list) and attention_items:
-        for item in attention_items[:5]:
-            if not isinstance(item, dict):
-                continue
-            attention_table.add_row(
-                str(item.get("attention_type") or "-"),
-                _shorten_live_text(str(item.get("title") or "-"), limit=60) or "-",
-                "yes" if item.get("blocking") else "no",
-            )
-    else:
-        attention_table.add_row("-", "none", "-")
-
-    tasks_table = Table(expand=True)
-    tasks_table.add_column("Task")
-    tasks_table.add_column("Status")
-    tasks_table.add_column("Priority", justify="right")
-    tasks_table.add_column("Agent")
-    task_items = payload.get("tasks")
-    if isinstance(task_items, list) and task_items:
-        for item in task_items:
-            if not isinstance(item, dict):
-                continue
-            tasks_table.add_row(
-                _shorten_live_text(str(item.get("title") or "-"), limit=50) or "-",
-                str(item.get("status") or "-"),
-                str(item.get("priority") or "-"),
-                str(item.get("assigned_agent") or "-"),
-            )
-    else:
-        tasks_table.add_row("none", "-", "-", "-")
-
-    sessions_table = Table(expand=True)
-    sessions_table.add_column("Session")
-    sessions_table.add_column("Agent")
-    sessions_table.add_column("Status")
-    sessions_table.add_column("Waiting")
-    session_items = payload.get("sessions")
-    if isinstance(session_items, list) and session_items:
-        for item in session_items[:6]:
-            if not isinstance(item, dict):
-                continue
-            sessions_table.add_row(
-                str(item.get("session_id") or "-"),
-                str(item.get("adapter_key") or "-"),
-                str(item.get("status") or "-"),
-                _shorten_live_text(str(item.get("waiting_reason") or "-"), limit=40) or "-",
-            )
-    else:
-        sessions_table.add_row("none", "-", "-", "-")
-
-    recent_event_lines = payload.get("recent_events")
-    event_renderable = (
-        "\n".join(str(item) for item in recent_event_lines if isinstance(item, str)) or "- none"
-    )
-    recent_command_lines = payload.get("recent_commands")
-    command_renderable = (
-        "\n".join(
-            str(item.get("summary"))
-            for item in recent_command_lines
-            if isinstance(item, dict) and isinstance(item.get("summary"), str)
-        )
-        or "- none"
-    )
-    transcript_title = "Upstream Transcript"
-    transcript_renderable = "- none"
-    transcript_payload = payload.get("upstream_transcript")
-    if isinstance(transcript_payload, dict):
-        transcript_title = str(transcript_payload.get("title") or transcript_title)
-        transcript_lines = []
-        session_id = transcript_payload.get("session_id")
-        if isinstance(session_id, str) and session_id:
-            transcript_lines.append(f"session: {session_id}")
-        events = transcript_payload.get("events")
-        if isinstance(events, list) and events:
-            transcript_lines.extend(str(item) for item in events if isinstance(item, str))
-        command_hint = transcript_payload.get("command_hint")
-        if isinstance(command_hint, str) and command_hint:
-            transcript_lines.append(f"drill-down: {command_hint}")
-        transcript_renderable = "\n".join(transcript_lines) or "- none"
-    control_hints = payload.get("control_hints")
-    hint_renderable = (
-        "\n".join(str(item) for item in control_hints if isinstance(item, str)) or "- none"
-    )
-
-    return Group(
-        Panel(
-            "\n".join(header_lines),
-            title=f"Operation Dashboard: {payload.get('operation_id')}",
-            border_style="cyan",
-        ),
-        Columns(
-            [
-                Panel("\n".join(context_lines), title="Control Context", border_style="blue"),
-                Panel(attention_table, title="Attention", border_style="yellow"),
-            ]
-        ),
-        Columns(
-            [
-                Panel(tasks_table, title="Tasks", border_style="green"),
-                Panel(sessions_table, title="Sessions", border_style="magenta"),
-            ]
-        ),
-        Columns(
-            [
-                Panel(event_renderable, title="Recent Events", border_style="blue"),
-                Panel(command_renderable, title="Recent Commands", border_style="red"),
-            ]
-        ),
-        Columns(
-            [
-                Panel(transcript_renderable, title=transcript_title, border_style="magenta"),
-                Panel(hint_renderable, title="Control Hints", border_style="cyan"),
-            ]
-        ),
-    )
 
 
 class _CliEventProjector:
@@ -3802,35 +2672,25 @@ def inspect(
     """Inspect a prior operation and its events."""
 
     settings = _load_settings()
-    store = build_store(settings)
     trace_store = build_trace_store(settings)
     event_sink = build_event_sink(settings, operation_id)
-    inbox = build_wakeup_inbox(settings)
-    supervisor = build_background_run_inspection_store(settings)
     command_inbox = build_command_inbox(settings)
+    delivery = _build_delivery_commands_service(settings)
 
     async def _inspect() -> None:
-        operation = await store.load_operation(operation_id)
-        outcome = await store.load_outcome(operation_id)
-        brief = await trace_store.load_brief_bundle(operation_id)
+        try:
+            operation, outcome, brief, runtime_alert = await delivery.build_status_payload(
+                operation_id
+            )
+        except RuntimeError as exc:
+            raise typer.BadParameter(str(exc)) from exc
         report = await trace_store.load_report(operation_id)
         trace_records = await trace_store.load_trace_records(operation_id)
         memos = await trace_store.load_decision_memos(operation_id)
         events = event_sink.read_events(operation_id)
-        wakeups = inbox.read_all(operation_id)
         commands = [item.model_dump(mode="json") for item in await command_inbox.list(operation_id)]
-        background_runs = [
-            item.model_dump(mode="json") for item in await supervisor.list_runs(operation_id)
-        ]
         if operation is None:
             raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
-        live_runs = [ExecutionState.model_validate(item) for item in background_runs]
-        operation = _overlay_live_background_progress(operation, live_runs)
-        runtime_alert = _build_runtime_alert(
-            status=operation.status,
-            wakeups=wakeups,
-            background_runs=background_runs,
-        )
         if json_mode:
             payload: dict[str, object] = {
                 "operation": _operation_payload(operation),
@@ -3838,7 +2698,10 @@ def inspect(
                 "brief": brief.model_dump(mode="json") if brief is not None else None,
                 "report": report,
                 "commands": commands,
-                "durable_truth": _build_durable_truth_payload(operation),
+                "durable_truth": _PROJECTIONS.build_durable_truth_payload(
+                    operation,
+                    include_inactive_memory=True,
+                ),
             }
             if runtime_alert is not None:
                 payload["runtime_alert"] = runtime_alert
@@ -3846,8 +2709,13 @@ def inspect(
                 payload["trace_records"] = [item.model_dump(mode="json") for item in trace_records]
                 payload["decision_memos"] = [item.model_dump(mode="json") for item in memos]
                 payload["events"] = [item.model_dump(mode="json") for item in events]
-                payload["wakeups"] = wakeups
-                payload["background_runs"] = background_runs
+                payload["wakeups"] = build_wakeup_inbox(settings).read_all(operation_id)
+                payload["background_runs"] = [
+                    item.model_dump(mode="json")
+                    for item in await build_background_run_inspection_store(settings).list_runs(
+                        operation_id
+                    )
+                ]
             typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
             return
         if brief is not None:
@@ -3917,10 +2785,15 @@ def inspect(
             for event in events:
                 typer.echo(json.dumps(event.model_dump(mode="json"), indent=2, ensure_ascii=False))
             typer.echo("\nWakeups:")
-            for wakeup in wakeups:
+            for wakeup in build_wakeup_inbox(settings).read_all(operation_id):
                 typer.echo(json.dumps(wakeup, indent=2, ensure_ascii=False))
             typer.echo("\nBackground runs:")
-            for run in background_runs:
+            for run in [
+                item.model_dump(mode="json")
+                for item in await build_background_run_inspection_store(settings).list_runs(
+                    operation_id
+                )
+            ]:
                 typer.echo(json.dumps(run, indent=2, ensure_ascii=False))
 
     anyio.run(_inspect)
@@ -3957,13 +2830,14 @@ def report(
     """Print the human-readable report for an operation."""
 
     settings = _load_settings()
-    store = build_store(settings)
     trace_store = build_trace_store(settings)
+    delivery = _build_delivery_commands_service(settings)
 
     async def _report() -> None:
-        operation = await store.load_operation(operation_id)
-        outcome = await store.load_outcome(operation_id)
-        brief = await trace_store.load_brief_bundle(operation_id)
+        try:
+            operation, outcome, brief, _ = await delivery.build_status_payload(operation_id)
+        except RuntimeError as exc:
+            raise typer.BadParameter(f"Report for {operation_id!r} was not found.") from exc
         report_text = await trace_store.load_report(operation_id)
         if operation is None or report_text is None:
             raise typer.BadParameter(f"Report for {operation_id!r} was not found.")
@@ -3973,7 +2847,10 @@ def report(
                 "brief": brief.model_dump(mode="json") if brief is not None else None,
                 "outcome": outcome.model_dump(mode="json") if outcome is not None else None,
                 "report": report_text,
-                "durable_truth": _build_durable_truth_payload(operation),
+                "durable_truth": _PROJECTIONS.build_durable_truth_payload(
+                    operation,
+                    include_inactive_memory=True,
+                ),
             }
             typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
             return
@@ -3994,17 +2871,20 @@ def context(
     """Show the effective control-plane context steering an operation."""
 
     settings = _load_settings()
-    store = build_store(settings)
+    delivery = _build_delivery_commands_service(settings)
 
     async def _context() -> None:
-        operation = await store.load_operation(operation_id)
+        try:
+            operation, _, _, _ = await delivery.build_status_payload(operation_id)
+        except RuntimeError as exc:
+            raise typer.BadParameter(str(exc)) from exc
         if operation is None:
             raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
-        payload = _build_operation_context_payload(operation)
+        payload = _PROJECTIONS.build_operation_context_payload(operation)
         if json_mode:
             typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
             return
-        for line in _emit_context_lines(operation):
+        for line in _emit_context_lines(payload, operation_id=operation.operation_id):
             typer.echo(line)
 
     anyio.run(_context)
@@ -4062,17 +2942,19 @@ def trace(
     inbox = build_wakeup_inbox(settings)
     supervisor = build_background_run_inspection_store(settings)
     command_inbox = build_command_inbox(settings)
+    delivery = _build_delivery_commands_service(settings)
 
     async def _trace() -> None:
-        settings = _load_settings()
-        store = build_store(settings)
-        brief = await trace_store.load_brief_bundle(operation_id)
+        try:
+            operation, _, brief, _ = await delivery.build_status_payload(operation_id)
+        except RuntimeError:
+            operation = None
+            brief = await trace_store.load_brief_bundle(operation_id)
         trace_records = await trace_store.load_trace_records(operation_id)
         memos = await trace_store.load_decision_memos(operation_id)
         events = event_sink.read_events(operation_id)
         wakeups = inbox.read_all(operation_id)
         commands = [item.model_dump(mode="json") for item in await command_inbox.list(operation_id)]
-        operation = await store.load_operation(operation_id)
         background_runs = [
             item.model_dump(mode="json") for item in await supervisor.list_runs(operation_id)
         ]
@@ -4171,7 +3053,7 @@ def log(
     operation_ref: str,
     limit: int = typer.Option(40, "--limit", min=1, help="Maximum events to print."),
     follow: bool = typer.Option(False, "--follow", help="Follow the agent transcript."),
-    agent: str = typer.Option("auto", "--agent", help="auto, codex, or claude."),
+    agent: str = typer.Option("auto", "--agent", help="auto, codex, claude, or opencode."),
     json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     codex_home: Path = CODEX_HOME_OPTION,
 ) -> None:
@@ -4220,34 +3102,63 @@ def log(
             for event in events:
                 typer.echo(format_codex_log_event(event))
             return
-
-        claude_session, path = _resolve_claude_log_path(operation)
-        if follow:
+        if log_kind == "claude":
+            claude_session, path = _resolve_claude_log_path(operation)
+            if follow:
+                typer.echo(f"# Claude log for operation {resolved_operation_id}")
+                typer.echo(f"# session={claude_session.session_id}")
+                typer.echo(f"# file={path}")
+                for event in iter_claude_log_events(path, follow=True):
+                    if json_mode:
+                        typer.echo(json.dumps(asdict(event), ensure_ascii=False))
+                    else:
+                        typer.echo(format_claude_log_event(event))
+                return
+            events = load_claude_log_events(path)[-limit:]
+            if json_mode:
+                payload = {
+                    "operation_id": resolved_operation_id,
+                    "session_id": claude_session.session_id,
+                    "path": str(path),
+                    "agent": "claude",
+                    "events": [asdict(event) for event in events],
+                }
+                typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+                return
             typer.echo(f"# Claude log for operation {resolved_operation_id}")
             typer.echo(f"# session={claude_session.session_id}")
             typer.echo(f"# file={path}")
-            for event in iter_claude_log_events(path, follow=True):
+            for event in events:
+                typer.echo(format_claude_log_event(event))
+            return
+
+        path = _resolve_jsonl_log_path_for_session(session, provider="OpenCode")
+        if follow:
+            typer.echo(f"# OpenCode log for operation {resolved_operation_id}")
+            typer.echo(f"# session={session.session_id}")
+            typer.echo(f"# file={path}")
+            for event in iter_opencode_log_events(path, follow=True):
                 if json_mode:
                     typer.echo(json.dumps(asdict(event), ensure_ascii=False))
                 else:
-                    typer.echo(format_claude_log_event(event))
+                    typer.echo(format_opencode_log_event(event))
             return
-        events = load_claude_log_events(path)[-limit:]
+        events = load_opencode_log_events(path)[-limit:]
         if json_mode:
             payload = {
                 "operation_id": resolved_operation_id,
-                "session_id": claude_session.session_id,
+                "session_id": session.session_id,
                 "path": str(path),
-                "agent": "claude",
+                "agent": "opencode",
                 "events": [asdict(event) for event in events],
             }
             typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
             return
-        typer.echo(f"# Claude log for operation {resolved_operation_id}")
-        typer.echo(f"# session={claude_session.session_id}")
+        typer.echo(f"# OpenCode log for operation {resolved_operation_id}")
+        typer.echo(f"# session={session.session_id}")
         typer.echo(f"# file={path}")
         for event in events:
-            typer.echo(format_claude_log_event(event))
+            typer.echo(format_opencode_log_event(event))
 
     anyio.run(_log)
 
@@ -4408,14 +3319,14 @@ async def _watch_async(
     poll_interval: float,
 ) -> None:
     settings = _load_settings()
-    store = build_store(settings)
     event_sink = build_event_sink(settings, operation_id)
     projector = _CliEventProjector(json_mode=json_mode)
+    delivery = _build_delivery_commands_service(settings)
 
-    operation = await store.load_operation(operation_id)
-    outcome = await store.load_outcome(operation_id)
-    if operation is None and outcome is None:
-        raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
+    try:
+        operation, outcome, _, _ = await delivery.build_status_payload(operation_id)
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     projector.emit_operation(operation_id)
     seen_event_ids: set[str] = set()
@@ -4431,9 +3342,8 @@ async def _watch_async(
             seen_event_ids.add(event.event_id)
             projector.handle_event(event)
 
-        operation = await store.load_operation(operation_id)
-        outcome = await store.load_outcome(operation_id)
-        snapshot = _build_live_snapshot(operation_id, operation, outcome)
+        operation, outcome, _, _ = await delivery.build_status_payload(operation_id)
+        snapshot = delivery.build_live_snapshot(operation_id, operation, outcome)
         if snapshot != last_snapshot:
             projector.emit_snapshot(snapshot)
             last_snapshot = snapshot
@@ -4452,46 +3362,18 @@ async def _dashboard_async(
     codex_home: Path,
 ) -> None:
     settings = _load_settings()
-    store = build_store(settings)
-    trace_store = build_trace_store(settings)
-    event_sink = build_event_sink(settings, operation_id)
-    command_inbox = build_command_inbox(settings)
-    inbox = build_wakeup_inbox(settings)
-    supervisor = build_background_run_inspection_store(settings)
+    queries = _build_operation_dashboard_query_service(
+        settings,
+        operation_id=operation_id,
+        codex_home=codex_home,
+    )
 
     async def _load_payload() -> dict[str, object]:
-        operation = await store.load_operation(operation_id)
-        outcome = await store.load_outcome(operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
-        brief = await trace_store.load_brief_bundle(operation_id)
-        commands = await command_inbox.list(operation_id)
-        events = event_sink.read_events(operation_id)
-        wakeups = inbox.read_all(operation_id)
-        background_runs = [
-            item.model_dump(mode="json") for item in await supervisor.list_runs(operation_id)
-        ]
-        runtime_alert = _build_runtime_alert(
-            status=operation.status,
-            wakeups=wakeups,
-            background_runs=background_runs,
-        )
-        upstream_transcript = _build_dashboard_upstream_transcript(
-            operation,
-            codex_home=codex_home,
-        )
-        payload = _build_dashboard_payload(
-            operation,
-            brief=brief,
-            outcome=outcome,
-            runtime_alert=runtime_alert,
-            commands=commands,
-            events=events,
-            upstream_transcript=upstream_transcript,
-        )
-        if brief is not None and brief.operation_brief is not None:
-            payload["brief"] = brief.operation_brief.model_dump(mode="json")
-        return payload
+        try:
+            payload = await queries.load_payload(operation_id)
+        except RuntimeError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        return _cli_projection_payload(payload)
 
     payload = await _load_payload()
     if json_mode:
@@ -4515,89 +3397,32 @@ async def _resume_async(operation_id: str, max_cycles: int, json_mode: bool) -> 
     projector = _CliEventProjector(json_mode=json_mode)
     if json_mode:
         projector.emit_operation(operation_id)
-    service = build_service(
+    service = _build_projecting_delivery_commands_service(
         settings,
-        event_sink=ProjectingEventSink(
-            build_event_sink(settings, operation_id),
-            projector.handle_event,
-        ),
+        operation_id=operation_id,
+        projector=projector,
     )
-    outcome = await service.resume(
-        operation_id,
-        options=RunOptions(
-            run_mode=RunMode.RESUMABLE,
-            max_cycles=max_cycles,
-            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
-        ),
-    )
+    outcome = await service.resume(operation_id, max_cycles=max_cycles)
     projector.emit_outcome(outcome)
 
 
 async def _status_async(operation_id: str, json_mode: bool, brief: bool) -> None:
-    settings = _load_settings()
-    store = build_store(settings)
-    trace_store = build_trace_store(settings)
-    supervisor = build_background_run_inspection_store(settings)
-
-    operation = await store.load_operation(operation_id)
-    outcome = await store.load_outcome(operation_id)
-    if operation is None and outcome is None:
-        raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
-    if operation is None and outcome is not None:
-        if json_mode:
-            typer.echo(
-                json.dumps(
-                    {
-                        "operation_id": operation_id,
-                        "status": outcome.status.value,
-                        "summary": outcome.summary,
-                    },
-                    indent=2,
-                    ensure_ascii=False,
-                )
+    service = _delivery_commands_service()
+    try:
+        typer.echo(
+            await service.render_status_output(
+                operation_id,
+                json_mode=json_mode,
+                brief=brief,
             )
-            return
-        typer.echo(f"{operation_id} {outcome.status.value.upper()} {outcome.summary}")
-        return
-
-    assert operation is not None
-    runs = await supervisor.list_runs(operation_id)
-    operation = _overlay_live_background_progress(operation, runs)
-    brief_bundle = await trace_store.load_brief_bundle(operation_id)
-    runtime_alert = _build_runtime_alert(
-        status=operation.status,
-        wakeups=[],
-        background_runs=[item.model_dump(mode="json") for item in runs],
-    )
-    if json_mode:
-        payload = {
-            "operation_id": operation_id,
-            "status": operation.status.value,
-            "summary": _build_live_snapshot(operation_id, operation, outcome),
-            "action_hint": _status_action_hint(operation),
-            "durable_truth": _build_durable_truth_payload(operation),
-        }
-        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
-        return
-    if brief:
-        typer.echo(_render_status_brief(operation))
-        return
-    typer.echo(_render_inspect_summary(operation, brief_bundle, runtime_alert=runtime_alert))
-    action_hint = _status_action_hint(operation)
-    if action_hint is not None:
-        typer.echo(f"\n→ Action required: {action_hint}")
+        )
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 async def _tick_async(operation_id: str) -> None:
-    settings = _load_settings()
-    service = build_service(settings)
-    outcome = await service.tick(
-        operation_id,
-        options=RunOptions(
-            run_mode=RunMode.RESUMABLE,
-            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
-        ),
-    )
+    service = _delivery_commands_service()
+    outcome = await service.tick(operation_id)
     typer.echo(f"{outcome.status.value}: {outcome.summary}")
     typer.echo(f"operation_id={outcome.operation_id}", err=True)
 
@@ -4611,26 +3436,19 @@ async def _daemon_async(
     settings = _load_settings()
     inbox = build_wakeup_inbox(settings)
     projector = _CliEventProjector(json_mode=json_mode)
-    service = build_service(
+    delivery = _build_projecting_delivery_commands_service(
         settings,
-        event_sink=ProjectingEventSink(build_event_sink(settings, "sweep"), projector.handle_event),
+        operation_id="sweep",
+        projector=projector,
     )
 
     async def _sweep() -> int:
-        resumed = 0
-        for operation_id in inbox.ready_operation_ids():
-            if json_mode:
-                projector.emit_operation(operation_id)
-            outcome = await service.resume(
-                operation_id,
-                options=RunOptions(
-                    run_mode=RunMode.RESUMABLE,
-                    max_cycles=max_cycles_per_operation,
-                    background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
-                ),
-            )
-            projector.emit_outcome(outcome)
-            resumed += 1
+        resumed = await delivery.daemon_sweep(
+            ready_operation_ids=list(inbox.ready_operation_ids()),
+            max_cycles_per_operation=max_cycles_per_operation,
+            emit_operation=projector.emit_operation if json_mode else None,
+            emit_outcome=projector.emit_outcome,
+        )
         if json_mode:
             typer.echo(
                 json.dumps(
@@ -4661,76 +3479,33 @@ async def _recover_async(
     projector = _CliEventProjector(json_mode=json_mode)
     if json_mode:
         projector.emit_operation(operation_id)
-    service = build_service(
+    delivery = _build_projecting_delivery_commands_service(
         settings,
-        event_sink=ProjectingEventSink(
-            build_event_sink(settings, operation_id),
-            projector.handle_event,
-        ),
+        operation_id=operation_id,
+        projector=projector,
     )
-    outcome = await service.recover(
+    outcome = await delivery.recover(
         operation_id,
         session_id=session_id,
-        options=RunOptions(
-            run_mode=RunMode.RESUMABLE,
-            max_cycles=max_cycles,
-            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
-        ),
+        max_cycles=max_cycles,
     )
     projector.emit_outcome(outcome)
 
 
 async def _cancel_async(operation_id: str, session_id: str | None, run_id: str | None) -> None:
-    settings = _load_settings()
-    service = build_service(settings)
+    service = _delivery_commands_service()
     outcome = await service.cancel(operation_id, session_id=session_id, run_id=run_id)
     typer.echo(f"{outcome.status.value}: {outcome.summary}")
     typer.echo(f"operation_id={outcome.operation_id}", err=True)
 
 
 async def _stop_turn_async(operation_id: str, task_id: str | None = None) -> None:
-    settings = _load_settings()
-    store = build_store(settings)
-    operation = await store.load_operation(operation_id)
-    if operation is None:
-        raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
-    if operation.scheduler_state is SchedulerState.DRAINING:
-        raise typer.BadParameter("The active attached turn is already stopping.")
-
-    if task_id is not None:
-        task = _find_task_by_display_id(operation, task_id)
-        if task is None:
-            raise typer.BadParameter(
-                f"Task {task_id!r} was not found in operation {operation_id!r}."
-            )
-        if task.status is not TaskStatus.RUNNING:
-            raise typer.BadParameter(
-                "stop_turn_invalid_state: "
-                f"task {task_id!r} is in state {task.status.value!r}, "
-                "not 'running'."
-            )
-        # Find the session bound to this task
-        target_session = None
-        for record in operation.sessions:
-            if task.task_id in record.bound_task_ids and record.status is SessionStatus.RUNNING:
-                target_session = record
-                break
-        if target_session is None:
-            raise typer.BadParameter(
-                f"Task {task_id!r} is running but has no active session bound to it."
-            )
-    else:
-        target_session = operation.active_session_record
-        if target_session is None:
-            raise typer.BadParameter("This operation has no active session to stop.")
-
-    await _enqueue_command_async(
-        operation_id,
-        OperationCommandType.STOP_AGENT_TURN,
-        None,
-        target_scope=CommandTargetScope.SESSION,
-        target_id=target_session.session_id,
-    )
+    service = _delivery_commands_service()
+    try:
+        command = await service.enqueue_stop_turn(operation_id, task_id=task_id)
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(f"enqueued: {command.command_type.value} [{command.command_id}]")
 
 
 async def _answer_async(
@@ -4748,102 +3523,34 @@ async def _answer_async(
     policy_involvement: list[InvolvementLevel] | None,
     policy_rationale: str | None,
 ) -> None:
-    if not promote and (
-        policy_title is not None
-        or policy_text is not None
-        or policy_rationale is not None
-        or policy_objective_keyword is not None
-        or policy_task_keyword is not None
-        or policy_agent is not None
-        or policy_run_mode is not None
-        or policy_involvement is not None
-    ):
-        raise typer.BadParameter("Policy options require --promote.")
-    settings = _load_settings()
-    inbox = build_command_inbox(settings)
-    store = build_store(settings)
-    operation = await store.load_operation(operation_id)
-    if operation is None:
-        raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
-    resolved_attention_id = attention_id
-    if resolved_attention_id is None:
-        blocking = sorted(
-            (
-                item
-                for item in operation.attention_requests
-                if item.status is AttentionStatus.OPEN and item.blocking
-            ),
-            key=lambda item: item.created_at,
+    service = _delivery_commands_service()
+    try:
+        policy_payload = service.build_policy_decision_payload(
+            promote=promote,
+            category=policy_category,
+            title=policy_title,
+            text=policy_text,
+            objective_keyword=policy_objective_keyword,
+            task_keyword=policy_task_keyword,
+            agent=policy_agent,
+            run_mode=policy_run_mode,
+            involvement=policy_involvement,
+            rationale=policy_rationale,
         )
-        if not blocking:
-            raise typer.BadParameter(
-                f"Operation {operation_id!r} has no open blocking attention requests."
-            )
-        resolved_attention_id = blocking[0].attention_id
-    answer_command = _build_operation_command(
-        operation_id=operation_id,
-        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
-        payload=_build_command_payload(OperationCommandType.ANSWER_ATTENTION_REQUEST, text),
-        target_scope=CommandTargetScope.ATTENTION_REQUEST,
-        target_id=resolved_attention_id,
-    )
-    await inbox.enqueue(answer_command)
-    typer.echo(f"enqueued: {answer_command.command_type.value} [{answer_command.command_id}]")
-    if promote:
-        policy_payload: dict[str, object] = {
-            "category": policy_category,
-            **_policy_applicability_payload(
-                policy_objective_keyword,
-                policy_task_keyword,
-                policy_agent,
-                policy_run_mode,
-                policy_involvement,
-            ),
-        }
-        if policy_title is not None:
-            policy_payload["title"] = policy_title
-        if policy_text is not None:
-            policy_payload["text"] = policy_text
-        if policy_rationale is not None:
-            policy_payload["rationale"] = policy_rationale
-        policy_command = _build_operation_command(
-            operation_id=operation_id,
-            command_type=OperationCommandType.RECORD_POLICY_DECISION,
-            payload=policy_payload,
-            target_scope=CommandTargetScope.ATTENTION_REQUEST,
-            target_id=resolved_attention_id,
-        )
-        await inbox.enqueue(policy_command)
-        typer.echo(f"enqueued: {policy_command.command_type.value} [{policy_command.command_id}]")
-    if (
-        operation.status is OperationStatus.NEEDS_HUMAN
-        and operation.current_focus is not None
-        and operation.current_focus.kind is FocusKind.ATTENTION_REQUEST
-        and operation.current_focus.target_id == resolved_attention_id
-    ):
-        service = build_service(settings)
-        outcome = await service.resume(
+        answer_command, policy_command, outcome = await service.answer_attention(
             operation_id,
-            options=RunOptions(run_mode=RunMode.ATTACHED),
+            attention_id=attention_id,
+            text=text,
+            promote=promote,
+            policy_payload=policy_payload,
         )
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(f"enqueued: {answer_command.command_type.value} [{answer_command.command_id}]")
+    if policy_command is not None:
+        typer.echo(f"enqueued: {policy_command.command_type.value} [{policy_command.command_id}]")
+    if outcome is not None:
         typer.echo(f"{outcome.status.value}: {outcome.summary}")
-
-
-def _build_operation_command(
-    *,
-    operation_id: str,
-    command_type: OperationCommandType,
-    payload: dict[str, object],
-    target_scope: CommandTargetScope,
-    target_id: str,
-) -> OperationCommand:
-    return OperationCommand(
-        operation_id=operation_id,
-        command_type=command_type,
-        target_scope=target_scope,
-        target_id=target_id,
-        payload=payload,
-    )
 
 
 async def _enqueue_command_async(
@@ -4859,53 +3566,31 @@ async def _enqueue_command_async(
     allowed_agents: list[str] | None = None,
     max_iterations: int | None = None,
 ) -> None:
-    settings = _load_settings()
-    inbox = build_command_inbox(settings)
-    store = build_store(settings)
-    payload = _build_command_payload(
+    service = _delivery_commands_service()
+    try:
+        payload = service.build_command_payload(
+            command_type,
+            text,
+            success_criteria,
+            clear_success_criteria,
+            allowed_agents,
+            max_iterations,
+        )
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    command, outcome, note = await service.enqueue_command(
+        operation_id,
         command_type,
-        text,
-        success_criteria,
-        clear_success_criteria,
-        allowed_agents,
-        max_iterations,
-    )
-    command = _build_operation_command(
-        operation_id=operation_id,
-        command_type=command_type,
-        payload=payload,
+        payload,
         target_scope=target_scope,
         target_id=target_id or operation_id,
+        auto_resume_when_paused=auto_resume_when_paused,
+        auto_resume_blocked_attention_id=auto_resume_blocked_attention_id,
     )
-    await inbox.enqueue(command)
     typer.echo(f"enqueued: {command.command_type.value} [{command.command_id}]")
-    operation = await store.load_operation(operation_id)
-    if operation is None:
-        return
-    if auto_resume_when_paused and command_type is OperationCommandType.RESUME_OPERATOR:
-        if operation.scheduler_state is not SchedulerState.PAUSED:
-            if operation.scheduler_state is SchedulerState.PAUSE_REQUESTED:
-                typer.echo("resume queued: waiting for the current attached turn to yield.")
-            return
-        service = build_service(settings)
-        outcome = await service.resume(
-            operation_id,
-            options=RunOptions(run_mode=RunMode.ATTACHED),
-        )
-        typer.echo(f"{outcome.status.value}: {outcome.summary}")
-        return
-    if (
-        auto_resume_blocked_attention_id is not None
-        and operation.status is OperationStatus.NEEDS_HUMAN
-        and operation.current_focus is not None
-        and operation.current_focus.kind is FocusKind.ATTENTION_REQUEST
-        and operation.current_focus.target_id == auto_resume_blocked_attention_id
-    ):
-        service = build_service(settings)
-        outcome = await service.resume(
-            operation_id,
-            options=RunOptions(run_mode=RunMode.ATTACHED),
-        )
+    if note is not None:
+        typer.echo(note)
+    if outcome is not None:
         typer.echo(f"{outcome.status.value}: {outcome.summary}")
 
 
@@ -4916,16 +3601,14 @@ async def _enqueue_custom_command_async(
     target_scope: CommandTargetScope,
     target_id: str,
 ) -> None:
-    settings = _load_settings()
-    inbox = build_command_inbox(settings)
-    command = OperationCommand(
-        operation_id=operation_id,
-        command_type=command_type,
+    service = _delivery_commands_service()
+    command, _, _ = await service.enqueue_command(
+        operation_id,
+        command_type,
+        payload,
         target_scope=target_scope,
         target_id=target_id,
-        payload={key: value for key, value in payload.items() if value is not None},
     )
-    await inbox.enqueue(command)
     typer.echo(f"enqueued: {command.command_type.value} [{command.command_id}]")
 
 
@@ -5069,36 +3752,8 @@ async def _load_agenda_snapshot(
     include_all: bool,
 ) -> AgendaSnapshot:
     settings = _load_settings()
-    store = build_store(settings)
-    trace_store = build_trace_store(settings)
-    inbox = build_wakeup_inbox(settings)
-    supervisor = build_background_run_inspection_store(settings)
-    items: list[AgendaItem] = []
-    for summary in await store.list_operations():
-        operation = await store.load_operation(summary.operation_id)
-        if operation is None:
-            continue
-        wakeups = inbox.read_all(summary.operation_id)
-        background_runs = [
-            item.model_dump(mode="json")
-            for item in await supervisor.list_runs(summary.operation_id)
-        ]
-        runtime_alert = _build_runtime_alert(
-            status=summary.status,
-            wakeups=wakeups,
-            background_runs=background_runs,
-        )
-        brief_bundle = await trace_store.load_brief_bundle(summary.operation_id)
-        brief = brief_bundle.operation_brief if brief_bundle is not None else None
-        item = build_agenda_item(
-            operation,
-            summary,
-            brief=brief,
-            runtime_alert=runtime_alert,
-        )
-        if agenda_matches_project(item, project):
-            items.append(item)
-    return build_agenda_snapshot(items, include_recent=include_all)
+    service = _build_agenda_query_service(settings)
+    return await service.load_snapshot(project=project, include_recent=include_all)
 
 
 async def _has_any_operations_async() -> bool:
@@ -5113,9 +3768,13 @@ async def _fleet_async(
     json_mode: bool,
     poll_interval: float,
 ) -> None:
+    if sys.stdout.isatty() and sys.stdin.isatty() and not once and not json_mode:
+        await _fleet_tui_async(project, include_all, poll_interval)
+        return
+
     async def _load_payload() -> dict[str, object]:
         snapshot = await _load_agenda_snapshot(project=project, include_all=include_all)
-        return _build_fleet_payload(snapshot, project=project)
+        return _cli_projection_payload(_PROJECTIONS.build_fleet_payload(snapshot, project=project))
 
     payload = await _load_payload()
     if json_mode:
@@ -5136,6 +3795,92 @@ async def _fleet_async(
             payload = await _load_payload()
             live.update(_render_fleet_dashboard(payload), refresh=True)
             await anyio.sleep(poll_interval)
+
+
+async def _fleet_tui_async(
+    project: str | None,
+    include_all: bool,
+    poll_interval: float,
+) -> None:
+    settings = _load_settings()
+
+    async def _load_payload() -> dict[str, object]:
+        snapshot = await _load_agenda_snapshot(project=project, include_all=include_all)
+        return _PROJECTIONS.build_fleet_payload(snapshot, project=project)
+
+    async def _load_operation_payload(operation_id: str) -> dict[str, object] | None:
+        delivery = _build_delivery_commands_service(settings)
+        operation, outcome, brief_bundle, runtime_alert = await delivery.build_status_payload(
+            operation_id
+        )
+        if operation is None:
+            if outcome is None:
+                return None
+            return {
+                "summary": {
+                    "work_summary": outcome.summary,
+                }
+            }
+        return {
+            "context": _PROJECTIONS.build_operation_context_payload(operation),
+            "summary": _PROJECTIONS.build_brief_summary_payload(
+                operation,
+                brief_bundle,
+                runtime_alert=runtime_alert,
+            ),
+        }
+
+    async def _enqueue_simple_command(
+        operation_id: str,
+        command_type: OperationCommandType,
+        *,
+        auto_resume_when_paused: bool = False,
+    ) -> str:
+        delivery = _build_delivery_commands_service(settings)
+        command, outcome, note = await delivery.enqueue_command(
+            operation_id,
+            command_type,
+            {},
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+            auto_resume_when_paused=auto_resume_when_paused,
+        )
+        message = f"enqueued: {command.command_type.value} [{command.command_id}]"
+        if note is not None:
+            message += f" | {note}"
+        if outcome is not None:
+            message += f" | {outcome.status.value}: {outcome.summary}"
+        return message
+
+    async def _interrupt_operation(operation_id: str) -> str:
+        delivery = _build_delivery_commands_service(settings)
+        command = await delivery.enqueue_stop_turn(operation_id)
+        return f"enqueued: {command.command_type.value} [{command.command_id}]"
+
+    async def _cancel_operation(operation_id: str) -> str:
+        outcome = await _delivery_commands_service().cancel(
+            operation_id,
+            session_id=None,
+            run_id=None,
+        )
+        return f"{outcome.status.value}: {outcome.summary}"
+
+    controller = _build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=lambda operation_id: _enqueue_simple_command(
+            operation_id,
+            OperationCommandType.PAUSE_OPERATOR,
+        ),
+        unpause_operation=lambda operation_id: _enqueue_simple_command(
+            operation_id,
+            OperationCommandType.RESUME_OPERATOR,
+            auto_resume_when_paused=True,
+        ),
+        interrupt_operation=_interrupt_operation,
+        cancel_operation=_cancel_operation,
+    )
+    await _run_fleet_workbench(controller=controller, poll_interval=poll_interval)
 
 
 async def _project_dashboard_async(
@@ -5163,22 +3908,12 @@ async def _project_dashboard_async(
             run_mode=None,
             involvement_level=None,
         )
-        policy_store = build_policy_store(settings)
-        active_policies = await policy_store.list(
-            project_scope=f"profile:{profile.name}",
-            status=PolicyStatus.ACTIVE,
-        )
-        fleet_payload = _build_fleet_payload(
-            await _load_agenda_snapshot(project=profile.name, include_all=True),
-            project=profile.name,
-        )
-        return _build_project_dashboard_payload(
+        payload = await _build_project_dashboard_query_service(settings).load_payload(
             profile=profile,
-            resolved=resolved.model_dump(mode="json"),
+            resolved=resolved,
             profile_path=selected_path if selected_path is not None else profile_dir(settings),
-            fleet=fleet_payload,
-            active_policies=active_policies,
         )
+        return _cli_projection_payload(payload)
 
     payload = await _load_payload()
     if json_mode:

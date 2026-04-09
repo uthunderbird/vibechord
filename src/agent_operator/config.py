@@ -53,6 +53,14 @@ class CodexAcpAdapterSettings(BaseModel):
     working_directory: Path = Field(default_factory=Path.cwd)
 
 
+class OpencodeAcpAdapterSettings(BaseModel):
+    command: str = "opencode acp"
+    model: str | None = None
+    substrate_backend: Literal["bespoke", "sdk"] = "bespoke"
+    stdio_limit_bytes: int = 1_048_576
+    working_directory: Path = Field(default_factory=Path.cwd)
+
+
 class OperatorSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="OPERATOR_",
@@ -68,4 +76,5 @@ class OperatorSettings(BaseSettings):
     claude: ClaudeAdapterSettings = Field(default_factory=ClaudeAdapterSettings)
     claude_acp: ClaudeAcpAdapterSettings = Field(default_factory=ClaudeAcpAdapterSettings)
     codex_acp: CodexAcpAdapterSettings = Field(default_factory=CodexAcpAdapterSettings)
+    opencode_acp: OpencodeAcpAdapterSettings = Field(default_factory=OpencodeAcpAdapterSettings)
     attached_turn_timeout_minutes: int = 30

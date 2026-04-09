@@ -26,6 +26,7 @@ from agent_operator.application.event_sourcing.event_sourced_replay import (
 )
 from agent_operator.application.loaded_operation import LoadedOperation
 from agent_operator.application.operation_attention import OperationAttentionCoordinator
+from agent_operator.application.operation_agenda_queries import OperationAgendaQueryService
 from agent_operator.application.operation_cancellation import OperationCancellationService
 from agent_operator.application.operation_commands import OperationCommandService
 from agent_operator.application.operation_control_state import OperationControlStateCoordinator
@@ -33,6 +34,19 @@ from agent_operator.application.operation_entrypoints import OperationEntrypoint
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
 from agent_operator.application.operation_policy_context import (
     OperationPolicyContextCoordinator,
+)
+from agent_operator.application.operation_project_dashboard_queries import (
+    OperationProjectDashboardQueryService,
+)
+from agent_operator.application.operation_delivery_commands import (
+    OperationDeliveryCommandService,
+)
+from agent_operator.application.operation_dashboard_queries import (
+    OperationDashboardQueryService,
+)
+from agent_operator.application.operation_projections import (
+    OperationProjectionService,
+    ProjectionAction,
 )
 from agent_operator.application.operation_runtime import SupervisorBackedOperationRuntime
 from agent_operator.application.operation_runtime_context import OperationRuntimeContext
@@ -61,11 +75,14 @@ __all__ = [
     "EventSourcedReplayState",
     "LoadedOperation",
     "OperationAttentionCoordinator",
+    "OperationAgendaQueryService",
+    "OperationProjectDashboardQueryService",
     "OperationDriveControlService",
     "OperationDriveDecisionExecutorService",
     "OperationDriveRuntimeService",
     "OperationDriveTraceService",
     "OperationPolicyContextCoordinator",
+    "OperationProjectionService",
     "OperationRuntimeContext",
     "OperationStateViewService",
     "OperationTurnExecutionService",
@@ -73,11 +90,14 @@ __all__ = [
     "OperationCancellationService",
     "OperationCommandService",
     "OperationControlStateCoordinator",
+    "OperationDeliveryCommandService",
+    "OperationDashboardQueryService",
     "OperationDriveService",
     "OperationEntrypointService",
     "OperationLifecycleCoordinator",
     "OperationRuntimeReconciliationService",
     "OperationTraceabilityService",
+    "ProjectionAction",
     "LlmFirstOperatorPolicy",
     "SupervisorBackedOperationRuntime",
 ]

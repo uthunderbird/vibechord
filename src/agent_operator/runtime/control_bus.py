@@ -165,15 +165,20 @@ class FileControlIntentBus:
         path = self._path(intent_id)
         if not path.exists():
             return None
-        return StoredControlIntent.model_validate_json(read_text_with_retry(path))
+        return self._load_record(path)
 
     def _load_all(self) -> list[StoredControlIntent]:
-        records = [
-            StoredControlIntent.model_validate_json(read_text_with_retry(path))
-            for path in sorted(self._root.glob("*.json"))
-        ]
+        records = [self._load_record(path) for path in sorted(self._root.glob("*.json"))]
         records.sort(key=lambda item: (item.submitted_at, item.intent_id))
         return records
+
+    def _load_record(self, path: Path) -> StoredControlIntent:
+        payload = read_text_with_retry(path)
+        try:
+            return StoredControlIntent.model_validate_json(payload)
+        except Exception:
+            command = OperationCommand.model_validate_json(payload)
+            return StoredControlIntent.for_command(command)
 
     def _path(self, intent_id: str) -> Path:
         return self._root / f"{intent_id}.json"

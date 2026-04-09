@@ -8,6 +8,7 @@ from agent_operator.acp.adapter_runtime import AcpAdapterRuntime
 from agent_operator.acp.session_runtime import AcpAgentSessionRuntime
 from agent_operator.adapters.claude_acp import ClaudeAcpAgentAdapter
 from agent_operator.adapters.codex_acp import CodexAcpAgentAdapter
+from agent_operator.adapters.opencode_acp import OpencodeAcpAgentAdapter
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AgentCapability,
@@ -57,7 +58,7 @@ def build_agent_runtime_bindings(
         >>> settings = OperatorSettings()
         >>> bindings = build_agent_runtime_bindings(settings)
         >>> sorted(bindings)
-        ['claude_acp', 'codex_acp']
+        ['claude_acp', 'codex_acp', 'opencode_acp']
     """
 
     claude_adapter = ClaudeAcpAgentAdapter(
@@ -79,6 +80,14 @@ def build_agent_runtime_bindings(
         substrate_backend=settings.codex_acp.substrate_backend,
         stdio_limit_bytes=settings.codex_acp.stdio_limit_bytes,
         working_directory=settings.codex_acp.working_directory,
+        permission_evaluator=permission_evaluator,
+    )
+    opencode_adapter = OpencodeAcpAgentAdapter(
+        command=settings.opencode_acp.command,
+        model=settings.opencode_acp.model,
+        substrate_backend=settings.opencode_acp.substrate_backend,
+        stdio_limit_bytes=settings.opencode_acp.stdio_limit_bytes,
+        working_directory=settings.opencode_acp.working_directory,
         permission_evaluator=permission_evaluator,
     )
     return {
@@ -104,6 +113,18 @@ def build_agent_runtime_bindings(
             build_session_runtime=_build_session_runtime_factory(
                 adapter_key="codex_acp",
                 adapter=codex_adapter,
+            ),
+        ),
+        "opencode_acp": AgentRuntimeBinding(
+            agent_key="opencode_acp",
+            descriptor=_opencode_descriptor(),
+            build_adapter_runtime=_build_adapter_runtime_factory(
+                adapter_key="opencode_acp",
+                adapter=opencode_adapter,
+            ),
+            build_session_runtime=_build_session_runtime_factory(
+                adapter_key="opencode_acp",
+                adapter=opencode_adapter,
             ),
         ),
     }
@@ -167,6 +188,20 @@ def _codex_descriptor() -> AgentDescriptor:
         capabilities=[
             AgentCapability(name="acp", description="ACP session over stdio"),
             AgentCapability(name="follow_up", description="Can resume prior Codex sessions"),
+            *standard_coding_agent_capabilities(),
+        ],
+        supports_follow_up=True,
+        supports_cancellation=True,
+    )
+
+
+def _opencode_descriptor() -> AgentDescriptor:
+    return AgentDescriptor(
+        key="opencode_acp",
+        display_name="OpenCode via ACP",
+        capabilities=[
+            AgentCapability(name="acp", description="ACP session over stdio"),
+            AgentCapability(name="follow_up", description="Can resume prior OpenCode sessions"),
             *standard_coding_agent_capabilities(),
         ],
         supports_follow_up=True,

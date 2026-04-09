@@ -607,6 +607,17 @@ def test_apply_project_profile_settings_updates_adapter_defaults(tmp_path: Path)
     assert settings.codex_acp.sandbox_mode == "danger-full-access"
     assert settings.codex_acp.working_directory == Path("/tmp/femtobot")
 
+    profile = load_project_profile(settings, "femtobot")
+    profile.adapter_settings = {
+        "opencode_acp": {
+            "command": "opencode acp --cwd /tmp/opencode",
+        }
+    }
+    apply_project_profile_settings(settings, profile)
+
+    assert settings.opencode_acp.command == "opencode acp --cwd /tmp/opencode"
+    assert settings.opencode_acp.working_directory == Path("/tmp/femtobot")
+
 
 @pytest.mark.anyio
 async def test_file_policy_store_roundtrip_and_active_filter(tmp_path: Path) -> None:

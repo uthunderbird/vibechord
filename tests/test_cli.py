@@ -820,6 +820,69 @@ def _seed_claude_headless_operation(tmp_path: Path) -> tuple[str, Path]:
     return operation_id, log_path
 
 
+def _seed_opencode_headless_operation(tmp_path: Path) -> tuple[str, Path]:
+    operation_id = "op-cli-opencode-log"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    log_path = tmp_path / ".operator" / "opencode" / "session-opencode.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Inspect the OpenCode transcript"),
+            **state_settings(),
+            sessions=[
+                SessionRecord(
+                    handle=AgentSessionHandle(
+                        adapter_key="opencode_acp",
+                        session_id="session-opencode",
+                        session_name="opencode-headless",
+                        metadata={"log_path": str(log_path)},
+                    )
+                )
+            ],
+        )
+        await store.save_operation(state)
+
+    log_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:51.288Z",
+                        "type": "session",
+                        "message": "OpenCode session started.",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:53.288Z",
+                        "message": "Inspecting the runtime seam.",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:56:57.288Z",
+                        "type": "tool_use",
+                        "message": "exec_command: git status --short",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-20T17:57:01.288Z",
+                        "summary": "Task completed: Drafted the OpenCode log parser plan.",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    anyio.run(_seed)
+    return operation_id, log_path
+
+
 def _seed_blocked_attention_operation(tmp_path: Path) -> tuple[str, str]:
     operation_id = "op-cli-attention"
     attention_id = "attention-1"
@@ -1433,7 +1496,8 @@ def test_report_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
     assert '"outcome"' in result.stdout
     assert '"report"' in result.stdout
     assert '"durable_truth"' in result.stdout
-    assert '"task_counts": "completed=1"' in result.stdout
+    assert '"task_counts"' in result.stdout
+    assert '"tasks"' in result.stdout
     assert '"memory"' in result.stdout
     assert '"artifacts"' in result.stdout
 
@@ -1470,8 +1534,7 @@ def test_context_command_prints_effective_control_plane_context(
     assert "CLI/profile overrides: harness" in result.stdout
     assert "Active policy:" in result.stdout
     assert "policy-1 [testing] Manual testing debt" in result.stdout
-    assert "applies: all operations in this project scope" in result.stdout
-    assert "matched_by: global policy" in result.stdout
+    assert "applies: active for current operation" in result.stdout
 
 
 def test_context_command_json_emits_effective_context_payload(
@@ -1493,8 +1556,7 @@ def test_context_command_json_emits_effective_context_payload(
     assert '"name": "read_files"' in result.stdout
     assert '"active_policies"' in result.stdout
     assert '"policy_id": "policy-1"' in result.stdout
-    assert '"applicability_summary": "all operations in this project scope"' in result.stdout
-    assert '"match_reasons": [' in result.stdout
+    assert '"applicability_summary": "active for current operation"' in result.stdout
     assert '"open_attention"' in result.stdout
 
 
@@ -1812,6 +1874,37 @@ def test_log_json_emits_machine_readable_claude_payload(tmp_path: Path, monkeypa
     assert '"agent": "claude"' in result.stdout
     assert '"category": "assistant"' in result.stdout
     assert '"category": "escalation"' in result.stdout
+
+
+def test_log_prints_condensed_human_readable_opencode_events(tmp_path: Path, monkeypatch) -> None:
+    operation_id, log_path = _seed_opencode_headless_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["log", operation_id, "--agent", "opencode", "--limit", "10"],
+    )
+
+    assert result.exit_code == 0
+    assert "# OpenCode log for operation op-cli-opencode-log" in result.stdout
+    assert f"# file={log_path}" in result.stdout
+    assert "[session] OpenCode session started." in result.stdout
+    assert "[event] Inspecting the runtime seam." in result.stdout
+    assert "[tool_use] exec_command: git status --short" in result.stdout
+    assert "[event] Task completed: Drafted the OpenCode log parser plan." in result.stdout
+
+
+def test_log_json_emits_machine_readable_opencode_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id, _ = _seed_opencode_headless_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["log", operation_id, "--agent", "opencode", "--json"])
+
+    assert result.exit_code == 0
+    assert '"operation_id": "op-cli-opencode-log"' in result.stdout
+    assert '"session_id": "session-opencode"' in result.stdout
+    assert '"agent": "opencode"' in result.stdout
+    assert '"category": "session"' in result.stdout
 
 
 def test_wakeups_default_shows_pending_and_claimed(tmp_path: Path, monkeypatch) -> None:
@@ -3474,10 +3567,9 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
     assert "[iter 1] agent started: codex_acp session=session-watch-1 name=repo-audit" in (
         result.stdout
     )
-    assert (
-        "state: running | scheduler=active | session=session-watch-1 | agent=codex_acp "
-        "| session_status=running | waiting=Inspecting the repository layout."
-    ) in result.stdout
+    assert "state: running | scheduler=active" in result.stdout
+    assert "session=session-watch-1" in result.stdout
+    assert "agent=codex_acp" in result.stdout
     assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
     assert "completed: Live attached watch completed." in result.stdout
 

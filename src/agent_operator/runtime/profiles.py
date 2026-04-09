@@ -213,6 +213,7 @@ def apply_project_profile_settings(
         settings.claude.working_directory = profile.cwd
         settings.claude_acp.working_directory = profile.cwd
         settings.codex_acp.working_directory = profile.cwd
+        settings.opencode_acp.working_directory = profile.cwd
     for adapter_key, overrides in profile.adapter_settings.items():
         target = getattr(settings, adapter_key, None)
         if target is None:

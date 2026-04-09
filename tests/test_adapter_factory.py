@@ -8,6 +8,7 @@ from agent_operator.adapters import build_agent_runtime_bindings
 from agent_operator.config import (
     ClaudeAcpAdapterSettings,
     CodexAcpAdapterSettings,
+    OpencodeAcpAdapterSettings,
     OperatorSettings,
 )
 
@@ -16,6 +17,7 @@ def test_build_agent_runtime_bindings_respects_per_adapter_substrate_backend() -
     settings = OperatorSettings(
         claude_acp=ClaudeAcpAdapterSettings(substrate_backend="sdk", stdio_limit_bytes=123456),
         codex_acp=CodexAcpAdapterSettings(substrate_backend="bespoke", stdio_limit_bytes=654321),
+        opencode_acp=OpencodeAcpAdapterSettings(substrate_backend="sdk", stdio_limit_bytes=222222),
     )
 
     bindings = build_agent_runtime_bindings(settings)
@@ -27,9 +29,14 @@ def test_build_agent_runtime_bindings_respects_per_adapter_substrate_backend() -
         working_directory=Path("/tmp/codex"),
         log_path=Path("/tmp/codex.jsonl"),
     )
+    opencode_runtime = bindings["opencode_acp"].build_adapter_runtime(
+        working_directory=Path("/tmp/opencode"),
+        log_path=Path("/tmp/opencode.jsonl"),
+    )
 
     assert isinstance(claude_runtime._connection, AcpSdkConnection)  # type: ignore[attr-defined]
     assert isinstance(codex_runtime._connection, AcpSubprocessConnection)  # type: ignore[attr-defined]
+    assert isinstance(opencode_runtime._connection, AcpSdkConnection)  # type: ignore[attr-defined]
     assert claude_runtime._connection._stdio_limit_bytes == 123456  # type: ignore[attr-defined]
 
 
