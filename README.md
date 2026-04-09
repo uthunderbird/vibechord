@@ -71,10 +71,11 @@ scope when one remains. Fleet view also supports `/` for a live filter over oper
 objective, status, agent cue, project, and attention text, and operation view supports `/` for a
 live task filter over task id, title, status, agent, goal, and notes. Session view also supports
 `/` for a live timeline filter over event type, summary, task id, session id, and iteration.
-Forensic view now supports `/` for a live raw-transcript/detail filter, and `?` opens a compact
-help overlay for the current workbench level. `Enter` still drills into forensic even when a
-session has no raw transcript payload, falling back to event context plus an explicit empty-state
-message. For the
+Forensic view now supports `/` for a live raw-transcript/detail filter, `?` opens a compact help
+overlay for the current workbench level, and `n` answers the oldest non-blocking attention in the
+current scope with the same inline flow used for blocking attention. `Enter` still drills into
+forensic even when a session has no raw transcript payload, falling back to event context plus an
+explicit empty-state message. For the
 current keymap, supported actions, and known limitations, see
 [TUI Workbench](docs/tui-workbench.md). For the current forensic drill-down behavior, see
 [TUI Forensic Workflow](docs/tui-forensic-workflow.md).

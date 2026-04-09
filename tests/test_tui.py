@@ -674,6 +674,123 @@ async def test_fleet_view_a_enters_answer_mode_and_dispatches_oldest_attention()
     )
 
 
+async def test_fleet_view_n_dispatches_oldest_nonblocking_attention() -> None:
+    answers: list[tuple[str, str, str]] = []
+    active_attention_ids = ["att-2"]
+
+    async def _load_operation_payload_single_nonblocking(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [
+            item
+            for item in payload["attention"]
+            if isinstance(item, dict) and item.get("attention_id") in active_attention_ids
+        ]
+        return payload
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        active_attention_ids[:] = [item for item in active_attention_ids if item != attention_id]
+        return f"answered {operation_id}:{attention_id}:{text}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_single_nonblocking,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("n")
+    await controller.handle_key("o")
+    await controller.handle_key("k")
+    await controller.handle_key("\r")
+
+    assert answers == [("op-run", "att-2", "ok")]
+    assert controller.state.pending_answer_operation_id is None
+    assert controller.state.pending_answer_attention_id is None
+    assert controller.state.last_message == "answered op-run:att-2:ok"
+
+
+async def test_task_n_nonblocking_answer_chains_within_same_task_scope() -> None:
+    active_attention = [
+        {
+            "attention_id": "att-2",
+            "target_id": "task-1",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "Task one note",
+            "question": "First note?",
+            "blocking": False,
+            "created_at": "2025-12-30T00:00:00Z",
+        },
+        {
+            "attention_id": "att-4",
+            "target_id": "task-1",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "Task one follow-up",
+            "question": "Second note?",
+            "blocking": False,
+            "created_at": "2025-12-31T00:00:00Z",
+        },
+        {
+            "attention_id": "att-5",
+            "target_id": "task-2",
+            "target_scope": "task",
+            "attention_type": "policy_gap",
+            "title": "Other task note",
+            "question": "Task two note?",
+            "blocking": False,
+            "created_at": "2025-12-29T00:00:00Z",
+        },
+    ]
+    answers: list[tuple[str, str, str]] = []
+
+    async def _load_operation_payload_with_nonblocking_queue(
+        operation_id: str,
+    ) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["attention"] = [item.copy() for item in active_attention]
+        return payload
+
+    async def _answer(operation_id: str, attention_id: str, text: str) -> str:
+        answers.append((operation_id, attention_id, text))
+        active_attention[:] = [
+            item for item in active_attention if item["attention_id"] != attention_id
+        ]
+        return f"answered {attention_id}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_nonblocking_queue,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("n")
+    await controller.handle_key("o")
+    await controller.handle_key("k")
+    await controller.handle_key("\r")
+
+    assert answers == [("op-run", "att-2", "ok")]
+    assert controller.state.pending_answer_operation_id == "op-run"
+    assert controller.state.pending_answer_attention_id == "att-4"
+    assert controller.state.pending_answer_task_id == "task-1"
+    assert controller.state.pending_answer_prompt == (
+        "1 non-blocking attention remains in task task-1. Answer text: "
+    )
+
+
 async def test_fleet_view_answer_chains_to_next_oldest_blocking_attention() -> None:
     active_attention = [
         {

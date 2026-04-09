@@ -178,6 +178,7 @@ class FleetWorkbenchState:
     pending_answer_operation_id: str | None = None
     pending_answer_attention_id: str | None = None
     pending_answer_task_id: str | None = None
+    pending_answer_blocking: bool = True
     pending_answer_text: str = ""
     pending_answer_prompt: str = "Answer text: "
     help_overlay_active: bool = False
@@ -620,8 +621,29 @@ def oldest_task_blocking_attention(
     return sorted(attentions, key=_attention_sort_key)[0]
 
 
+def oldest_task_nonblocking_attention(
+    payload: dict[str, object],
+    task_id: str | None,
+) -> AttentionSummary | None:
+    attentions = [
+        item
+        for item in _operation_attentions(payload)
+        if item.target_id == task_id and not item.blocking
+    ]
+    if not attentions:
+        return None
+    return sorted(attentions, key=_attention_sort_key)[0]
+
+
 def oldest_blocking_attention(payload: dict[str, object]) -> AttentionSummary | None:
     attentions = [item for item in _operation_attentions(payload) if item.blocking]
+    if not attentions:
+        return None
+    return sorted(attentions, key=_attention_sort_key)[0]
+
+
+def oldest_nonblocking_attention(payload: dict[str, object]) -> AttentionSummary | None:
+    attentions = [item for item in _operation_attentions(payload) if not item.blocking]
     if not attentions:
         return None
     return sorted(attentions, key=_attention_sort_key)[0]

@@ -340,6 +340,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("/", "filter tasks"),
             ("Tab", "jump to next blocking task attention"),
             ("a", "answer oldest blocking attention for selected task"),
+            ("n", "answer oldest non-blocking attention for selected task"),
             ("i / d / t / m", "switch right pane detail mode"),
             ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
             *common,
@@ -351,6 +352,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("/", "filter session timeline"),
             ("r", "toggle raw transcript"),
             ("a", "answer oldest blocking attention for current task"),
+            ("n", "answer oldest non-blocking attention for current task"),
             ("p / u / s / c", "pause, unpause, interrupt, cancel"),
             *common,
         ]
@@ -358,6 +360,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
         return [
             ("/", "filter forensic transcript/detail"),
             ("a", "answer oldest blocking attention for current task"),
+            ("n", "answer oldest non-blocking attention for current task"),
             *common,
         ]
     return [
@@ -366,6 +369,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
         ("/", "filter fleet operations"),
         ("Tab", "jump to next blocking attention"),
         ("a", "answer oldest blocking attention in selected operation"),
+        ("n", "answer oldest non-blocking attention in selected operation"),
         ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
         *common,
     ]
@@ -652,19 +656,20 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
     if state.last_message is not None:
         return Text(state.last_message)
     if state.view_level == "forensic":
-        return Text("a answer  / filter  Esc back to session timeline  q quit")
+        return Text("a/n answer  / filter  Esc back to session timeline  q quit")
     if state.view_level == "session":
         return Text(
-            "j/k move  / filter  Enter forensic  r raw transcript  Esc back  a answer"
+            "j/k move  / filter  Enter forensic  r raw transcript  Esc back  a/n answer"
             "  s interrupt task/session  p pause  u unpause  c cancel  q quit"
         )
     if state.view_level == "operation":
         return Text(
-            "j/k move  Enter session  / filter  a answer  i detail  d decisions  t events  m memory"
+            "j/k move  Enter session  / filter  a/n answer"
+            "  i detail  d decisions  t events  m memory"
             "  Esc back  p pause  u unpause  s interrupt task/session  c cancel  r refresh  q quit"
         )
     help_line = Text(
-        "j/k or arrows move  Enter open  a answer  tab next-attention"
+        "j/k or arrows move  Enter open  a/n answer  tab next-attention"
         "  / filter  p pause  u unpause  s interrupt  c cancel  r refresh  q quit"
     )
     if selected is None:

@@ -4,15 +4,15 @@ from collections.abc import Awaitable, Callable
 
 from .models import (
     FleetWorkbenchState,
-    dashboard_tasks,
     filter_fleet_items,
     filtered_dashboard_tasks,
     filtered_session_timeline_events,
     normalize_key,
     oldest_blocking_attention,
+    oldest_nonblocking_attention,
     oldest_task_blocking_attention,
+    oldest_task_nonblocking_attention,
     payload_items,
-    task_signal_text,
     tasks_with_blocking_attention,
 )
 from .rendering import render_workbench
@@ -139,6 +139,9 @@ class FleetWorkbenchController:
         if normalized == "a":
             await self._select_oldest_blocking_attention_for_scope()
             return True
+        if normalized == "n":
+            await self._select_oldest_nonblocking_attention_for_scope()
+            return True
         if normalized == "?":
             self.state.help_overlay_active = True
             self.state.last_message = None
@@ -239,6 +242,9 @@ class FleetWorkbenchController:
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
             return True
+        if key == "n":
+            await self._select_oldest_nonblocking_attention_for_current_task()
+            return True
         if key == "/":
             self._start_task_filter_input()
             return True
@@ -313,6 +319,9 @@ class FleetWorkbenchController:
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
             return True
+        if key == "n":
+            await self._select_oldest_nonblocking_attention_for_current_task()
+            return True
         if key == "/":
             self._start_session_filter_input()
             return True
@@ -373,6 +382,9 @@ class FleetWorkbenchController:
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
             return True
+        if key == "n":
+            await self._select_oldest_nonblocking_attention_for_current_task()
+            return True
         if key == "/":
             self._start_forensic_filter_input()
             return True
@@ -398,6 +410,7 @@ class FleetWorkbenchController:
             operation_id = self.state.pending_answer_operation_id
             attention_id = self.state.pending_answer_attention_id
             task_id = self.state.pending_answer_task_id
+            blocking = self.state.pending_answer_blocking
             if operation_id is None or attention_id is None:
                 self._clear_pending_answer("Answer was aborted due to missing context.")
                 return True
@@ -407,6 +420,7 @@ class FleetWorkbenchController:
             self._continue_answer_flow_after_submission(
                 operation_id=operation_id,
                 task_id=task_id,
+                blocking=blocking,
                 result_message=result_message,
             )
             return True
@@ -548,7 +562,27 @@ class FleetWorkbenchController:
         if target is None:
             self.state.last_message = f"No blocking attention on {selected.operation_id}."
             return
-        self._start_answer_flow(selected.operation_id, target.attention_id)
+        self._start_answer_flow(
+            selected.operation_id,
+            target.attention_id,
+            blocking=True,
+        )
+
+    async def _select_oldest_nonblocking_attention_for_scope(self) -> None:
+        selected = self.state.selected_item
+        if selected is None or self.state.selected_operation_payload is None:
+            self.state.last_message = "No selected operation for attention navigation."
+            return
+        payload = self.state.selected_operation_payload
+        target = oldest_nonblocking_attention(payload)
+        if target is None:
+            self.state.last_message = f"No non-blocking attention on {selected.operation_id}."
+            return
+        self._start_answer_flow(
+            selected.operation_id,
+            target.attention_id,
+            blocking=False,
+        )
 
     async def _select_oldest_blocking_attention_for_current_task(self) -> None:
         task = self.state.selected_task
@@ -567,6 +601,33 @@ class FleetWorkbenchController:
             ),
             attention_id=target.attention_id,
             task_id=task.task_id,
+            blocking=True,
+            prompt="Answer text: ",
+        )
+        self.state.last_message = "Answer selected. Type text, Enter to send, Esc to cancel."
+        self.state.pending_confirmation = None
+
+    async def _select_oldest_nonblocking_attention_for_current_task(self) -> None:
+        task = self.state.selected_task
+        if task is None or self.state.selected_operation_payload is None:
+            self.state.last_message = "No selected task to answer."
+            return
+        target = oldest_task_nonblocking_attention(
+            self.state.selected_operation_payload,
+            task.task_id,
+        )
+        if target is None:
+            self.state.last_message = f"No non-blocking attention on task {task.task_id}."
+            return
+        self._set_answer_flow(
+            operation_id=(
+                self.state.selected_item.operation_id
+                if self.state.selected_item is not None
+                else task.task_id
+            ),
+            attention_id=target.attention_id,
+            task_id=task.task_id,
+            blocking=False,
             prompt="Answer text: ",
         )
         self.state.last_message = "Answer selected. Type text, Enter to send, Esc to cancel."
@@ -589,11 +650,18 @@ class FleetWorkbenchController:
                 self._restore_selected_timeline_event(None)
                 return
 
-    def _start_answer_flow(self, operation_id: str, attention_id: str) -> None:
+    def _start_answer_flow(
+        self,
+        operation_id: str,
+        attention_id: str,
+        *,
+        blocking: bool,
+    ) -> None:
         self._set_answer_flow(
             operation_id=operation_id,
             attention_id=attention_id,
             task_id=None,
+            blocking=blocking,
             prompt="Answer text: ",
         )
         self.state.last_message = "Answer selected. Type text, Enter to send, Esc to cancel."
@@ -605,11 +673,13 @@ class FleetWorkbenchController:
         operation_id: str,
         attention_id: str,
         task_id: str | None,
+        blocking: bool,
         prompt: str,
     ) -> None:
         self.state.pending_answer_operation_id = operation_id
         self.state.pending_answer_attention_id = attention_id
         self.state.pending_answer_task_id = task_id
+        self.state.pending_answer_blocking = blocking
         self.state.pending_answer_text = ""
         self.state.pending_answer_prompt = prompt
 
@@ -617,6 +687,7 @@ class FleetWorkbenchController:
         self.state.pending_answer_operation_id = None
         self.state.pending_answer_attention_id = None
         self.state.pending_answer_task_id = None
+        self.state.pending_answer_blocking = True
         self.state.pending_answer_text = ""
         self.state.pending_answer_prompt = "Answer text: "
         self.state.last_message = message
@@ -627,6 +698,7 @@ class FleetWorkbenchController:
         *,
         operation_id: str,
         task_id: str | None,
+        blocking: bool,
         result_message: str,
     ) -> None:
         payload = self.state.selected_operation_payload
@@ -634,47 +706,58 @@ class FleetWorkbenchController:
             self.state.last_message = result_message
             return
         next_attention = (
-            oldest_task_blocking_attention(payload, task_id)
+            (
+                oldest_task_blocking_attention(payload, task_id)
+                if blocking
+                else oldest_task_nonblocking_attention(payload, task_id)
+            )
             if task_id is not None
-            else oldest_blocking_attention(payload)
+            else (
+                oldest_blocking_attention(payload)
+                if blocking
+                else oldest_nonblocking_attention(payload)
+            )
         )
         if next_attention is None:
             self.state.last_message = result_message
             return
-        remaining = self._remaining_blocking_attention_count(payload=payload, task_id=task_id)
+        remaining = self._remaining_attention_count(
+            payload=payload,
+            task_id=task_id,
+            blocking=blocking,
+        )
         scope_label = f"task {task_id}" if task_id is not None else operation_id
+        kind_label = "blocking" if blocking else "non-blocking"
         remain_label = "attention remains" if remaining == 1 else "attentions remain"
         self._set_answer_flow(
             operation_id=operation_id,
             attention_id=next_attention.attention_id,
             task_id=task_id,
-            prompt=f"{remaining} blocking {remain_label} in {scope_label}. Answer text: ",
+            blocking=blocking,
+            prompt=f"{remaining} {kind_label} {remain_label} in {scope_label}. Answer text: ",
         )
-        self.state.last_message = f"{result_message} Next oldest blocking attention selected."
+        self.state.last_message = f"{result_message} Next oldest {kind_label} attention selected."
         self.state.pending_confirmation = None
 
-    def _remaining_blocking_attention_count(
+    def _remaining_attention_count(
         self,
         *,
         payload: dict[str, object],
         task_id: str | None,
+        blocking: bool,
     ) -> int:
         if task_id is not None:
-            tasks = dashboard_tasks(payload)
-            target_task = next((item for item in tasks if item.task_id == task_id), None)
-            if target_task is None:
-                return 0
-            signal = task_signal_text(payload, target_task)
-            if signal.startswith("[!!") and signal.endswith("]"):
-                return int(signal.removeprefix("[!!").removesuffix("]"))
-            return 0
-        target = oldest_blocking_attention(payload)
-        if target is None:
-            return 0
+            return sum(
+                1
+                for item in payload.get("attention", [])
+                if isinstance(item, dict)
+                and bool(item.get("blocking")) is blocking
+                and item.get("target_id") == task_id
+            )
         return sum(
             1
             for item in payload.get("attention", [])
-            if isinstance(item, dict) and bool(item.get("blocking"))
+            if isinstance(item, dict) and bool(item.get("blocking")) is blocking
         )
 
     def _handle_task_filter_key(self, key: str, normalized: str) -> bool:
