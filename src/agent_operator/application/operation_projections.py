@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from agent_operator.domain import (
+    AgentTurnBrief,
     AttentionStatus,
+    DecisionMemo,
     MemoryEntry,
     MemoryFreshness,
     OperationCommand,
@@ -304,6 +307,7 @@ class OperationProjectionService:
         runtime_alert: str | None,
         commands: list[OperationCommand],
         events: list[RunEvent],
+        decision_memos: list[DecisionMemo],
         upstream_transcript: dict[str, object] | None,
     ) -> dict[str, object]:
         active_session = operation.active_session_record
@@ -359,6 +363,8 @@ class OperationProjectionService:
                     "attention_id": attention.attention_id,
                     "attention_type": attention.attention_type.value,
                     "blocking": attention.blocking,
+                    "target_scope": attention.target_scope.value,
+                    "target_id": attention.target_id,
                     "title": attention.title,
                     "question": attention.question,
                     "context_brief": attention.context_brief,
@@ -371,14 +377,46 @@ class OperationProjectionService:
                     "task_id": task.task_id,
                     "task_short_id": f"task-{task.task_short_id}",
                     "title": task.title,
+                    "goal": task.goal,
+                    "definition_of_done": task.definition_of_done,
                     "status": task.status.value,
                     "priority": task.effective_priority,
+                    "dependencies": list(task.dependencies),
                     "assigned_agent": task.assigned_agent,
                     "linked_session_id": task.linked_session_id,
+                    "memory_refs": list(task.memory_refs),
+                    "artifact_refs": list(task.artifact_refs),
+                    "notes": list(task.notes),
                 }
                 for task in sorted(
                     operation.tasks,
                     key=lambda item: (-item.effective_priority, item.created_at, item.task_id),
+                )[:8]
+            ],
+            "memory_entries": [
+                {
+                    "memory_id": entry.memory_id,
+                    "scope": entry.scope.value,
+                    "scope_id": entry.scope_id,
+                    "summary": entry.summary,
+                    "freshness": entry.freshness.value,
+                }
+                for entry in self.memory_entries(operation, include_inactive=True)
+            ],
+            "decision_memos": [
+                {
+                    "iteration": memo.iteration,
+                    "task_id": memo.task_id,
+                    "session_id": memo.session_id,
+                    "decision_context_summary": memo.decision_context_summary,
+                    "chosen_action": memo.chosen_action,
+                    "rationale": memo.rationale,
+                    "expected_outcome": memo.expected_outcome,
+                }
+                for memo in sorted(
+                    decision_memos,
+                    key=lambda item: (item.iteration, item.created_at),
+                    reverse=True,
                 )[:8]
             ],
             "sessions": [
@@ -411,15 +449,20 @@ class OperationProjectionService:
             ],
             "upstream_transcript": upstream_transcript,
             "codex_log": (
-                list(upstream_transcript.get("events", []))
+                list(upstream_transcript.get("events"))
                 if isinstance(upstream_transcript, dict)
+                and isinstance(upstream_transcript.get("events"), list)
                 and upstream_transcript.get("adapter_key") == "codex_acp"
                 else []
             ),
             "actions": [action.to_payload() for action in self._dashboard_actions(operation)],
         }
 
-    def _count_items_by_key(self, items: list[AgendaItem], key_fn) -> dict[str, int]:
+    def _count_items_by_key(
+        self,
+        items: list[AgendaItem],
+        key_fn: Callable[[AgendaItem], str],
+    ) -> dict[str, int]:
         counts: dict[str, int] = {}
         for item in items:
             key = key_fn(item)
@@ -571,27 +614,30 @@ class OperationProjectionService:
             payload["applicability_summary"] = "active for current operation"
         return payload
 
-    def _latest_agent_turn_brief(self, brief: TraceBriefBundle | None):
+    def _latest_agent_turn_brief(
+        self,
+        brief: TraceBriefBundle | None,
+    ) -> AgentTurnBrief | None:
         if brief is None or not brief.agent_turn_briefs:
             return None
         return max(brief.agent_turn_briefs, key=lambda item: (item.iteration, item.session_id))
 
-    def _turn_work_summary(self, turn) -> str | None:
+    def _turn_work_summary(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None:
             return None
         return self._shorten_text(turn.assignment_brief or turn.result_brief, limit=220)
 
-    def _turn_next_step(self, turn) -> str | None:
+    def _turn_next_step(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None or turn.turn_summary is None:
             return None
         return self._shorten_text(turn.turn_summary.next_step, limit=220)
 
-    def _turn_verification_summary(self, turn) -> str | None:
+    def _turn_verification_summary(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None or turn.turn_summary is None:
             return None
         return self._shorten_text(turn.turn_summary.verification_summary, limit=220)
 
-    def _turn_blockers_summary(self, turn) -> str | None:
+    def _turn_blockers_summary(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None or turn.turn_summary is None:
             return None
         return self._shorten_text(turn.turn_summary.blockers_summary, limit=220)

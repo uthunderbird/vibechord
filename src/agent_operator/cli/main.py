@@ -176,6 +176,7 @@ def _build_operation_dashboard_query_service(
         projection_service=_PROJECTIONS,
         command_inbox=build_command_inbox(settings),
         event_reader=build_event_sink(settings, operation_id),
+        trace_store=build_trace_store(settings),
         build_upstream_transcript=lambda operation: _build_dashboard_upstream_transcript(
             operation,
             codex_home=codex_home,
@@ -3803,32 +3804,19 @@ async def _fleet_tui_async(
     poll_interval: float,
 ) -> None:
     settings = _load_settings()
+    codex_home = Path.home() / ".codex"
 
     async def _load_payload() -> dict[str, object]:
         snapshot = await _load_agenda_snapshot(project=project, include_all=include_all)
         return _PROJECTIONS.build_fleet_payload(snapshot, project=project)
 
     async def _load_operation_payload(operation_id: str) -> dict[str, object] | None:
-        delivery = _build_delivery_commands_service(settings)
-        operation, outcome, brief_bundle, runtime_alert = await delivery.build_status_payload(
-            operation_id
+        queries = _build_operation_dashboard_query_service(
+            settings,
+            operation_id=operation_id,
+            codex_home=codex_home,
         )
-        if operation is None:
-            if outcome is None:
-                return None
-            return {
-                "summary": {
-                    "work_summary": outcome.summary,
-                }
-            }
-        return {
-            "context": _PROJECTIONS.build_operation_context_payload(operation),
-            "summary": _PROJECTIONS.build_brief_summary_payload(
-                operation,
-                brief_bundle,
-                runtime_alert=runtime_alert,
-            ),
-        }
+        return await queries.load_payload(operation_id)
 
     async def _enqueue_simple_command(
         operation_id: str,

@@ -2,15 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from agent_operator.application.operation_delivery_commands import OperationDeliveryCommandService
 from agent_operator.application.operation_projections import OperationProjectionService
-from agent_operator.domain import OperationCommand, OperationState, RunEvent
+from agent_operator.domain import DecisionMemo, OperationState, RunEvent
 from agent_operator.protocols import OperationCommandInbox
 
 
-class EventReaderLike:
+class EventReaderLike(Protocol):
     def read_events(self, operation_id: str) -> list[RunEvent]: ...
+
+
+class TraceStoreLike(Protocol):
+    async def load_decision_memos(self, operation_id: str) -> list[DecisionMemo]: ...
 
 
 @dataclass(slots=True)
@@ -19,6 +24,7 @@ class OperationDashboardQueryService:
     projection_service: OperationProjectionService
     command_inbox: OperationCommandInbox
     event_reader: EventReaderLike
+    trace_store: TraceStoreLike
     build_upstream_transcript: Callable[[OperationState], dict[str, object] | None]
 
     async def load_payload(self, operation_id: str) -> dict[str, object]:
@@ -29,6 +35,7 @@ class OperationDashboardQueryService:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         commands = await self.command_inbox.list(operation_id)
         events = self.event_reader.read_events(operation_id)
+        decision_memos = await self.trace_store.load_decision_memos(operation_id)
         payload = self.projection_service.build_dashboard_payload(
             operation,
             brief=brief,
@@ -36,6 +43,7 @@ class OperationDashboardQueryService:
             runtime_alert=runtime_alert,
             commands=commands,
             events=events,
+            decision_memos=decision_memos,
             upstream_transcript=self.build_upstream_transcript(operation),
         )
         if brief is not None and brief.operation_brief is not None:
