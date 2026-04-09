@@ -379,23 +379,14 @@ class FleetWorkbenchController:
             self._start_session_filter_input()
             return True
         if key == "enter":
-            if self.state.selected_timeline_event is None:
-                self.state.last_message = "No timeline item is selected."
-                return True
-            self.state.view_level = "forensic"
-            self._clear_forensic_filter()
-            self.state.last_message = None
+            self._open_forensic_view_from_session()
             return True
         selected = self.state.selected_item
         task = self.state.selected_task
         if selected is None:
             return True
         if key == "r":
-            self.state.session_panel_mode = (
-                "raw_transcript"
-                if self.state.session_panel_mode != "raw_transcript"
-                else "timeline"
-            )
+            self._open_forensic_view_from_session()
             return True
         if key == "s":
             task_id = (
@@ -450,6 +441,14 @@ class FleetWorkbenchController:
             self.state.help_overlay_active = False
             self.state.last_message = None
         return True
+
+    def _open_forensic_view_from_session(self) -> None:
+        if self.state.selected_timeline_event is None:
+            self.state.last_message = "No timeline item is selected."
+            return
+        self.state.view_level = "forensic"
+        self._clear_forensic_filter()
+        self.state.last_message = None
 
     def _open_attention_picker_for_scope(self) -> None:
         if self.state.selected_operation_payload is None:

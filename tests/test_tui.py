@@ -147,7 +147,7 @@ async def test_help_overlay_opens_from_session_view() -> None:
     console.print(render_help_overlay(controller.state))
     rendered = console.export_text(styles=False)
     assert "filter session timeline" in rendered
-    assert "toggle raw transcript" in rendered
+    assert "open forensic raw transcript" in rendered
 
 
 async def test_fleet_workbench_tab_skips_nonblocking_attention() -> None:
@@ -1307,7 +1307,7 @@ async def test_operation_view_enter_opens_session_view_and_escape_returns() -> N
     assert controller.state.view_level == "operation"
 
 
-async def test_session_view_toggles_raw_transcript_and_uses_task_scoped_interrupt() -> None:
+async def test_session_view_r_opens_forensic_and_session_interrupt_stays_task_scoped() -> None:
     calls: list[tuple[str, str | None]] = []
 
     async def _interrupt(operation_id: str, task_id: str | None) -> str:
@@ -1330,7 +1330,10 @@ async def test_session_view_toggles_raw_transcript_and_uses_task_scoped_interrup
     await controller.handle_key("\r")
     await controller.handle_key("r")
 
-    assert controller.state.session_panel_mode == "raw_transcript"
+    assert controller.state.view_level == "forensic"
+
+    await controller.handle_key("\x1b")
+    assert controller.state.view_level == "session"
 
     await controller.handle_key("s")
     assert calls == [("op-run", "task-1")]

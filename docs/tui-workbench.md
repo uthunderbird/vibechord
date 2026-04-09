@@ -112,7 +112,8 @@ selected task's session timeline. The right pane defaults to a split session scr
 - a compact session brief with `Now`, `Wait`, `Attention`, and `Latest output`
 - a selected-event detail block for the currently highlighted timeline item
 
-`r` switches that right pane to the raw transcript view for the current session payload.
+Use `Enter` or `r` on the selected timeline item to drill into the Level 3 forensic/raw-transcript
+view. `r` is the direct raw-transcript shortcut from session level.
 
 Available keys:
 
@@ -122,7 +123,7 @@ Available keys:
 - `A`: open the current-scope attention picker for the current task
 - `a`: answer the oldest blocking attention for the current task
 - `Enter`: open the selected timeline item in the Level 3 forensic view
-- `r`: toggle the right pane between timeline detail and raw transcript
+- `r`: open the selected timeline item in the Level 3 forensic/raw-transcript view
 - `Esc`: return to the operation view
 - `s`: enqueue a task-scoped stop-turn interrupt when the task has a linked session; otherwise fall back to an operation-scoped interrupt
 - `p`: enqueue pause for the parent operation

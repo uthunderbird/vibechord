@@ -368,7 +368,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("j / k", "move timeline selection"),
             ("Enter", "open selected event in forensic view"),
             ("/", "filter session timeline"),
-            ("r", "toggle raw transcript"),
+            ("r", "open forensic raw transcript"),
             ("a", "answer oldest blocking attention for current task"),
             ("n", "answer oldest non-blocking attention for current task"),
             ("A", "open attention picker for current task"),
@@ -714,7 +714,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         return Text("a/n answer  A picker  / filter  Esc back to session timeline  q quit")
     if state.view_level == "session":
         return Text(
-            "j/k move  / filter  Enter forensic  r raw transcript  Esc back  a/n answer"
+            "j/k move  / filter  Enter forensic  r forensic/raw transcript  Esc back  a/n answer"
             "  A picker"
             "  s interrupt task/session  p pause  u unpause  c cancel  q quit"
         )
