@@ -58,7 +58,7 @@ async def test_fleet_workbench_tab_jumps_to_next_attention() -> None:
         load_operation_payload=_load_operation_payload,
         pause_operation=_unexpected_action,
         unpause_operation=_unexpected_action,
-        interrupt_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
     )
 
@@ -84,7 +84,7 @@ async def test_fleet_workbench_cancel_requires_confirmation() -> None:
         load_operation_payload=_load_operation_payload,
         pause_operation=_unexpected_action,
         unpause_operation=_unexpected_action,
-        interrupt_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
         cancel_operation=_cancel,
     )
 
@@ -104,15 +104,15 @@ async def test_fleet_workbench_cancel_requires_confirmation() -> None:
 
 
 async def test_fleet_workbench_pause_and_interrupt_dispatch_actions() -> None:
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, str | None]] = []
 
     async def _pause(operation_id: str) -> str:
-        calls.append(("pause", operation_id))
+        calls.append(("pause", operation_id, None))
         return f"paused {operation_id}"
 
-    async def _interrupt(operation_id: str) -> str:
-        calls.append(("interrupt", operation_id))
-        return f"interrupted {operation_id}"
+    async def _interrupt(operation_id: str, task_id: str | None) -> str:
+        calls.append(("interrupt", operation_id, task_id))
+        return f"interrupted {operation_id}:{task_id or '-'}"
 
     controller = build_fleet_workbench_controller(
         load_payload=_load_payload,
@@ -127,8 +127,8 @@ async def test_fleet_workbench_pause_and_interrupt_dispatch_actions() -> None:
     await controller.handle_key("p")
     await controller.handle_key("s")
 
-    assert calls == [("pause", "op-attn"), ("interrupt", "op-attn")]
-    assert controller.state.last_message == "interrupted op-attn"
+    assert calls == [("pause", "op-attn", None), ("interrupt", "op-attn", None)]
+    assert controller.state.last_message == "interrupted op-attn:-"
 
 
 async def test_enter_opens_operation_view_and_escape_returns_to_fleet() -> None:
@@ -137,7 +137,7 @@ async def test_enter_opens_operation_view_and_escape_returns_to_fleet() -> None:
         load_operation_payload=_load_operation_payload,
         pause_operation=_unexpected_action,
         unpause_operation=_unexpected_action,
-        interrupt_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
     )
 
@@ -159,7 +159,7 @@ async def test_operation_view_switches_modes_and_moves_task_selection() -> None:
         load_operation_payload=_load_operation_payload,
         pause_operation=_unexpected_action,
         unpause_operation=_unexpected_action,
-        interrupt_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
         cancel_operation=_unexpected_action,
     )
 
@@ -184,6 +184,58 @@ async def test_operation_view_switches_modes_and_moves_task_selection() -> None:
 
     await controller.handle_key("i")
     assert controller.state.operation_panel_mode == "detail"
+
+
+async def test_operation_view_enter_opens_session_view_and_escape_returns() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    assert controller.state.view_level == "session"
+    assert controller.state.selected_timeline_event is not None
+    assert controller.state.selected_timeline_event.session_id == "session-1"
+
+    await controller.handle_key("\x1b")
+    assert controller.state.view_level == "operation"
+
+
+async def test_session_view_toggles_raw_transcript_and_uses_task_scoped_interrupt() -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    async def _interrupt(operation_id: str, task_id: str | None) -> str:
+        calls.append((operation_id, task_id))
+        return f"interrupt {operation_id}:{task_id or '-'}"
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_interrupt,
+        cancel_operation=_unexpected_action,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("r")
+
+    assert controller.state.session_panel_mode == "raw_transcript"
+
+    await controller.handle_key("s")
+    assert calls == [("op-run", "task-1")]
+    assert controller.state.last_message == "interrupt op-run:task-1"
 
 
 def test_fleet_prefers_interactive_workbench_when_both_streams_are_ttys(
@@ -277,6 +329,29 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
             "[iter 1] decision: start_agent -> codex_acp",
             "[iter 1] agent started: codex_acp",
         ],
+        "timeline_events": [
+            {
+                "event_type": "agent.invocation.started",
+                "iteration": 1,
+                "task_id": "task-1",
+                "session_id": "session-1",
+                "summary": "[iter 1] agent started: codex_acp",
+            },
+            {
+                "event_type": "agent.invocation.completed",
+                "iteration": 1,
+                "task_id": "task-1",
+                "session_id": "session-1",
+                "summary": "[iter 1] agent completed: success",
+            },
+        ],
+        "upstream_transcript": {
+            "title": "Codex Log",
+            "events": [
+                "assistant: starting task board",
+                "assistant: wiring the right pane modes",
+            ],
+        },
         "decision_memos": [
             {
                 "iteration": 2,
@@ -307,3 +382,7 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
 
 async def _unexpected_action(operation_id: str) -> str:
     raise AssertionError(f"Unexpected action for {operation_id}")
+
+
+async def _unexpected_interrupt(operation_id: str, task_id: str | None) -> str:
+    raise AssertionError(f"Unexpected interrupt for {operation_id}:{task_id}")

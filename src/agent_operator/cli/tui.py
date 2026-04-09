@@ -96,6 +96,25 @@ class _OperationTaskItem:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _TimelineEventItem:
+    event_type: str
+    iteration: int
+    task_id: str | None
+    session_id: str | None
+    summary: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> _TimelineEventItem:
+        return cls(
+            event_type=str(payload.get("event_type") or "-"),
+            iteration=_optional_int(payload.get("iteration")),
+            task_id=_optional_text(payload.get("task_id")),
+            session_id=_optional_text(payload.get("session_id")),
+            summary=str(payload.get("summary") or "-"),
+        )
+
+
 @dataclass(slots=True)
 class _FleetWorkbenchState:
     items: list[_FleetItem] = field(default_factory=list)
@@ -108,6 +127,8 @@ class _FleetWorkbenchState:
     view_level: str = "fleet"
     selected_task_index: int = 0
     operation_panel_mode: str = "detail"
+    selected_timeline_index: int = 0
+    session_panel_mode: str = "timeline"
 
     @property
     def selected_item(self) -> _FleetItem | None:
@@ -126,6 +147,15 @@ class _FleetWorkbenchState:
             return None
         return tasks[self.selected_task_index]
 
+    @property
+    def selected_timeline_event(self) -> _TimelineEventItem | None:
+        events = _session_timeline_events(self.selected_operation_payload, self.selected_task)
+        if not events:
+            return None
+        if self.selected_timeline_index < 0 or self.selected_timeline_index >= len(events):
+            return None
+        return events[self.selected_timeline_index]
+
 
 class _FleetWorkbenchController:
     def __init__(
@@ -135,7 +165,7 @@ class _FleetWorkbenchController:
         load_operation_payload: Callable[[str], Awaitable[dict[str, object] | None]],
         pause_operation: Callable[[str], Awaitable[str]],
         unpause_operation: Callable[[str], Awaitable[str]],
-        interrupt_operation: Callable[[str], Awaitable[str]],
+        interrupt_operation: Callable[[str, str | None], Awaitable[str]],
         cancel_operation: Callable[[str], Awaitable[str]],
     ) -> None:
         self._load_payload = load_payload
@@ -155,7 +185,14 @@ class _FleetWorkbenchController:
         )
         selected_task_id = (
             self.state.selected_task.task_id
-            if self.state.view_level == "operation" and self.state.selected_task is not None
+            if self.state.view_level in {"operation", "session"}
+            and self.state.selected_task is not None
+            else None
+        )
+        selected_event_summary = (
+            self.state.selected_timeline_event.summary
+            if self.state.view_level == "session"
+            and self.state.selected_timeline_event is not None
             else None
         )
         items = _payload_items(payload)
@@ -179,6 +216,7 @@ class _FleetWorkbenchController:
             self.state.selected_index = min(self.state.selected_index, len(items) - 1)
         await self._refresh_selected_operation_payload()
         self._restore_selected_task(selected_task_id)
+        self._restore_selected_timeline_event(selected_event_summary)
 
     async def handle_key(self, key: str) -> bool:
         """Apply one keystroke and return whether the workbench should keep running."""
@@ -186,6 +224,8 @@ class _FleetWorkbenchController:
         normalized = _normalize_key(key)
         if self.state.pending_confirmation is not None:
             return await self._handle_confirmation_key(normalized)
+        if self.state.view_level == "session":
+            return await self._handle_session_key(normalized)
         if self.state.view_level == "operation":
             return await self._handle_operation_key(normalized)
         if normalized in {"q", "ctrl+c"}:
@@ -220,7 +260,7 @@ class _FleetWorkbenchController:
             await self.refresh()
             return True
         if normalized == "s":
-            self.state.last_message = await self._interrupt_operation(selected.operation_id)
+            self.state.last_message = await self._interrupt_operation(selected.operation_id, None)
             await self.refresh()
             return True
         if normalized == "c":
@@ -235,7 +275,13 @@ class _FleetWorkbenchController:
         header = self._header_lines()
         left = Panel(
             self._render_left_pane(),
-            title="Tasks" if self.state.view_level == "operation" else "Operations",
+            title=(
+                "Timeline"
+                if self.state.view_level == "session"
+                else "Tasks"
+                if self.state.view_level == "operation"
+                else "Operations"
+            ),
             border_style="cyan",
         )
         right = Panel(
@@ -262,6 +308,15 @@ class _FleetWorkbenchController:
             return True
         if key in {"down", "j"}:
             self._move_task_selection(1)
+            return True
+        if key == "enter":
+            task = self.state.selected_task
+            if task is None or task.linked_session_id is None:
+                self.state.last_message = "The selected task has no linked session to inspect."
+                return True
+            self.state.view_level = "session"
+            self.state.session_panel_mode = "timeline"
+            self._restore_selected_timeline_event(None)
             return True
         if key == "i":
             self.state.operation_panel_mode = "detail"
@@ -291,7 +346,66 @@ class _FleetWorkbenchController:
             await self.refresh()
             return True
         if key == "s":
-            self.state.last_message = await self._interrupt_operation(selected.operation_id)
+            task = self.state.selected_task
+            task_id = (
+                task.task_id
+                if task is not None and task.linked_session_id is not None
+                else None
+            )
+            self.state.last_message = await self._interrupt_operation(
+                selected.operation_id,
+                task_id,
+            )
+            await self.refresh()
+            return True
+        if key == "c":
+            self.state.pending_confirmation = selected.operation_id
+            self.state.last_message = None
+            return True
+        return True
+
+    async def _handle_session_key(self, key: str) -> bool:
+        if key in {"q", "ctrl+c"}:
+            return False
+        if key == "esc":
+            self.state.view_level = "operation"
+            self.state.last_message = None
+            return True
+        if key in {"up", "k"}:
+            self._move_timeline_selection(-1)
+            return True
+        if key in {"down", "j"}:
+            self._move_timeline_selection(1)
+            return True
+        selected = self.state.selected_item
+        task = self.state.selected_task
+        if selected is None:
+            return True
+        if key == "r":
+            self.state.session_panel_mode = (
+                "raw_transcript"
+                if self.state.session_panel_mode != "raw_transcript"
+                else "timeline"
+            )
+            return True
+        if key == "s":
+            task_id = (
+                task.task_id
+                if task is not None and task.linked_session_id is not None
+                else None
+            )
+            self.state.last_message = await self._interrupt_operation(
+                selected.operation_id,
+                task_id,
+            )
+            await self.refresh()
+            return True
+        if key == "p":
+            self.state.last_message = await self._pause_operation(selected.operation_id)
+            await self.refresh()
+            return True
+        if key == "u":
+            self.state.last_message = await self._unpause_operation(selected.operation_id)
             await self.refresh()
             return True
         if key == "c":
@@ -333,6 +447,24 @@ class _FleetWorkbenchController:
                     return
         self.state.selected_task_index = min(self.state.selected_task_index, len(tasks) - 1)
 
+    def _restore_selected_timeline_event(self, selected_summary: str | None) -> None:
+        events = _session_timeline_events(
+            self.state.selected_operation_payload,
+            self.state.selected_task,
+        )
+        if not events:
+            self.state.selected_timeline_index = 0
+            return
+        if selected_summary is not None:
+            for index, item in enumerate(events):
+                if item.summary == selected_summary:
+                    self.state.selected_timeline_index = index
+                    return
+        self.state.selected_timeline_index = min(
+            self.state.selected_timeline_index,
+            len(events) - 1,
+        )
+
     def _move_selection(self, delta: int) -> None:
         if not self.state.items:
             return
@@ -343,6 +475,18 @@ class _FleetWorkbenchController:
         if not tasks:
             return
         self.state.selected_task_index = (self.state.selected_task_index + delta) % len(tasks)
+        self._restore_selected_timeline_event(None)
+
+    def _move_timeline_selection(self, delta: int) -> None:
+        events = _session_timeline_events(
+            self.state.selected_operation_payload,
+            self.state.selected_task,
+        )
+        if not events:
+            return
+        self.state.selected_timeline_index = (
+            self.state.selected_timeline_index + delta
+        ) % len(events)
 
     def _jump_to_next_attention(self) -> None:
         if not self.state.items:
@@ -356,11 +500,15 @@ class _FleetWorkbenchController:
                 return
 
     def _render_left_pane(self) -> Table:
+        if self.state.view_level == "session":
+            return self._render_session_timeline()
         if self.state.view_level == "operation":
             return self._render_task_board()
         return self._render_list_table()
 
     def _render_right_pane(self) -> Table | Text:
+        if self.state.view_level == "session":
+            return self._render_session_panel()
         if self.state.view_level == "operation":
             return self._render_operation_panel()
         return self._render_detail_table()
@@ -369,6 +517,10 @@ class _FleetWorkbenchController:
         breadcrumb = "fleet"
         if self.state.view_level == "operation" and self.state.selected_item is not None:
             breadcrumb += f" > {self.state.selected_item.operation_id}"
+        if self.state.view_level == "session" and self.state.selected_item is not None:
+            breadcrumb += f" > {self.state.selected_item.operation_id}"
+            if self.state.selected_task is not None:
+                breadcrumb += f" > {self.state.selected_task.task_short_id}"
         return [
             f"breadcrumb={breadcrumb}",
             (
@@ -385,6 +537,13 @@ class _FleetWorkbenchController:
             if self.state.selected_task is not None:
                 return f"{mode}: {self.state.selected_task.task_short_id}"
             return mode
+        if self.state.view_level == "session":
+            if self.state.session_panel_mode == "raw_transcript":
+                return "Raw Transcript"
+            event = self.state.selected_timeline_event
+            if event is not None:
+                return f"Timeline: iter {event.iteration}"
+            return "Timeline"
         if self.state.selected_item is not None:
             return f"Detail: {self.state.selected_item.operation_id}"
         return "Detail"
@@ -430,6 +589,29 @@ class _FleetWorkbenchController:
                 task.task_short_id,
                 task.status,
                 task.title,
+            )
+        return table
+
+    def _render_session_timeline(self) -> Table:
+        table = Table(expand=True, box=None, show_header=True)
+        table.add_column("", no_wrap=True)
+        table.add_column("Iter", no_wrap=True)
+        table.add_column("Type", no_wrap=True)
+        table.add_column("Summary")
+        events = _session_timeline_events(
+            self.state.selected_operation_payload,
+            self.state.selected_task,
+        )
+        if not events:
+            table.add_row("", "-", "-", "No session timeline events.")
+            return table
+        for index, event in enumerate(events):
+            marker = ">" if index == self.state.selected_timeline_index else " "
+            table.add_row(
+                marker,
+                str(event.iteration),
+                event.event_type,
+                event.summary,
             )
         return table
 
@@ -507,6 +689,11 @@ class _FleetWorkbenchController:
             return self._render_memory_panel()
         return self._render_task_detail_table()
 
+    def _render_session_panel(self) -> Table | Text:
+        if self.state.session_panel_mode == "raw_transcript":
+            return self._render_raw_transcript_panel()
+        return self._render_timeline_detail_table()
+
     def _render_task_detail_table(self) -> Table:
         table = Table(expand=True, box=None, show_header=False)
         table.add_column("Field", no_wrap=True, style="bold")
@@ -568,6 +755,30 @@ class _FleetWorkbenchController:
             return Text("No memory entries for the selected scope.")
         return Text("\n\n".join(entries))
 
+    def _render_timeline_detail_table(self) -> Table:
+        table = Table(expand=True, box=None, show_header=False)
+        table.add_column("Field", no_wrap=True, style="bold")
+        table.add_column("Value")
+        event = self.state.selected_timeline_event
+        if event is None:
+            table.add_row("Timeline", "No event selected.")
+            return table
+        table.add_row("Type", event.event_type)
+        table.add_row("Iteration", str(event.iteration))
+        if event.task_id is not None:
+            table.add_row("Task", event.task_id)
+        if event.session_id is not None:
+            table.add_row("Session", event.session_id)
+        table.add_row("Summary", event.summary)
+        return table
+
+    def _render_raw_transcript_panel(self) -> Text:
+        payload = self.state.selected_operation_payload
+        lines = _raw_transcript_lines(payload)
+        if not lines:
+            return Text("No raw transcript available for the selected session.")
+        return Text("\n".join(lines))
+
     def _render_footer_text(self) -> Text:
         selected = self.state.selected_item
         if self.state.pending_confirmation is not None and selected is not None:
@@ -577,10 +788,16 @@ class _FleetWorkbenchController:
             )
         if self.state.last_message is not None:
             return Text(self.state.last_message)
+        if self.state.view_level == "session":
+            return Text(
+                "j/k move  r raw transcript toggle  Esc back  s interrupt task/session  "
+                "p pause  u unpause  c cancel  q quit"
+            )
         if self.state.view_level == "operation":
             return Text(
-                "j/k move  i detail  d decisions  t events  m memory  Esc back  "
-                "p pause  u unpause  s interrupt  c cancel  r refresh  q quit"
+                "j/k move  Enter session  i detail  d decisions  t events  m memory  "
+                "Esc back  p pause  u unpause  s interrupt task/session  c cancel  "
+                "r refresh  q quit"
             )
         help_line = Text(
             "j/k or arrows move  Enter open  tab next-attention  p pause  u unpause  "
@@ -627,7 +844,7 @@ def build_fleet_workbench_controller(
     load_operation_payload: Callable[[str], Awaitable[dict[str, object] | None]],
     pause_operation: Callable[[str], Awaitable[str]],
     unpause_operation: Callable[[str], Awaitable[str]],
-    interrupt_operation: Callable[[str], Awaitable[str]],
+    interrupt_operation: Callable[[str, str | None], Awaitable[str]],
     cancel_operation: Callable[[str], Awaitable[str]],
 ) -> _FleetWorkbenchController:
     """Create the fleet workbench controller."""
@@ -667,6 +884,32 @@ def _dashboard_tasks(payload: dict[str, object] | None) -> list[_OperationTaskIt
         for item in raw_tasks
         if isinstance(item, dict)
     ]
+
+
+def _session_timeline_events(
+    payload: dict[str, object] | None,
+    task: _OperationTaskItem | None,
+) -> list[_TimelineEventItem]:
+    if not isinstance(payload, dict):
+        return []
+    raw_events = payload.get("timeline_events")
+    if not isinstance(raw_events, list):
+        return []
+    session_id = task.linked_session_id if task is not None else None
+    task_id = task.task_id if task is not None else None
+    events = [
+        _TimelineEventItem.from_payload(item)
+        for item in raw_events
+        if isinstance(item, dict)
+    ]
+    if session_id is None and task_id is None:
+        return events
+    filtered = [
+        item
+        for item in events
+        if item.session_id == session_id or item.task_id == task_id
+    ]
+    return filtered or events
 
 
 def _optional_text(value: object) -> str | None:
@@ -810,6 +1053,20 @@ def _filtered_memory_entries(
             continue
         rendered.append(f"{memory_id} [{scope}/{freshness}]\n{summary}")
     return rendered
+
+
+def _raw_transcript_lines(payload: dict[str, object] | None) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    transcript = payload.get("upstream_transcript")
+    if isinstance(transcript, dict):
+        events = transcript.get("events")
+        if isinstance(events, list):
+            return [str(item) for item in events if isinstance(item, str)]
+    codex_log = payload.get("codex_log")
+    if isinstance(codex_log, list):
+        return [str(item) for item in codex_log if isinstance(item, str)]
+    return []
 
 
 def _normalize_key(key: str) -> str:

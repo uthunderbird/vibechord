@@ -3840,9 +3840,9 @@ async def _fleet_tui_async(
             message += f" | {outcome.status.value}: {outcome.summary}"
         return message
 
-    async def _interrupt_operation(operation_id: str) -> str:
+    async def _interrupt_operation(operation_id: str, task_id: str | None) -> str:
         delivery = _build_delivery_commands_service(settings)
-        command = await delivery.enqueue_stop_turn(operation_id)
+        command = await delivery.enqueue_stop_turn(operation_id, task_id=task_id)
         return f"enqueued: {command.command_type.value} [{command.command_id}]"
 
     async def _cancel_operation(operation_id: str) -> str:

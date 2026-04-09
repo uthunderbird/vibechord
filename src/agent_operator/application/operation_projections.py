@@ -434,6 +434,16 @@ class OperationProjectionService:
                 )
             ],
             "recent_events": recent_events,
+            "timeline_events": [
+                {
+                    "event_type": event.event_type,
+                    "iteration": event.iteration,
+                    "task_id": event.task_id,
+                    "session_id": event.session_id,
+                    "summary": self._format_live_event(event) or event.event_type,
+                }
+                for event in events[-20:]
+            ],
             "recent_commands": [
                 {
                     "command_id": command.command_id,
