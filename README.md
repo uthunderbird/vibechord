@@ -82,7 +82,8 @@ lane for dependency-blocked pending tasks, plus compact dependency and linked-se
 under task rows when that context is available, with a status glyph on each task row.
 `Enter` still drills into forensic even when a session has no raw transcript payload, falling back
 to event context plus an explicit empty-state message, and forensic `q` now behaves like back-navigation
-to session level instead of quitting the whole workbench. For the
+to session level instead of quitting the whole workbench. The forensic context pane now also shows
+richer session metadata when that context is available. For the
 current keymap, supported actions, and known limitations, see
 [TUI Workbench](docs/tui-workbench.md). For the current forensic drill-down behavior, see
 [TUI Forensic Workflow](docs/tui-forensic-workflow.md).

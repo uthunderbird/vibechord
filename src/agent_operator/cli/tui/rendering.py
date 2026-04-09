@@ -325,11 +325,27 @@ def render_forensic_context(state: FleetWorkbenchState) -> Table:
     table.add_column("Value")
     event = state.selected_timeline_event
     task = state.selected_task
+    session = selected_session(state.selected_operation_payload, task)
     if event is None:
         table.add_row("Event", "No forensic event selected.")
         return table
     if task is not None:
         table.add_row("Task", f"{task.task_short_id} · {task.title}")
+    if session is not None:
+        adapter = str(session.get("adapter_key") or "-")
+        session_id = str(session.get("session_id") or event.session_id or "-")
+        status = str(session.get("status") or "-")
+        table.add_row("Session", f"{adapter} · {session_id} [{status}]")
+        waiting_reason = session.get("waiting_reason")
+        if isinstance(waiting_reason, str) and waiting_reason.strip():
+            table.add_row("Waiting", waiting_reason.strip())
+        bound_task_ids = session.get("bound_task_ids")
+        if isinstance(bound_task_ids, list):
+            bound_tasks = ", ".join(
+                str(task_id) for task_id in bound_task_ids if isinstance(task_id, str)
+            )
+            if bound_tasks:
+                table.add_row("Bound tasks", bound_tasks)
     table.add_row("Type", event.event_type)
     table.add_row("Iteration", str(event.iteration))
     if event.task_id is not None:

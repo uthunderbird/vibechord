@@ -168,6 +168,7 @@ Forensic filter input:
 The forensic view currently shows:
 
 - task context for the selected event when available
+- session adapter, status, waiting reason, and bound-task context when available
 - event type and iteration
 - task id and session id when present in the timeline payload
 - the selected event summary
