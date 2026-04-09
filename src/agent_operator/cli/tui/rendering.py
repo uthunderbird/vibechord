@@ -95,6 +95,8 @@ def header_lines(state: FleetWorkbenchState) -> list[str]:
 
 
 def right_pane_title(state: FleetWorkbenchState) -> str:
+    if state.help_overlay_active:
+        return "Help"
     if state.view_level == "operation":
         mode = state.operation_panel_mode.title()
         if state.selected_task is not None:
@@ -127,6 +129,8 @@ def render_left_pane(state: FleetWorkbenchState) -> Table:
 
 
 def render_right_pane(state: FleetWorkbenchState) -> Group | Table | Text:
+    if state.help_overlay_active:
+        return render_help_overlay(state)
     if state.view_level == "forensic":
         return render_forensic_transcript_panel(state)
     if state.view_level == "session":
@@ -316,6 +320,55 @@ def render_forensic_context(state: FleetWorkbenchState) -> Table:
         table.add_row("Session", event.session_id)
     table.add_row("Summary", event.summary)
     return table
+
+
+def render_help_overlay(state: FleetWorkbenchState) -> Table:
+    table = Table(expand=True, box=None, show_header=False)
+    table.add_column("Key", no_wrap=True, style="bold")
+    table.add_column("Action")
+    for key, action in _help_rows_for_view(state.view_level):
+        table.add_row(key, action)
+    return table
+
+
+def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
+    common = [("?", "close help"), ("Esc", "close help or go back"), ("q", "quit")]
+    if view_level == "operation":
+        return [
+            ("j / k", "move task selection"),
+            ("Enter", "open selected task session"),
+            ("/", "filter tasks"),
+            ("Tab", "jump to next blocking task attention"),
+            ("a", "answer oldest blocking attention for selected task"),
+            ("i / d / t / m", "switch right pane detail mode"),
+            ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
+            *common,
+        ]
+    if view_level == "session":
+        return [
+            ("j / k", "move timeline selection"),
+            ("Enter", "open selected event in forensic view"),
+            ("/", "filter session timeline"),
+            ("r", "toggle raw transcript"),
+            ("a", "answer oldest blocking attention for current task"),
+            ("p / u / s / c", "pause, unpause, interrupt, cancel"),
+            *common,
+        ]
+    if view_level == "forensic":
+        return [
+            ("/", "filter forensic transcript/detail"),
+            ("a", "answer oldest blocking attention for current task"),
+            *common,
+        ]
+    return [
+        ("j / k", "move operation selection"),
+        ("Enter", "open selected operation"),
+        ("/", "filter fleet operations"),
+        ("Tab", "jump to next blocking attention"),
+        ("a", "answer oldest blocking attention in selected operation"),
+        ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
+        *common,
+    ]
 
 
 def render_detail_table(state: FleetWorkbenchState) -> Table:
@@ -565,6 +618,8 @@ def render_forensic_transcript_panel(state: FleetWorkbenchState) -> Text:
 
 def render_footer_text(state: FleetWorkbenchState) -> Text:
     selected = state.selected_item
+    if state.help_overlay_active:
+        return Text("? or Esc close help  q quit")
     if state.pending_filter_text is not None:
         return Text(
             f"fleet filter: {state.pending_filter_text}  Enter apply  Esc cancel  Backspace edit"

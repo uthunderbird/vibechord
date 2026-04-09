@@ -111,6 +111,8 @@ class FleetWorkbenchController:
             return await self._handle_answer_key(key, normalized)
         if self.state.pending_confirmation is not None:
             return await self._handle_confirmation_key(normalized)
+        if self.state.help_overlay_active:
+            return self._handle_help_overlay_key(normalized)
         if self.state.view_level == "forensic":
             return await self._handle_forensic_key(normalized)
         if self.state.view_level == "session":
@@ -136,6 +138,10 @@ class FleetWorkbenchController:
             return True
         if normalized == "a":
             await self._select_oldest_blocking_attention_for_scope()
+            return True
+        if normalized == "?":
+            self.state.help_overlay_active = True
+            self.state.last_message = None
             return True
         if normalized == "r":
             await self.refresh()
@@ -223,6 +229,10 @@ class FleetWorkbenchController:
         if key in {"down", "j"}:
             self._move_task_selection(1)
             return True
+        if key == "?":
+            self.state.help_overlay_active = True
+            self.state.last_message = None
+            return True
         if key == "tab":
             self._jump_to_next_blocking_task_attention()
             return True
@@ -296,6 +306,10 @@ class FleetWorkbenchController:
         if key in {"down", "j"}:
             self._move_timeline_selection(1)
             return True
+        if key == "?":
+            self.state.help_overlay_active = True
+            self.state.last_message = None
+            return True
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
             return True
@@ -347,6 +361,10 @@ class FleetWorkbenchController:
     async def _handle_forensic_key(self, key: str) -> bool:
         if key in {"q", "ctrl+c"}:
             return False
+        if key == "?":
+            self.state.help_overlay_active = True
+            self.state.last_message = None
+            return True
         if key == "esc":
             self.state.view_level = "session"
             self._clear_forensic_filter()
@@ -358,6 +376,14 @@ class FleetWorkbenchController:
         if key == "/":
             self._start_forensic_filter_input()
             return True
+        return True
+
+    def _handle_help_overlay_key(self, key: str) -> bool:
+        if key in {"q", "ctrl+c"}:
+            return False
+        if key in {"?", "esc"}:
+            self.state.help_overlay_active = False
+            self.state.last_message = None
         return True
 
     async def _handle_answer_key(self, key: str, normalized: str) -> bool:

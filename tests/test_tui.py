@@ -14,6 +14,7 @@ from agent_operator.cli.tui import models as tui_models_pkg
 from agent_operator.cli.tui_models import FleetWorkbenchState, dashboard_tasks, task_signal_text
 from agent_operator.cli.tui_rendering import (
     render_forensic_transcript_panel,
+    render_help_overlay,
     render_list_table,
     render_session_timeline,
     render_task_board,
@@ -96,6 +97,56 @@ async def test_fleet_workbench_tab_jumps_to_next_attention() -> None:
     await controller.handle_key("\t")
     assert controller.state.selected_item is not None
     assert controller.state.selected_item.operation_id == "op-attn"
+
+
+async def test_help_overlay_opens_and_closes_from_fleet_view() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("?")
+
+    assert controller.state.help_overlay_active is True
+    console = Console(record=True, width=140, markup=False)
+    console.print(render_help_overlay(controller.state))
+    rendered = console.export_text(styles=False)
+    assert "open selected operation" in rendered
+    assert "filter fleet operations" in rendered
+
+    await controller.handle_key("?")
+    assert controller.state.help_overlay_active is False
+
+
+async def test_help_overlay_opens_from_session_view() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("?")
+
+    assert controller.state.help_overlay_active is True
+    console = Console(record=True, width=140, markup=False)
+    console.print(render_help_overlay(controller.state))
+    rendered = console.export_text(styles=False)
+    assert "filter session timeline" in rendered
+    assert "toggle raw transcript" in rendered
 
 
 async def test_fleet_workbench_tab_skips_nonblocking_attention() -> None:

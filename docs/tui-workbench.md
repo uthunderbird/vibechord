@@ -47,6 +47,7 @@ Available keys:
 - `u`: enqueue unpause/resume for the selected operation
 - `s`: enqueue an operation-scoped stop-turn interrupt
 - `c`: start cancel confirmation for the selected operation
+- `?`: show the current view help overlay
 - `r`: refresh the fleet snapshot immediately
 - `q`: quit the workbench
 
@@ -81,6 +82,7 @@ Available keys:
 - `u`: enqueue unpause/resume for the parent operation
 - `s`: enqueue a task-scoped stop-turn interrupt when the selected task has a linked session; otherwise fall back to an operation-scoped interrupt
 - `c`: start cancel confirmation for the parent operation
+- `?`: show the current view help overlay
 - `r`: refresh the current fleet and operation payloads immediately
 - `q`: quit the workbench
 
@@ -116,6 +118,7 @@ Available keys:
 - `p`: enqueue pause for the parent operation
 - `u`: enqueue unpause/resume for the parent operation
 - `c`: start cancel confirmation for the parent operation
+- `?`: show the current view help overlay
 - `q`: quit the workbench
 
 Session filter input:
@@ -135,6 +138,7 @@ raw transcript` message.
 Available keys:
 
 - `/`: start forensic filter input; match by raw transcript/detail text
+- `?`: show the current view help overlay
 - `Esc`: return to the session timeline
 - `q`: quit the workbench
 
@@ -159,6 +163,7 @@ The forensic view currently shows:
 Current interactive actions implemented in the workbench:
 
 - inspect fleet, operation, session, and forensic views
+- show a compact keybinding help overlay for the current view without hiding the left pane
 - answer the oldest blocking attention in scope from fleet, operation, or session, then continue
   directly to the next oldest blocking attention in the same scope when one remains
 - jump to the next attention-bearing operation from fleet

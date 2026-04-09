@@ -180,6 +180,7 @@ class FleetWorkbenchState:
     pending_answer_task_id: str | None = None
     pending_answer_text: str = ""
     pending_answer_prompt: str = "Answer text: "
+    help_overlay_active: bool = False
     view_level: str = "fleet"
     selected_task_index: int = 0
     operation_panel_mode: str = "detail"
