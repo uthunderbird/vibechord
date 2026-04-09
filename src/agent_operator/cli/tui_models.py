@@ -183,6 +183,9 @@ class FleetWorkbenchState:
     view_level: str = "fleet"
     selected_task_index: int = 0
     operation_panel_mode: str = "detail"
+    task_filter_query: str = ""
+    pending_task_filter_text: str | None = None
+    pending_task_filter_restore_query: str = ""
     selected_timeline_index: int = 0
     session_panel_mode: str = "timeline"
     filter_query: str = ""
@@ -197,7 +200,7 @@ class FleetWorkbenchState:
 
     @property
     def selected_task(self) -> OperationTaskItem | None:
-        tasks = dashboard_tasks(self.selected_operation_payload)
+        tasks = filtered_dashboard_tasks(self.selected_operation_payload, self.task_filter_query)
         if not tasks or self.selected_task_index < 0 or self.selected_task_index >= len(tasks):
             return None
         return tasks[self.selected_task_index]
@@ -297,6 +300,38 @@ def dashboard_tasks(payload: dict[str, object] | None) -> list[OperationTaskItem
     if not isinstance(raw_tasks, list):
         return []
     return [OperationTaskItem.from_payload(item) for item in raw_tasks if isinstance(item, dict)]
+
+
+def filtered_dashboard_tasks(
+    payload: dict[str, object] | None,
+    query: str,
+) -> list[OperationTaskItem]:
+    tasks = dashboard_tasks(payload)
+    normalized = query.strip().lower()
+    if not normalized:
+        return tasks
+    terms = [term for term in normalized.split() if term]
+    if not terms:
+        return tasks
+    return [task for task in tasks if _task_matches_filter(task, terms)]
+
+
+def _task_matches_filter(task: OperationTaskItem, terms: list[str]) -> bool:
+    haystack = " ".join(
+        value.lower()
+        for value in (
+            task.task_id,
+            task.task_short_id,
+            task.title,
+            task.goal,
+            task.definition_of_done,
+            task.status,
+            task.assigned_agent or "",
+            " ".join(task.notes),
+        )
+        if value
+    )
+    return all(term in haystack for term in terms)
 
 
 def session_timeline_events(

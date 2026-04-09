@@ -71,6 +71,7 @@ Available keys:
 
 - `j` / `k` or arrow keys: move the selected task
 - `Enter`: open the Level 2 session view for the selected task if it has a linked session
+- `/`: start task filter input; match by task id, short id, title, status, agent, goal, or notes
 - `i`: show task detail
 - `d`: show decision memos for the selected task scope
 - `t`: show recent operation events
@@ -85,6 +86,13 @@ Available keys:
 
 If the selected task has no linked session, `Enter` stays in the operation view and shows a status
 message instead of opening Level 2.
+
+Task filter input:
+
+- type to update the task rows live
+- `Enter`: apply the current filter text
+- `Esc`: abort the edit and restore the previous filter
+- submit an empty filter to clear it
 
 ## Session Level
 
@@ -167,5 +175,5 @@ Current limitations of the implemented UI:
   workflow.
 - Session drill-down depends on task-linked session data being present in the operation dashboard
   payload. Tasks without a linked session cannot open Level 2.
-- Filtering currently applies only at the fleet level. Operation, session, and forensic views do
-  not yet have independent filter modes.
+- Filtering is now available at fleet and operation levels. Session and forensic views do not yet
+  have independent filter modes.

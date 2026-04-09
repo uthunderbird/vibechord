@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 import agent_operator.cli.main as cli_main
 from agent_operator.cli.tui import build_fleet_workbench_controller
 from agent_operator.cli.tui_models import FleetWorkbenchState, dashboard_tasks, task_signal_text
-from agent_operator.cli.tui_rendering import render_list_table
+from agent_operator.cli.tui_rendering import render_list_table, render_task_board
 
 runner = CliRunner()
 pytestmark = pytest.mark.anyio
@@ -455,6 +455,83 @@ async def test_operation_view_tab_jumps_to_task_with_blocking_attention() -> Non
 
     assert controller.state.selected_task is not None
     assert controller.state.selected_task.task_id == "task-2"
+
+
+async def test_operation_filter_matches_task_status_and_title_fields() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("/")
+    for key in "pending modes":
+        await controller.handle_key(key)
+
+    assert controller.state.pending_task_filter_text == "pending modes"
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-2"
+
+    await controller.handle_key("\r")
+    assert controller.state.pending_task_filter_text is None
+    assert controller.state.task_filter_query == "pending modes"
+    assert controller.state.last_message == "Applied task filter: pending modes"
+
+
+async def test_operation_filter_escape_restores_previous_query() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("/")
+    for key in "task board":
+        await controller.handle_key(key)
+    await controller.handle_key("\r")
+
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-1"
+
+    await controller.handle_key("/")
+    await controller.handle_key("\x7f")
+    await controller.handle_key("z")
+
+    assert controller.state.pending_task_filter_text == "task boarz"
+    assert controller.state.selected_task is None
+
+    await controller.handle_key("\x1b")
+    assert controller.state.pending_task_filter_text is None
+    assert controller.state.task_filter_query == "task board"
+    assert controller.state.selected_task is not None
+    assert controller.state.selected_task.task_id == "task-1"
+    assert controller.state.last_message == "Task filter input aborted."
+
+
+def test_filtered_empty_task_board_shows_filter_specific_message() -> None:
+    state = FleetWorkbenchState(
+        view_level="operation",
+        task_filter_query="nomatch",
+        selected_operation_payload={"tasks": [{"task_id": "task-1", "task_short_id": "task-1"}]},
+    )
+    table = render_task_board(state)
+    console = Console(record=True, width=120, markup=False)
+    console.print(table)
+    assert "No tasks match the current filter." in console.export_text(styles=False)
 
 
 async def test_operation_view_a_reports_oldest_blocking_attention_for_task() -> None:

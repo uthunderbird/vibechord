@@ -8,8 +8,8 @@ from rich.text import Text
 
 from .tui_models import (
     FleetWorkbenchState,
-    dashboard_tasks,
     event_detail_lines,
+    filtered_dashboard_tasks,
     filtered_decisions,
     filtered_memory_entries,
     raw_transcript_lines,
@@ -76,6 +76,8 @@ def header_lines(state: FleetWorkbenchState) -> list[str]:
     scope = (f"project={state.project}" if state.project is not None else "project=all") + (
         f"  operations={state.total_operations}"
     )
+    if state.view_level == "operation" and state.task_filter_query:
+        scope += f"  task_filter={state.task_filter_query}"
     if state.filter_query:
         scope += f"  filter={state.filter_query}"
     lines.append(scope)
@@ -163,9 +165,16 @@ def render_task_board(state: FleetWorkbenchState) -> Table:
     table.add_column("Signal", no_wrap=True)
     table.add_column("State", no_wrap=True)
     table.add_column("Title")
-    tasks = dashboard_tasks(state.selected_operation_payload)
+    tasks = filtered_dashboard_tasks(state.selected_operation_payload, state.task_filter_query)
     if not tasks:
-        table.add_row("", "-", "-", "-", "-", "No tasks.")
+        table.add_row(
+            "",
+            "-",
+            "-",
+            "-",
+            "-",
+            "No tasks match the current filter." if state.task_filter_query else "No tasks.",
+        )
         return table
     for index, task in enumerate(tasks):
         table.add_row(
@@ -524,6 +533,11 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         return Text(
             f"fleet filter: {state.pending_filter_text}  Enter apply  Esc cancel  Backspace edit"
         )
+    if state.pending_task_filter_text is not None:
+        return Text(
+            "task filter: "
+            f"{state.pending_task_filter_text}  Enter apply  Esc cancel  Backspace edit"
+        )
     if state.pending_answer_operation_id is not None:
         instruction = state.pending_answer_prompt
         return Text(
@@ -545,7 +559,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         )
     if state.view_level == "operation":
         return Text(
-            "j/k move  Enter session  a answer  i detail  d decisions  t events  m memory"
+            "j/k move  Enter session  / filter  a answer  i detail  d decisions  t events  m memory"
             "  Esc back  p pause  u unpause  s interrupt task/session  c cancel  r refresh  q quit"
         )
     help_line = Text(

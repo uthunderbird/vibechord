@@ -6,6 +6,7 @@ from .tui_models import (
     FleetWorkbenchState,
     dashboard_tasks,
     filter_fleet_items,
+    filtered_dashboard_tasks,
     normalize_key,
     oldest_blocking_attention,
     oldest_task_blocking_attention,
@@ -98,6 +99,8 @@ class FleetWorkbenchController:
 
     async def handle_key(self, key: str) -> bool:
         normalized = normalize_key(key)
+        if self.state.pending_task_filter_text is not None:
+            return self._handle_task_filter_key(key, normalized)
         if self.state.pending_filter_text is not None:
             return await self._handle_filter_key(key, normalized)
         if self.state.pending_answer_operation_id is not None:
@@ -140,6 +143,7 @@ class FleetWorkbenchController:
         if normalized == "enter" and isinstance(self.state.selected_operation_payload, dict):
             self.state.view_level = "operation"
             self.state.operation_panel_mode = "detail"
+            self._clear_task_filter()
             self._restore_selected_task(None)
             return True
         if normalized == "p":
@@ -206,6 +210,7 @@ class FleetWorkbenchController:
             return False
         if key == "esc":
             self.state.view_level = "fleet"
+            self._clear_task_filter()
             self.state.last_message = None
             return True
         if key in {"up", "k"}:
@@ -219,6 +224,9 @@ class FleetWorkbenchController:
             return True
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
+            return True
+        if key == "/":
+            self._start_task_filter_input()
             return True
         if key == "enter":
             task = self.state.selected_task
@@ -411,7 +419,10 @@ class FleetWorkbenchController:
         )
 
     def _restore_selected_task(self, selected_task_id: str | None) -> None:
-        tasks = dashboard_tasks(self.state.selected_operation_payload)
+        tasks = filtered_dashboard_tasks(
+            self.state.selected_operation_payload,
+            self.state.task_filter_query,
+        )
         if not tasks:
             self.state.selected_task_index = 0
             return
@@ -443,7 +454,10 @@ class FleetWorkbenchController:
             self.state.selected_index = (self.state.selected_index + delta) % len(self.state.items)
 
     def _move_task_selection(self, delta: int) -> None:
-        tasks = dashboard_tasks(self.state.selected_operation_payload)
+        tasks = filtered_dashboard_tasks(
+            self.state.selected_operation_payload,
+            self.state.task_filter_query,
+        )
         if tasks:
             self.state.selected_task_index = (self.state.selected_task_index + delta) % len(tasks)
             self._restore_selected_timeline_event(None)
@@ -514,7 +528,10 @@ class FleetWorkbenchController:
         self.state.pending_confirmation = None
 
     def _jump_to_next_blocking_task_attention(self) -> None:
-        tasks = dashboard_tasks(self.state.selected_operation_payload)
+        tasks = filtered_dashboard_tasks(
+            self.state.selected_operation_payload,
+            self.state.task_filter_query,
+        )
         if not tasks:
             return
         start = self.state.selected_task_index
@@ -614,6 +631,67 @@ class FleetWorkbenchController:
             for item in payload.get("attention", [])
             if isinstance(item, dict) and bool(item.get("blocking"))
         )
+
+    def _handle_task_filter_key(self, key: str, normalized: str) -> bool:
+        selected_task_id = self.state.selected_task.task_id if self.state.selected_task else None
+        if key in {"\x1b", "\x03", "esc", "ctrl+c"}:
+            self.state.task_filter_query = self.state.pending_task_filter_restore_query
+            self.state.pending_task_filter_text = None
+            self._apply_task_filter(selected_task_id)
+            self.state.last_message = "Task filter input aborted."
+            return True
+        if normalized == "enter":
+            committed = (self.state.pending_task_filter_text or "").strip()
+            self.state.task_filter_query = committed
+            self.state.pending_task_filter_text = None
+            self._apply_task_filter(selected_task_id)
+            self.state.last_message = (
+                f"Applied task filter: {committed}" if committed else "Cleared task filter."
+            )
+            return True
+        if key in {"\x7f", "\b"}:
+            if self.state.pending_task_filter_text:
+                self.state.pending_task_filter_text = self.state.pending_task_filter_text[:-1]
+            self.state.task_filter_query = self.state.pending_task_filter_text or ""
+            self._apply_task_filter(selected_task_id)
+            return True
+        if len(key) == 1 and key.isprintable():
+            current = self.state.pending_task_filter_text or ""
+            self.state.pending_task_filter_text = current + key
+            self.state.task_filter_query = self.state.pending_task_filter_text
+            self._apply_task_filter(selected_task_id)
+        return True
+
+    def _start_task_filter_input(self) -> None:
+        self.state.pending_task_filter_restore_query = self.state.task_filter_query
+        self.state.pending_task_filter_text = self.state.task_filter_query
+        self.state.last_message = None
+        self.state.pending_confirmation = None
+
+    def _apply_task_filter(self, selected_task_id: str | None) -> None:
+        tasks = filtered_dashboard_tasks(
+            self.state.selected_operation_payload,
+            self.state.task_filter_query,
+        )
+        if not tasks:
+            self.state.selected_task_index = 0
+            self._restore_selected_timeline_event(None)
+            return
+        if selected_task_id is not None:
+            for index, task in enumerate(tasks):
+                if task.task_id == selected_task_id:
+                    self.state.selected_task_index = index
+                    break
+            else:
+                self.state.selected_task_index = 0
+        else:
+            self.state.selected_task_index = min(self.state.selected_task_index, len(tasks) - 1)
+        self._restore_selected_timeline_event(None)
+
+    def _clear_task_filter(self) -> None:
+        self.state.task_filter_query = ""
+        self.state.pending_task_filter_text = None
+        self.state.pending_task_filter_restore_query = ""
 
     def _start_filter_input(self) -> None:
         self.state.pending_filter_restore_query = self.state.filter_query
