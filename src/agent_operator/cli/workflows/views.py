@@ -31,7 +31,7 @@ from agent_operator.runtime import (
     resolve_project_run_config,
 )
 
-from .helpers_logs import (
+from ..helpers_logs import (
     format_opencode_log_event,
     iter_opencode_log_events,
     load_opencode_log_events,
@@ -39,8 +39,7 @@ from .helpers_logs import (
     resolve_jsonl_log_path_for_session,
     resolve_log_target,
 )
-from .helpers_rendering import (
-    PROJECTIONS,
+from ..helpers_rendering import (
     build_runtime_alert,
     cli_projection_payload,
     latest_agent_turn_brief,
@@ -50,8 +49,8 @@ from .helpers_rendering import (
     shorten_live_text,
     turn_work_summary,
 )
-from .helpers_resolution import resolve_history_entry, resolve_operation_id
-from .helpers_services import (
+from ..helpers_resolution import resolve_history_entry, resolve_operation_id
+from ..helpers_services import (
     build_agenda_query_service,
     build_delivery_commands_service,
     build_fleet_workbench_query_service,
@@ -83,7 +82,9 @@ async def _load_agenda_snapshot(*, project: str | None, include_all: bool):
     return await service.load_snapshot(project=project, include_recent=include_all)
 
 
-async def _load_fleet_workbench_payload(*, project: str | None, include_all: bool) -> dict[str, object]:
+async def _load_fleet_workbench_payload(
+    *, project: str | None, include_all: bool
+) -> dict[str, object]:
     settings = load_settings()
     service = build_fleet_workbench_query_service(settings)
     return await service.load_payload(project=project, include_recent=include_all)
@@ -102,8 +103,13 @@ async def list_async(json_mode: bool) -> None:
     supervisor = build_background_run_inspection_store(settings)
     for summary in await store.list_operations():
         wakeups = inbox.read_all(summary.operation_id)
-        background_runs = [item.model_dump(mode="json") for item in await supervisor.list_runs(summary.operation_id)]
-        runtime_alert = build_runtime_alert(status=summary.status, wakeups=wakeups, background_runs=background_runs)
+        background_runs = [
+            item.model_dump(mode="json")
+            for item in await supervisor.list_runs(summary.operation_id)
+        ]
+        runtime_alert = build_runtime_alert(
+            status=summary.status, wakeups=wakeups, background_runs=background_runs
+        )
         brief = await trace_store.load_brief_bundle(summary.operation_id)
         if brief is not None and brief.operation_brief is not None:
             if json_mode:
@@ -114,11 +120,25 @@ async def list_async(json_mode: bool) -> None:
             else:
                 operation_brief = brief.operation_brief
                 latest_turn = latest_agent_turn_brief(brief)
-                focus = shorten_live_text(operation_brief.focus_brief, limit=28) if operation_brief.focus_brief else None
-                latest = shorten_live_text(turn_work_summary(latest_turn) or operation_brief.latest_outcome_brief, limit=56)
+                focus = (
+                    shorten_live_text(operation_brief.focus_brief, limit=28)
+                    if operation_brief.focus_brief
+                    else None
+                )
+                latest = shorten_live_text(
+                    turn_work_summary(latest_turn) or operation_brief.latest_outcome_brief, limit=56
+                )
                 blocker = shorten_live_text(operation_brief.blocker_brief, limit=48)
-                scheduler = operation_brief.scheduler_state.value if operation_brief.scheduler_state.value != "active" else None
-                involvement = operation_brief.involvement_level.value if operation_brief.involvement_level.value != "auto" else None
+                scheduler = (
+                    operation_brief.scheduler_state.value
+                    if operation_brief.scheduler_state.value != "active"
+                    else None
+                )
+                involvement = (
+                    operation_brief.involvement_level.value
+                    if operation_brief.involvement_level.value != "auto"
+                    else None
+                )
                 typer.echo(
                     render_operation_list_line(
                         operation_brief.operation_id,
@@ -143,7 +163,8 @@ async def list_async(json_mode: bool) -> None:
                 render_operation_list_line(
                     summary.operation_id,
                     summary.status.value,
-                    objective=shorten_live_text(summary.objective_prompt, limit=96) or summary.objective_prompt,
+                    objective=shorten_live_text(summary.objective_prompt, limit=96)
+                    or summary.objective_prompt,
                     focus=shorten_live_text(summary.focus, limit=28),
                     latest=shorten_live_text(summary.final_summary, limit=56),
                     blocker=None,
@@ -169,7 +190,10 @@ async def history_async(operation_ref: str | None, json_mode: bool) -> None:
         typer.echo("No committed history entries yet.")
         return
     for entry in entries:
-        line = f"{entry['op_id']} {str(entry['status']).upper()} {entry['goal']} [reason={entry['stop_reason']}]"
+        line = (
+            f"{entry['op_id']} {str(entry['status']).upper()} "
+            f"{entry['goal']} [reason={entry['stop_reason']}]"
+        )
         profile = entry.get("profile")
         if isinstance(profile, str) and profile.strip():
             line += f" [profile={profile}]"
@@ -177,7 +201,7 @@ async def history_async(operation_ref: str | None, json_mode: bool) -> None:
 
 
 async def agenda_async(project: str | None, include_all: bool, json_mode: bool) -> None:
-    from .helpers_rendering import print_agenda_section
+    from ..helpers_rendering import print_agenda_section
 
     snapshot = await _load_agenda_snapshot(project=project, include_all=include_all)
     if json_mode:
@@ -193,14 +217,18 @@ async def agenda_async(project: str | None, include_all: bool, json_mode: bool) 
         print_agenda_section("Recent:", snapshot.recent)
 
 
-async def _compat_fleet_tui_async(project: str | None, include_all: bool, poll_interval: float) -> None:
+async def _compat_fleet_tui_async(
+    project: str | None, include_all: bool, poll_interval: float
+) -> None:
     import agent_operator.cli.main as cli_main
 
     callback = getattr(cli_main, "_fleet_tui_async", fleet_tui_async)
     await callback(project, include_all, poll_interval)
 
 
-async def fleet_async(project: str | None, include_all: bool, once: bool, json_mode: bool, poll_interval: float) -> None:
+async def fleet_async(
+    project: str | None, include_all: bool, once: bool, json_mode: bool, poll_interval: float
+) -> None:
     if sys.stdout.isatty() and sys.stdin.isatty() and not once and not json_mode:
         await _compat_fleet_tui_async(project, include_all, poll_interval)
         return
@@ -232,10 +260,17 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
         return await _load_fleet_workbench_payload(project=project, include_all=include_all)
 
     async def load_operation_payload(operation_id: str) -> dict[str, object] | None:
-        queries = build_operation_dashboard_query_service(settings, operation_id=operation_id, codex_home=codex_home)
+        queries = build_operation_dashboard_query_service(
+            settings, operation_id=operation_id, codex_home=codex_home
+        )
         return await queries.load_payload(operation_id)
 
-    async def enqueue_simple_command(operation_id: str, command_type: OperationCommandType, *, auto_resume_when_paused: bool = False) -> str:
+    async def enqueue_simple_command(
+        operation_id: str,
+        command_type: OperationCommandType,
+        *,
+        auto_resume_when_paused: bool = False,
+    ) -> str:
         """CLI-equivalent control action used by TUI state transitions."""
         delivery = build_delivery_commands_service(settings)
         command, outcome, note = await delivery.enqueue_command(
@@ -268,13 +303,17 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
 
     async def cancel_operation(operation_id: str) -> str:
         """CLI-equivalent of `operator cancel <operation_id>`."""
-        outcome = await delivery_commands_service().cancel(operation_id, session_id=None, run_id=None)
+        outcome = await delivery_commands_service().cancel(
+            operation_id, session_id=None, run_id=None
+        )
         return f"{outcome.status.value}: {outcome.summary}"
 
     controller = build_fleet_workbench_controller(
         load_payload=load_payload,
         load_operation_payload=load_operation_payload,
-        pause_operation=lambda operation_id: enqueue_simple_command(operation_id, OperationCommandType.PAUSE_OPERATOR),
+        pause_operation=lambda operation_id: enqueue_simple_command(
+            operation_id, OperationCommandType.PAUSE_OPERATOR
+        ),
         unpause_operation=lambda operation_id: enqueue_simple_command(
             operation_id,
             OperationCommandType.RESUME_OPERATOR,
@@ -287,7 +326,9 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
     await run_fleet_workbench(controller=controller, poll_interval=poll_interval)
 
 
-async def project_dashboard_async(name: str | None, once: bool, json_mode: bool, poll_interval: float) -> None:
+async def project_dashboard_async(
+    name: str | None, once: bool, json_mode: bool, poll_interval: float
+) -> None:
     async def load_payload() -> dict[str, object]:
         settings = load_settings()
         try:
@@ -349,18 +390,35 @@ async def log_async(
         path = find_codex_session_log(codex_home, session.session_id)
         if path is None:
             raise typer.BadParameter(
-                f"Codex transcript for session {session.session_id!r} was not found under {str(codex_home)!r}."
+                "Codex transcript for session "
+                f"{session.session_id!r} was not found under {str(codex_home)!r}."
             )
         if follow:
             typer.echo(f"# Codex log for operation {resolved_operation_id}")
             typer.echo(f"# session={session.session_id}")
             typer.echo(f"# file={path}")
             for event in iter_codex_log_events(path, follow=True):
-                typer.echo(json.dumps(asdict(event), ensure_ascii=False) if json_mode else format_codex_log_event(event))
+                typer.echo(
+                    json.dumps(asdict(event), ensure_ascii=False)
+                    if json_mode
+                    else format_codex_log_event(event)
+                )
             return
         events = load_codex_log_events(path)[-limit:]
         if json_mode:
-            typer.echo(json.dumps({"operation_id": resolved_operation_id, "session_id": session.session_id, "path": str(path), "agent": "codex", "events": [asdict(event) for event in events]}, indent=2, ensure_ascii=False))
+            typer.echo(
+                json.dumps(
+                    {
+                        "operation_id": resolved_operation_id,
+                        "session_id": session.session_id,
+                        "path": str(path),
+                        "agent": "codex",
+                        "events": [asdict(event) for event in events],
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
             return
         typer.echo(f"# Codex log for operation {resolved_operation_id}")
         typer.echo(f"# session={session.session_id}")
@@ -375,11 +433,27 @@ async def log_async(
             typer.echo(f"# session={session.session_id}")
             typer.echo(f"# file={path}")
             for event in iter_claude_log_events(path, follow=True):
-                typer.echo(json.dumps(asdict(event), ensure_ascii=False) if json_mode else format_claude_log_event(event))
+                typer.echo(
+                    json.dumps(asdict(event), ensure_ascii=False)
+                    if json_mode
+                    else format_claude_log_event(event)
+                )
             return
         events = load_claude_log_events(path)[-limit:]
         if json_mode:
-            typer.echo(json.dumps({"operation_id": resolved_operation_id, "session_id": session.session_id, "path": str(path), "agent": "claude", "events": [asdict(event) for event in events]}, indent=2, ensure_ascii=False))
+            typer.echo(
+                json.dumps(
+                    {
+                        "operation_id": resolved_operation_id,
+                        "session_id": session.session_id,
+                        "path": str(path),
+                        "agent": "claude",
+                        "events": [asdict(event) for event in events],
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
             return
         typer.echo(f"# Claude log for operation {resolved_operation_id}")
         typer.echo(f"# session={session.session_id}")
@@ -393,11 +467,27 @@ async def log_async(
         typer.echo(f"# session={session.session_id}")
         typer.echo(f"# file={path}")
         for event in iter_opencode_log_events(path, follow=True):
-            typer.echo(json.dumps(asdict(event), ensure_ascii=False) if json_mode else format_opencode_log_event(event))
+            typer.echo(
+                json.dumps(asdict(event), ensure_ascii=False)
+                if json_mode
+                else format_opencode_log_event(event)
+            )
         return
     events = load_opencode_log_events(path)[-limit:]
     if json_mode:
-        typer.echo(json.dumps({"operation_id": resolved_operation_id, "session_id": session.session_id, "path": str(path), "agent": "opencode", "events": [asdict(event) for event in events]}, indent=2, ensure_ascii=False))
+        typer.echo(
+            json.dumps(
+                {
+                    "operation_id": resolved_operation_id,
+                    "session_id": session.session_id,
+                    "path": str(path),
+                    "agent": "opencode",
+                    "events": [asdict(event) for event in events],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return
     typer.echo(f"# OpenCode log for operation {resolved_operation_id}")
     typer.echo(f"# session={session.session_id}")

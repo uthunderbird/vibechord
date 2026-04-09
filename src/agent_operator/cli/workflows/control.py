@@ -28,8 +28,13 @@ from agent_operator.domain import (
 )
 from agent_operator.runtime import apply_project_profile_settings, resolve_project_run_config
 
-from .helpers_rendering import cli_projection_payload, format_live_event, format_live_snapshot, render_dashboard
-from .helpers_services import (
+from ..helpers_rendering import (
+    cli_projection_payload,
+    format_live_event,
+    format_live_snapshot,
+    render_dashboard,
+)
+from ..helpers_services import (
     build_delivery_commands_service,
     build_operation_dashboard_query_service,
     build_projected_service,
@@ -48,13 +53,19 @@ class CliEventProjector:
 
     def emit_operation(self, operation_id: str) -> None:
         if self._json_mode:
-            typer.echo(json.dumps({"type": "operation", "operation_id": operation_id}, ensure_ascii=False))
+            typer.echo(
+                json.dumps({"type": "operation", "operation_id": operation_id}, ensure_ascii=False)
+            )
             return
         typer.echo(f"operation_id={operation_id}", err=True)
 
     def handle_event(self, event: RunEvent) -> None:
         if self._json_mode:
-            typer.echo(json.dumps({"type": "event", "event": event.model_dump(mode="json")}, ensure_ascii=False))
+            typer.echo(
+                json.dumps(
+                    {"type": "event", "event": event.model_dump(mode="json")}, ensure_ascii=False
+                )
+            )
             return
         rendered = format_live_event(event)
         if rendered is not None:
@@ -68,7 +79,12 @@ class CliEventProjector:
 
     def emit_outcome(self, outcome: OperationOutcome) -> None:
         if self._json_mode:
-            typer.echo(json.dumps({"type": "outcome", "outcome": outcome.model_dump(mode="json")}, ensure_ascii=False))
+            typer.echo(
+                json.dumps(
+                    {"type": "outcome", "outcome": outcome.model_dump(mode="json")},
+                    ensure_ascii=False,
+                )
+            )
             return
         typer.echo(f"{outcome.status.value}: {outcome.summary}")
 
@@ -92,7 +108,9 @@ async def run_async(
     settings.data_dir = Path(settings.data_dir)
     launch_dir = Path.cwd().resolve()
     try:
-        profile, selected_profile_path, profile_source = resolve_project_profile_selection(settings, name=project)
+        profile, selected_profile_path, profile_source = resolve_project_profile_selection(
+            settings, name=project
+        )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
     if profile is None and project is None:
@@ -290,7 +308,9 @@ async def resume_async(operation_id: str, max_cycles: int, json_mode: bool) -> N
 async def status_async(operation_id: str, json_mode: bool, brief: bool) -> None:
     service = delivery_commands_service()
     try:
-        typer.echo(await service.render_status_output(operation_id, json_mode=json_mode, brief=brief))
+        typer.echo(
+            await service.render_status_output(operation_id, json_mode=json_mode, brief=brief)
+        )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
@@ -311,7 +331,9 @@ async def daemon_async(
     settings = load_settings()
     inbox = build_wakeup_inbox(settings)
     projector = CliEventProjector(json_mode=json_mode)
-    delivery = build_projecting_delivery_commands_service(settings, operation_id="sweep", projector=projector)
+    delivery = build_projecting_delivery_commands_service(
+        settings, operation_id="sweep", projector=projector
+    )
 
     async def sweep() -> int:
         resumed = await delivery.daemon_sweep(
@@ -321,7 +343,9 @@ async def daemon_async(
             emit_outcome=projector.emit_outcome,
         )
         if json_mode:
-            typer.echo(json.dumps({"daemon_once": True, "resumed_operations": resumed}, ensure_ascii=False))
+            typer.echo(
+                json.dumps({"daemon_once": True, "resumed_operations": resumed}, ensure_ascii=False)
+            )
         elif resumed > 0:
             typer.echo(f"resumed_operations={resumed}")
         return resumed
@@ -334,12 +358,16 @@ async def daemon_async(
         await anyio.sleep(poll_interval)
 
 
-async def recover_async(operation_id: str, session_id: str | None, max_cycles: int, json_mode: bool) -> None:
+async def recover_async(
+    operation_id: str, session_id: str | None, max_cycles: int, json_mode: bool
+) -> None:
     settings = load_settings()
     projector = CliEventProjector(json_mode=json_mode)
     if json_mode:
         projector.emit_operation(operation_id)
-    delivery = build_projecting_delivery_commands_service(settings, operation_id=operation_id, projector=projector)
+    delivery = build_projecting_delivery_commands_service(
+        settings, operation_id=operation_id, projector=projector
+    )
     outcome = await delivery.recover(operation_id, session_id=session_id, max_cycles=max_cycles)
     projector.emit_outcome(outcome)
 

@@ -1,20 +1,11 @@
-from .workflows import (
+from .control import (
     CliEventProjector,
-    agenda_async,
     answer_async,
     cancel_async,
-    clear_async,
     daemon_async,
     dashboard_async,
     enqueue_command_async,
     enqueue_custom_command_async,
-    fleet_async,
-    fleet_tui_async,
-    has_any_operations_async,
-    history_async,
-    list_async,
-    log_async,
-    project_dashboard_async,
     recover_async,
     resume_async,
     run_async,
@@ -23,6 +14,17 @@ from .workflows import (
     tick_async,
     watch_async,
 )
+from .views import (
+    agenda_async,
+    fleet_async,
+    fleet_tui_async,
+    has_any_operations_async,
+    history_async,
+    list_async,
+    log_async,
+    project_dashboard_async,
+)
+from .workspace import clear_async
 
 __all__ = [
     "CliEventProjector",

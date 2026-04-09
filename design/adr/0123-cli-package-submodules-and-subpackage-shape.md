@@ -1,8 +1,23 @@
 # ADR 0123: CLI Package Submodules and Subpackage Shape
 
+- Date: 2026-04-10
+
 ## Status
 
-Proposed
+Accepted
+
+## Implementation status
+
+Current repository truth on 2026-04-10:
+
+- `implemented`: `cli/workflows/` now exists as a real package with `control.py`, `views.py`,
+  `workspace.py`, and `__init__.py`
+- `implemented`: top-level `cli/workflows.py` now acts as a compatibility facade over that package
+- `partial`: `cli/commands/`, `cli/rendering/`, and `cli/tui/` package moves have not landed yet
+- `deferred`: `cli/helpers/` remains explicitly deferred pending a later cohesion review
+
+This ADR is therefore accepted as the package-shape direction, but only partially implemented in
+the current repository tranche.
 
 ## Context
 
@@ -312,9 +327,8 @@ This ADR does not require:
 
 ## Verification criteria
 
-This ADR is materially satisfied when:
+This ADR is fully implemented when:
 
-1. `cli/commands/`, `cli/helpers/`, `cli/rendering/`, `cli/tui/`, and `cli/workflows/` exist
 1. `cli/commands/`, `cli/rendering/`, `cli/tui/`, and `cli/workflows/` exist
 2. `cli/helpers/` is either:
    - introduced later as a justified family package
@@ -324,6 +338,16 @@ This ADR is materially satisfied when:
 5. `commands/operation/` has **not** been introduced unless a later ADR or implementation note
    justifies it explicitly
 6. CLI behavior and import compatibility remain materially stable through the transition
+
+## Evidence for current partial status
+
+As of 2026-04-10, the repository satisfies this subset:
+
+1. `cli/workflows/` exists as a package and owns the workflow-family implementation
+2. top-level `cli/workflows.py` remains as a thin compatibility facade
+3. CLI imports still resolve through the compatibility surface
+4. `cli/commands/`, `cli/rendering/`, and `cli/tui/` do not yet exist as packages, so the full ADR
+   remains incomplete
 
 ## Related
 

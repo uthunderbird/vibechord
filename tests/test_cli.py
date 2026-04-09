@@ -9,6 +9,7 @@ import anyio
 from typer.testing import CliRunner
 
 import agent_operator.cli.commands_operation_detail as commands_operation_detail
+import agent_operator.cli.workflows as cli_workflows
 from agent_operator.cli.main import _format_live_snapshot, app
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -63,6 +64,15 @@ from agent_operator.runtime import (
 )
 
 runner = CliRunner()
+
+
+def test_workflows_facade_reexports_package_entrypoints() -> None:
+    assert cli_workflows.run_async is not None
+    assert cli_workflows.fleet_async is not None
+    assert cli_workflows.clear_async is not None
+    assert "run_async" in cli_workflows.__all__
+    assert "fleet_async" in cli_workflows.__all__
+    assert "clear_async" in cli_workflows.__all__
 
 
 def state_settings(

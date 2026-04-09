@@ -176,6 +176,15 @@ not permanent `cli/tui` nesting and not a standalone top-level `agent_operator.t
 See [RFC 0011](./rfc/0011-delivery-package-boundary-for-cli-and-tui.md) for the boundary choice and
 [RFC 0012](./rfc/0012-delivery-package-migration-tranche.md) for the later migration tranche.
 
+Current repository truth under `ADR 0123` is only partial:
+
+- `implemented`: the workflow family now lives under `agent_operator.cli.workflows` with a
+  top-level compatibility facade at `agent_operator.cli.workflows.py`
+- `partial`: commands, rendering, and TUI still use flat top-level `commands_*`, `rendering_*`,
+  and `tui_*` modules
+- `deferred`: helpers remain flat by design pending a later cohesion review rather than moving for
+  symmetry alone
+
 That means the repository should not grow a separate enduring architectural layer between delivery
 and application for TUI work. When delivery extractions are needed, they should expose
 application-facing command/query contracts more explicitly rather than creating a second workflow
