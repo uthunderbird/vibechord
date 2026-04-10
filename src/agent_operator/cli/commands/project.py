@@ -9,6 +9,8 @@ import typer
 from agent_operator.domain import InvolvementLevel, ProjectProfile
 from agent_operator.runtime import (
     list_project_profiles,
+    load_project_profile,
+    profile_path,
     resolve_project_run_config,
     write_project_profile,
 )
@@ -126,11 +128,48 @@ def _emit_resolved_project_config(payload: dict[str, object]) -> None:
         typer.echo("- Overrides: none")
 
 
-@project_app.command("list")
-def project_list() -> None:
-    settings = load_settings()
+def _project_inventory_payload(settings) -> list[dict[str, object]]:
+    payload: list[dict[str, object]] = []
     for name in list_project_profiles(settings):
-        typer.echo(name)
+        path = profile_path(settings, name)
+        profile = load_project_profile(settings, name)
+        payload.append(
+            {
+                "name": name,
+                "path": str(path),
+                "scope": "local" if path.parent == settings.data_dir / "profiles" else "committed",
+                "cwd": str(profile.cwd) if profile.cwd is not None else None,
+                "default_agents": list(profile.default_agents),
+                "default_objective": profile.default_objective,
+                "default_involvement_level": (
+                    profile.default_involvement_level.value
+                    if profile.default_involvement_level is not None
+                    else None
+                ),
+            }
+        )
+    return payload
+
+
+@project_app.command("list")
+def project_list(json_mode: bool = typer.Option(False, "--json")) -> None:
+    settings = load_settings()
+    payload = _project_inventory_payload(settings)
+    if json_mode:
+        typer.echo(json.dumps({"project_profiles": payload}, indent=2, ensure_ascii=False))
+        return
+    typer.echo("Project profiles:")
+    if not payload:
+        typer.echo("- none")
+        return
+    for item in payload:
+        typer.echo(f"- {item['name']} [{item['scope']}]")
+        typer.echo(f"  path: {item['path']}")
+        typer.echo(f"  cwd: {item['cwd'] or '-'}")
+        agents = ", ".join(item["default_agents"]) if item["default_agents"] else "-"
+        typer.echo(f"  agents: {agents}")
+        typer.echo(f"  objective: {item['default_objective'] or '-'}")
+        typer.echo(f"  involvement: {item['default_involvement_level'] or '-'}")
 
 
 @project_app.command("create")

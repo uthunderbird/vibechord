@@ -44,6 +44,7 @@ from agent_operator.domain import (
     PolicyApplicability,
     PolicyCategory,
     PolicyEntry,
+    PolicyStatus,
     RunEvent,
     RunEventKind,
     RunMode,
@@ -2722,6 +2723,28 @@ def test_project_list_inspect_and_resolve(tmp_path: Path, monkeypatch) -> None:
     assert '"involvement_level": "unattended"' in resolved.stdout
 
 
+def test_project_list_is_inventory_shaped_by_default_and_supports_json(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    listed = runner.invoke(app, ["project", "list"])
+    listed_json = runner.invoke(app, ["project", "list", "--json"])
+
+    assert listed.exit_code == 0
+    assert "Project profiles:" in listed.stdout
+    assert "- femtobot [local]" in listed.stdout
+    assert "cwd: /tmp/femtobot" in listed.stdout
+    assert "agents: codex_acp" in listed.stdout
+
+    assert listed_json.exit_code == 0
+    payload = json.loads(listed_json.stdout)
+    assert payload["project_profiles"][0]["name"] == "femtobot"
+    assert payload["project_profiles"][0]["scope"] == "local"
+    assert payload["project_profiles"][0]["cwd"] == "/tmp/femtobot"
+
+
 def test_project_inspect_and_resolve_are_human_readable_by_default(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2982,6 +3005,51 @@ def test_policy_record_list_inspect_and_revoke(tmp_path: Path, monkeypatch) -> N
         OperationCommandType.RECORD_POLICY_DECISION.value,
         OperationCommandType.REVOKE_POLICY_DECISION.value,
     }
+
+
+def test_policy_projects_is_inventory_shaped_by_default_and_supports_json(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FilePolicyStore(tmp_path / "policies")
+
+    async def _seed() -> None:
+        await store.save(
+            PolicyEntry(
+                policy_id="policy-1",
+                project_scope="profile:femtobot",
+                title="Manual testing debt",
+                category=PolicyCategory.TESTING,
+                rule_text="Document manual-only verification in MANUAL_TESTING_REQUIRED.md.",
+            )
+        )
+        await store.save(
+            PolicyEntry(
+                policy_id="policy-2",
+                project_scope="profile:femtobot",
+                title="Security review",
+                category=PolicyCategory.RELEASE,
+                rule_text="Run red team review before release.",
+                status=PolicyStatus.REVOKED,
+            )
+        )
+
+    anyio.run(_seed)
+
+    projects = runner.invoke(app, ["policy", "projects"])
+    projects_json = runner.invoke(app, ["policy", "projects", "--json"])
+
+    assert projects.exit_code == 0
+    assert "Policy-bearing projects:" in projects.stdout
+    assert "- profile:femtobot (1 active / 2 total)" in projects.stdout
+    assert "categories: release, testing" in projects.stdout
+
+    assert projects_json.exit_code == 0
+    payload = json.loads(projects_json.stdout)
+    assert payload["policy_projects"][0]["project_scope"] == "profile:femtobot"
+    assert payload["policy_projects"][0]["active_policy_count"] == 1
+    assert payload["policy_projects"][0]["policy_count"] == 2
+    assert payload["policy_projects"][0]["categories"] == ["release", "testing"]
 
 
 def test_policy_record_allows_attention_promotion_without_title_or_text(

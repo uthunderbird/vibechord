@@ -78,15 +78,63 @@ def _emit_policy_entry(payload: dict[str, object]) -> None:
     typer.echo(f"Superseded by: {payload.get('superseded_by') or '-'}")
 
 
+def _policy_project_payload(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[str, dict[str, object]] = {}
+    for item in entries:
+        scope = str(item["project_scope"])
+        bucket = grouped.setdefault(
+            scope,
+            {
+                "project_scope": scope,
+                "policy_count": 0,
+                "active_policy_count": 0,
+                "categories": set(),
+            },
+        )
+        bucket["policy_count"] = int(bucket["policy_count"]) + 1
+        if item["status"] == PolicyStatus.ACTIVE.value:
+            bucket["active_policy_count"] = int(bucket["active_policy_count"]) + 1
+        categories = bucket["categories"]
+        assert isinstance(categories, set)
+        categories.add(str(item["category"]))
+    payload: list[dict[str, object]] = []
+    for scope in sorted(grouped):
+        bucket = grouped[scope]
+        categories = bucket["categories"]
+        assert isinstance(categories, set)
+        payload.append(
+            {
+                "project_scope": scope,
+                "policy_count": bucket["policy_count"],
+                "active_policy_count": bucket["active_policy_count"],
+                "categories": sorted(categories),
+            }
+        )
+    return payload
+
+
 @policy_app.command("projects")
-def policy_projects() -> None:
+def policy_projects(json_mode: bool = typer.Option(False, "--json")) -> None:
     settings = load_settings()
     store = build_policy_store(settings)
 
     async def _projects() -> None:
-        scopes = sorted({entry.project_scope for entry in await store.list()})
-        for scope in scopes:
-            typer.echo(scope)
+        entries = [policy_payload(entry) for entry in await store.list()]
+        payload = _policy_project_payload(entries)
+        if json_mode:
+            typer.echo(json.dumps({"policy_projects": payload}, indent=2, ensure_ascii=False))
+            return
+        typer.echo("Policy-bearing projects:")
+        if not payload:
+            typer.echo("- none")
+            return
+        for item in payload:
+            typer.echo(
+                f"- {item['project_scope']} "
+                f"({item['active_policy_count']} active / {item['policy_count']} total)"
+            )
+            categories = ", ".join(item["categories"]) if item["categories"] else "-"
+            typer.echo(f"  categories: {categories}")
 
     anyio.run(_projects)
 

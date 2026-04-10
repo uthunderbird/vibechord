@@ -87,6 +87,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --once
 Inspect project defaults and effective resolved run settings:
 
 ```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator project list
 UV_CACHE_DIR=/tmp/uv-cache uv run operator project inspect femtobot
 UV_CACHE_DIR=/tmp/uv-cache uv run operator project resolve femtobot
 ```
@@ -94,6 +95,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator project resolve femtobot
 Inspect a stored policy entry or explain current policy coverage:
 
 ```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator policy projects
 UV_CACHE_DIR=/tmp/uv-cache uv run operator policy inspect policy-1
 UV_CACHE_DIR=/tmp/uv-cache uv run operator policy explain last
 ```
