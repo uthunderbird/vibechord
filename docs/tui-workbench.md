@@ -30,9 +30,24 @@ The workbench keeps a left pane for selection and a right pane for detail:
 - `session`: selected task's session timeline on the left, selected event detail on the right
 - `forensic`: selected event context on the left, focused raw transcript/detail on the right
 
-The header shows the current view path in human-readable form plus a compact scope line. The footer
-shows either the primary actions for the current level, the latest action result, or a cancel
-confirmation prompt.
+The header is a compact workbench summary band. It keeps the current breadcrumb on the first line
+and adds human-readable scope or situation lines beneath it:
+
+- `fleet`: scope plus the shared fleet counts (`Active / Running / Needs human / Paused`) and a short `Selected / Working on / Waiting on` summary for the current row
+- `operation`: scope plus compact task counts (`Tasks / Running / Ready / Blocked / Done`) and a `Now / Waiting on / Needs input` summary for the current operation
+- `session`: scope, session identity, and a compact `Now / Waiting on / Needs input` summary for the current task session
+- `forensic`: session identity plus the currently focused event summary
+
+The footer is the action band for the current state. It shows either:
+
+- the primary actions for the current level in compact human-first language
+- the active filter or answer prompt while editing
+- the latest action result
+- a cancel confirmation prompt
+
+The live session footer now uses the shorter human-first action phrasing documented here:
+
+- `session`: `Enter open transcript  r raw transcript  / filter  a/n answer  A pick  i live detail  o report  Esc back  ? help`
 
 At fleet level, each selected operation row is rendered as a compact multi-line summary:
 
@@ -123,9 +138,14 @@ Task filter input:
 selected task's session timeline, ordered newest-first. The right pane defaults to a split session
 screen:
 
-- a compact session brief with `Now`, `Wait`, `Attention`, and `Latest output`
-- an explicit `Open` cue separating event detail (`Enter`), transcript/log (`r`), and retrospective report (`o`)
+- a compact session brief with explicit session identity plus `Now`, `Wait`, `Attention`, and `Latest output`
+- a compact `Open` cue separating forensic drill-down (`Enter` / `r`), live detail (`i`), and retrospective report (`o`)
 - a selected-event detail block for the currently highlighted timeline item
+
+The session header also carries a compact live summary line so you can orient before reading the
+right pane in detail. The session footer stays human-first, but it now includes the direct
+intervention controls as well: `interrupt`, `pause`, `resume`, and `cancel` remain visible without
+reverting to the older raw key-dump style.
 
 Use `Enter` or `r` on the selected timeline item to drill into the Level 3 forensic/raw-transcript
 view. `r` is the direct raw-transcript shortcut from session level. Use `o` to switch the session

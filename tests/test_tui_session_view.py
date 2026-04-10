@@ -29,10 +29,10 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     rendered = console.export_text(styles=False)
 
     for section in (
-        "Session: codex_acp",
+        "codex_acp · session-1 [running]",
         "Now",
-        "Wait",
-        "Attention",
+        "Waiting on",
+        "Needs input",
         "Latest output",
         "Open",
         "Selected Event",
@@ -41,10 +41,10 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     ):
         assert section in rendered
 
-    assert "View: fleet > op-run > task-1" in rendered
-    assert "Open" in rendered
+    assert "Fleet / op-run / session / task-1" in rendered
+    assert "Jump to" in rendered
     assert "Enter event detail; r transcript/log; o retrospective report" in rendered
-    assert "Enter event detail  r transcript/log  i live detail  o report" in rendered
+    assert "j/k move  Enter open event detail  r open raw transcript  / filter" in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:

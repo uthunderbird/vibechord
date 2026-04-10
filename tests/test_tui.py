@@ -14,7 +14,10 @@ from agent_operator.cli.tui import models as tui_models_pkg
 from agent_operator.cli.tui import rendering as tui_rendering_pkg
 from agent_operator.cli.tui.models import FleetWorkbenchState, dashboard_tasks, task_signal_text
 from agent_operator.cli.tui.rendering import (
+    human_footer_text,
+    human_header_lines,
     render_attention_picker,
+    render_footer_text,
     render_forensic_transcript_panel,
     render_help_overlay,
     render_list_table,
@@ -32,6 +35,31 @@ def test_tui_package_models_exports_state() -> None:
 
 def test_tui_package_exports_rendering_module() -> None:
     assert tui_rendering_pkg.render_help_overlay is render_help_overlay
+
+
+def test_human_header_lines_use_human_first_scope_counts() -> None:
+    state = FleetWorkbenchState(
+        project="alpha",
+        total_operations=4,
+        fleet_header={"needs_human_count": 1, "running_count": 2, "paused_count": 1},
+    )
+
+    lines = human_header_lines(state)
+
+    assert lines[0] == "Fleet"
+    assert lines[1] == "Active 4  Needs human 1  Running 2  Paused 1  Scope alpha"
+
+
+def test_human_footer_text_uses_compact_fleet_actions() -> None:
+    state = FleetWorkbenchState(
+        items=[tui_models_pkg.FleetItem.from_payload({"operation_id": "op-1", "bucket": "active"})]
+    )
+
+    rendered = str(human_footer_text(state))
+
+    assert "Next blocker Tab" in rendered
+    assert "Pause p" in rendered
+    assert "Help ?" in rendered
 
 
 def _fleet_payload() -> dict[str, object]:
@@ -1674,25 +1702,25 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     rendered = console.export_text(styles=False)
 
     for section in (
-        "Session: codex_acp",
+        "codex_acp",
         "Now",
-        "Wait",
+        "Waiting on",
         "Agent",
         "Operator",
-        "Attention",
+        "Needs input",
         "Review",
         "Latest output",
-        "Open",
+        "codex_acp · session-1",
         "Selected Event",
         "agent started",
         "Need a layout decision",
     ):
         assert section in rendered
 
-    assert "View: fleet > op-run > task-1" in rendered
-    assert "Open" in rendered
-    assert "Enter event detail; r transcript/log; o retrospective report" in rendered
-    assert "Enter event detail  r transcript/log  i live detail  o report" in rendered
+    assert "Fleet / op-run / session / task-1" in rendered
+    assert "Jump to" in rendered
+    assert "Forensic Enter/r; live detail i; retrospective report o" in rendered
+    assert "j/k move  Enter open event detail  r open raw transcript  / filter" in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
@@ -2034,6 +2062,182 @@ def test_filtered_empty_forensic_transcript_shows_filter_specific_message() -> N
     )
     panel = render_forensic_transcript_panel(state)
     assert "No raw transcript lines match the current filter." in panel.plain
+
+
+def test_fleet_header_uses_human_summary_language() -> None:
+    state = FleetWorkbenchState(
+        all_items=[
+            tui_models_pkg.FleetItem.from_payload(
+                {
+                    "operation_id": "op-needs-human",
+                    "display_name": "Answer review",
+                    "state_label": "needs_human",
+                    "attention_badge": "B1",
+                    "status": "needs_human",
+                    "scheduler_state": "active",
+                }
+            ),
+            tui_models_pkg.FleetItem.from_payload(
+                {
+                    "operation_id": "op-paused",
+                    "display_name": "Paused job",
+                    "state_label": "running/pause_requested",
+                    "attention_badge": "-",
+                    "status": "running",
+                    "scheduler_state": "pause_requested",
+                }
+            ),
+        ],
+        items=[
+            tui_models_pkg.FleetItem.from_payload(
+                {
+                    "operation_id": "op-run",
+                    "display_name": "Ship dashboard",
+                    "state_label": "running",
+                    "agent_cue": "profile:alpha",
+                    "recency_brief": "layout in progress",
+                    "focus_brief": "Working on the task board",
+                    "latest_outcome_brief": "awaiting review",
+                    "attention_badge": "-",
+                    "status": "running",
+                    "scheduler_state": "active",
+                }
+            )
+        ],
+        selected_index=0,
+        total_operations=3,
+        fleet_header={
+            "running_count": 2,
+            "needs_human_count": 1,
+            "paused_count": 1,
+        },
+    )
+
+    assert human_header_lines(state) == [
+        "Fleet",
+        "Active 3  Needs human 1  Running 2  Paused 1  Scope: all projects",
+        "Selected: Ship dashboard  Working on: Working on the task board  Waiting on: awaiting review",
+    ]
+
+
+def test_fleet_header_keeps_filter_visible_with_human_counts() -> None:
+    fleet_item = tui_models_pkg.FleetItem.from_payload(
+        {
+            "operation_id": "op-run",
+            "display_name": "Ship dashboard",
+            "state_label": "running",
+            "attention_badge": "-",
+            "status": "running",
+            "scheduler_state": "active",
+        }
+    )
+    state = FleetWorkbenchState(
+        all_items=[fleet_item],
+        items=[fleet_item],
+        selected_index=0,
+        total_operations=4,
+        filter_query="dashboard",
+        fleet_header={
+            "running_count": 2,
+            "needs_human_count": 1,
+            "paused_count": 0,
+        },
+    )
+
+    scope_line = human_header_lines(state)[1]
+    assert "Fleet filter: dashboard" in scope_line
+    assert "Running 2" in scope_line
+    assert "Needs human 1" in scope_line
+    assert "Scope all projects" in scope_line
+    assert "Paused 0" in scope_line
+
+
+async def test_operation_header_surfaces_now_wait_and_attention_summary() -> None:
+    async def _load_operation_payload_with_brief(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["operation_brief"] = {
+            "now": "Working on the dashboard layout.",
+            "wait": "Waiting for a layout decision.",
+            "attention": "[policy_gap] Need a layout decision.",
+        }
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_brief,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+
+    lines = human_header_lines(controller.state)
+    assert lines[0] == "Fleet > op-run > tasks"
+    assert lines[1] == "Scope all projects  ·  3 operations"
+    assert "Tasks: 2" in lines[2]
+    assert "Running: 1" in lines[2]
+    assert "Ready: 0" in lines[2]
+    assert "Blocked: 1" in lines[2]
+    assert "Done: 0" in lines[2]
+    assert "Now: Working on the dashboard layout." in lines[2]
+    assert "Waiting on: Waiting for a layout decision." in lines[2]
+    assert "Needs input: [policy_gap] Need a layout decision." in lines[2]
+
+
+async def test_session_header_and_footer_use_human_action_language() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    lines = human_header_lines(controller.state)
+    assert lines[0] == "Fleet / op-run / session / task-1"
+    assert "codex_acp" in lines[1]
+    assert "session-1" in lines[1]
+    assert "Now: Working through the board layout." in lines[2]
+    assert "Waiting on: Working through the board layout." in lines[2]
+    assert "Needs input: Need a layout decision" in lines[2]
+    assert (
+        human_footer_text(controller.state).plain
+        == "Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+    )
+
+
+async def test_session_footer_uses_short_human_first_actions() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    assert (
+        human_footer_text(controller.state).plain
+        == "Enter open transcript  r raw transcript  / filter  a/n answer  A pick  i live detail  o report  Esc back  ? help"
+    )
 
 
 def test_fleet_prefers_interactive_workbench_when_both_streams_are_ttys(
