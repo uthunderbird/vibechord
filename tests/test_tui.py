@@ -47,7 +47,7 @@ def test_human_header_lines_use_human_first_scope_counts() -> None:
     lines = human_header_lines(state)
 
     assert lines[0] == "Fleet"
-    assert lines[1] == "Active 4  Needs human 1  Running 2  Paused 1  Scope alpha"
+    assert lines[1] == "Active 4  Needs human 1  Running 2  Paused 1  Scope: alpha"
 
 
 def test_human_footer_text_uses_compact_fleet_actions() -> None:
@@ -57,9 +57,9 @@ def test_human_footer_text_uses_compact_fleet_actions() -> None:
 
     rendered = str(human_footer_text(state))
 
-    assert "Next blocker Tab" in rendered
-    assert "Pause p" in rendered
-    assert "Help ?" in rendered
+    assert "Tab next blocker" in rendered
+    assert "p/u/s/c control" in rendered
+    assert "Help ?" not in rendered
 
 
 def _fleet_payload() -> dict[str, object]:
@@ -1717,10 +1717,11 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     ):
         assert section in rendered
 
-    assert "Fleet / op-run / session / task-1" in rendered
+    assert "View: fleet > op-run > task-1 > session" in rendered
     assert "Jump to" in rendered
-    assert "Forensic Enter/r; live detail i; retrospective report o" in rendered
-    assert "j/k move  Enter open event detail  r open raw transcript  / filter" in rendered
+    assert "Enter event detail; r transcript/log; o retrospective report" in rendered
+    assert "Session: Open event detail Enter  Open transcript r  Live session i  Report o" in rendered
+    assert "Enter open transcript  r raw transcript  / filter" in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
@@ -2116,7 +2117,7 @@ def test_fleet_header_uses_human_summary_language() -> None:
     assert human_header_lines(state) == [
         "Fleet",
         "Active 3  Needs human 1  Running 2  Paused 1  Scope: all projects",
-        "Selected: Ship dashboard  Working on: Working on the task board  Waiting on: awaiting review",
+        "Selected: Ship dashboard  Now: Working on the task board  Wait: awaiting review",
     ]
 
 
@@ -2145,10 +2146,10 @@ def test_fleet_header_keeps_filter_visible_with_human_counts() -> None:
     )
 
     scope_line = human_header_lines(state)[1]
-    assert "Fleet filter: dashboard" in scope_line
+    assert "Filter: dashboard" in scope_line
     assert "Running 2" in scope_line
     assert "Needs human 1" in scope_line
-    assert "Scope all projects" in scope_line
+    assert "Scope: all projects" in scope_line
     assert "Paused 0" in scope_line
 
 
@@ -2177,16 +2178,13 @@ async def test_operation_header_surfaces_now_wait_and_attention_summary() -> Non
     await controller.handle_key("\r")
 
     lines = human_header_lines(controller.state)
-    assert lines[0] == "Fleet > op-run > tasks"
-    assert lines[1] == "Scope all projects  ·  3 operations"
-    assert "Tasks: 2" in lines[2]
-    assert "Running: 1" in lines[2]
-    assert "Ready: 0" in lines[2]
-    assert "Blocked: 1" in lines[2]
-    assert "Done: 0" in lines[2]
-    assert "Now: Working on the dashboard layout." in lines[2]
-    assert "Waiting on: Waiting for a layout decision." in lines[2]
-    assert "Needs input: [policy_gap] Need a layout decision." in lines[2]
+    assert lines[0] == "View: fleet > op-run > tasks"
+    summary_line = next(line for line in lines if "Tasks: 2" in line)
+    assert "Running: 1" in summary_line
+    assert "Blocked: 1" in summary_line
+    assert "Now: Working on the dashboard layout." in summary_line
+    assert "Wait: Waiting for a layout decision." in summary_line
+    assert "Attention: [policy_gap] Need a layout decision." in summary_line
 
 
 async def test_session_header_and_footer_use_human_action_language() -> None:
@@ -2206,15 +2204,15 @@ async def test_session_header_and_footer_use_human_action_language() -> None:
     await controller.handle_key("\r")
 
     lines = human_header_lines(controller.state)
-    assert lines[0] == "Fleet / op-run / session / task-1"
+    assert lines[0] == "View: fleet > op-run > task-1 > session"
     assert "codex_acp" in lines[1]
     assert "session-1" in lines[1]
     assert "Now: Working through the board layout." in lines[2]
-    assert "Waiting on: Working through the board layout." in lines[2]
-    assert "Needs input: Need a layout decision" in lines[2]
+    assert "Wait: Working through the board layout." in lines[2]
+    assert "Attention: Need a layout decision" in lines[2]
     assert (
         human_footer_text(controller.state).plain
-        == "Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+        == "Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?"
     )
 
 
@@ -2236,7 +2234,28 @@ async def test_session_footer_uses_short_human_first_actions() -> None:
 
     assert (
         human_footer_text(controller.state).plain
-        == "Enter open transcript  r raw transcript  / filter  a/n answer  A pick  i live detail  o report  Esc back  ? help"
+        == "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+    )
+
+
+async def test_operation_footer_uses_short_human_first_actions() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+
+    assert (
+        human_footer_text(controller.state).plain
+        == "Enter session  l transcript/log  / filter  a/n answer  A pick  i/d/t/m/o detail  Esc back  ? help"
     )
 
 

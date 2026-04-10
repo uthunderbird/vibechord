@@ -33,7 +33,7 @@ from .models import (
 
 
 def render_workbench(state: FleetWorkbenchState) -> Group:
-    header = human_header_lines(state)
+    header = rendered_header_lines(state)
     left = Panel(
         render_left_pane(state),
         title=(
@@ -61,38 +61,101 @@ def header_lines(state: FleetWorkbenchState) -> list[str]:
 
 
 def human_header_lines(state: FleetWorkbenchState) -> list[str]:
-    breadcrumb = "View: fleet"
+    if state.view_level == "fleet":
+        lines = ["Fleet", _fleet_header_summary(state, state.project or "all projects")]
+        if state.filter_query:
+            lines[1] += f"  Fleet filter: {state.filter_query}"
+        if state.selected_item is not None:
+            selected = state.selected_item
+            lines.append(
+                "Selected: "
+                f"{selected.display_name}  Now: {selected.focus_brief or selected.recency_brief}  "
+                f"Wait: {selected.runtime_alert or selected.latest_outcome_brief or '-'}"
+            )
+        return lines
     if state.view_level == "operation" and state.selected_item is not None:
-        breadcrumb = f"View: fleet > {state.selected_item.operation_id} > tasks"
+        payload = state.selected_operation_payload
+        brief = payload.get("operation_brief") if isinstance(payload, dict) else None
+        if not isinstance(brief, dict):
+            brief = state.selected_item.brief if isinstance(state.selected_item.brief, dict) else {}
+        tasks = filtered_dashboard_tasks(state.selected_operation_payload, state.task_filter_query)
+        running = sum(1 for task in tasks if task.status == "running")
+        ready = sum(1 for task in tasks if task.status == "pending" and task_lane(task) == "READY")
+        blocked = sum(1 for task in tasks if task_lane(task) == "BLOCKED")
+        done = sum(1 for task in tasks if task.status == "completed")
+        attention = _fleet_optional_text(brief.get("attention"))
+        if attention == "-" and state.selected_item.attention_briefs:
+            attention = "; ".join(state.selected_item.attention_briefs)
+        return [
+            f"Fleet / {state.selected_item.operation_id} / operation",
+            f"Scope: {state.project or 'all projects'}  Operations: {state.total_operations}",
+            (
+                f"Tasks: {len(tasks)}  Running: {running}  Ready: {ready}  Blocked: {blocked}  Done: {done}  "
+                f"Now: {_fleet_optional_text(brief.get('now'))}  "
+                f"Wait: {_fleet_optional_text(brief.get('wait'))}  "
+                f"Attention: {attention}"
+            ),
+        ]
     if state.view_level == "session" and state.selected_item is not None:
-        breadcrumb += f" / {state.selected_item.operation_id} / session"
-        if state.selected_task is not None:
-            breadcrumb += f" / {state.selected_task.task_short_id}"
+        brief = session_brief(state.selected_operation_payload, state.selected_task)
+        return [
+            f"Fleet / {state.selected_item.operation_id} / session / {state.selected_task.task_short_id if state.selected_task is not None else '-'}",
+            session_identity_text(state.selected_operation_payload, state.selected_task),
+            (
+                f"Now: {brief['now']}  Wait: {brief['wait']}  "
+                f"Attention: {brief['attention']}"
+            ),
+        ]
     if state.view_level == "forensic" and state.selected_item is not None:
-        breadcrumb += f" / {state.selected_item.operation_id} / forensic"
+        event = state.selected_timeline_event
+        return [
+            (
+                "Fleet / "
+                f"{state.selected_item.operation_id} / forensic / "
+                f"{state.selected_task.task_short_id if state.selected_task is not None else '-'}"
+            ),
+            session_identity_text(state.selected_operation_payload, state.selected_task),
+            (
+                f"Selected event: iter {event.iteration} {session_event_label(event)}"
+                if event is not None
+                else "Selected event: -"
+            ),
+        ]
+    return ["Fleet", _fleet_header_summary(state, state.project or "all projects")]
+
+
+def rendered_header_lines(state: FleetWorkbenchState) -> list[str]:
+    breadcrumb = "Fleet"
+    if state.view_level == "operation" and state.selected_item is not None:
+        breadcrumb = f"Fleet > {state.selected_item.operation_id} > tasks"
+    if state.view_level == "session" and state.selected_item is not None:
+        breadcrumb = f"Fleet > {state.selected_item.operation_id}"
         if state.selected_task is not None:
-            breadcrumb += f" / {state.selected_task.task_short_id}"
+            breadcrumb += f" > {state.selected_task.task_short_id}"
+        breadcrumb += " > session"
+    if state.view_level == "forensic" and state.selected_item is not None:
+        breadcrumb = f"Fleet > {state.selected_item.operation_id}"
+        if state.selected_task is not None:
+            breadcrumb += f" > {state.selected_task.task_short_id}"
+        breadcrumb += " > forensic"
         if state.selected_timeline_event is not None:
             breadcrumb += (
-                f" / iter {state.selected_timeline_event.iteration} "
-                f"{state.selected_timeline_event.event_type}"
+                f" > iter {state.selected_timeline_event.iteration} "
+                f"{session_event_label(state.selected_timeline_event)}"
             )
 
     project_label = state.project if state.project is not None else "all projects"
-    lines = [breadcrumb]
+    lines = [breadcrumb, _fleet_scope_line(state, project_label)]
     if state.view_level == "session":
-        lines.append(session_identity_text(state.selected_operation_payload, state.selected_task))
+        lines[1] = session_identity_text(state.selected_operation_payload, state.selected_task)
         brief = session_brief(state.selected_operation_payload, state.selected_task)
-        summary = (
-            f"Now: {brief['now']}  Waiting on: {brief['wait']}  "
-            f"Needs input: {brief['attention']}"
-        )
+        summary = f"Now: {brief['now']}  Wait: {brief['wait']}  Attention: {brief['attention']}"
         if state.session_filter_query:
             summary += f"  Filter: {state.session_filter_query}"
         lines.append(summary)
         return lines
     if state.view_level == "forensic":
-        lines.append(session_identity_text(state.selected_operation_payload, state.selected_task))
+        lines[1] = session_identity_text(state.selected_operation_payload, state.selected_task)
         event = state.selected_timeline_event
         summary = (
             f"Selected event: iter {event.iteration} {session_event_label(event)}"
@@ -104,18 +167,10 @@ def human_header_lines(state: FleetWorkbenchState) -> list[str]:
         lines.append(summary)
         return lines
 
-    scope = (
-        _fleet_header_summary(state, project_label)
-        if state.view_level == "fleet"
-        else _operation_scope_summary(state, project_label)
-    )
-    if state.view_level == "operation":
-        scope = f"Scope {project_label}  ·  {state.total_operations} operations"
     if state.view_level == "operation" and state.task_filter_query:
-        scope += f"  Task filter: {state.task_filter_query}"
+        lines[1] += f"  Task filter: {state.task_filter_query}"
     if state.filter_query:
-        scope += f"  Fleet filter: {state.filter_query}"
-    lines.append(scope)
+        lines[1] += f"  Fleet filter: {state.filter_query}"
     if state.view_level == "fleet" and state.selected_item is not None:
         selected = state.selected_item
         lines.append(
@@ -131,14 +186,12 @@ def human_header_lines(state: FleetWorkbenchState) -> list[str]:
             brief = state.selected_item.brief if isinstance(state.selected_item.brief, dict) else {}
         tasks = filtered_dashboard_tasks(state.selected_operation_payload, state.task_filter_query)
         running = sum(1 for task in tasks if task.status == "running")
-        ready = sum(1 for task in tasks if task.status == "pending" and task_lane(task) == "READY")
         blocked = sum(1 for task in tasks if task_lane(task) == "BLOCKED")
-        done = sum(1 for task in tasks if task.status == "completed")
         attention = _fleet_optional_text(brief.get("attention"))
         if attention == "-" and state.selected_item.attention_briefs:
             attention = "; ".join(state.selected_item.attention_briefs)
         lines.append(
-            f"Tasks: {len(tasks)}  Running: {running}  Ready: {ready}  Blocked: {blocked}  Done: {done}  "
+            f"Tasks: {len(tasks)}  Running: {running}  Blocked: {blocked}  "
             f"Now: {_fleet_optional_text(brief.get('now'))}  "
             f"Wait: {_fleet_optional_text(brief.get('wait'))}  "
             f"Attention: {attention}"
@@ -146,68 +199,12 @@ def human_header_lines(state: FleetWorkbenchState) -> list[str]:
     return lines
 
 
-def _operation_scope_summary(state: FleetWorkbenchState, project_label: str) -> str:
-    return f"Scope: {project_label}  Operations: {state.total_operations}"
-
-
-def _fleet_header_summary(state: FleetWorkbenchState, project_label: str) -> str:
-    scope = f"Active {state.total_operations}"
-    header = state.fleet_header if isinstance(state.fleet_header, dict) else {}
-    needs_human_count = header.get("needs_human_count")
-    running_count = header.get("running_count")
-    paused_count = header.get("paused_count")
-    if not isinstance(needs_human_count, int):
-        needs_human_count = sum(
-            1 for item in (state.all_items or state.items) if item.status == "needs_human"
-        )
-    if not isinstance(running_count, int):
-        running_count = sum(1 for item in (state.all_items or state.items) if item.status == "running")
-    if not isinstance(paused_count, int):
-        paused_count = sum(
-            1
-            for item in (state.all_items or state.items)
-            if item.scheduler_state in {"paused", "pause_requested"}
-        )
-    if isinstance(needs_human_count, int):
-        scope += f"  Needs human {needs_human_count}"
-    if isinstance(running_count, int):
-        scope += f"  Running {running_count}"
-    if isinstance(paused_count, int):
-        scope += f"  Paused {paused_count}"
-    scope += f"  Scope: {project_label}"
-    return scope
-
 def _fleet_scope_line(state: FleetWorkbenchState, project_label: str) -> str:
-    shown_count = len(state.items)
-    if state.filter_query and shown_count != state.total_operations:
-        scope = (
-            f"Scope: {project_label}  Showing: {shown_count} of {state.total_operations} operations"
-        )
-    else:
-        scope = f"Scope: {project_label}  Operations: {state.total_operations}"
-    header = state.fleet_header if isinstance(state.fleet_header, dict) else {}
-    running_count = header.get("running_count")
-    needs_human_count = header.get("needs_human_count")
-    paused_count = header.get("paused_count")
-    if not isinstance(running_count, int):
-        running_count = sum(1 for item in (state.all_items or state.items) if item.status == "running")
-    if not isinstance(needs_human_count, int):
-        needs_human_count = sum(
-            1 for item in (state.all_items or state.items) if item.status == "needs_human"
-        )
-    if not isinstance(paused_count, int):
-        paused_count = sum(
-            1
-            for item in (state.all_items or state.items)
-            if item.scheduler_state in {"paused", "pause_requested"}
-        )
-    if isinstance(running_count, int):
-        scope += f"  Running: {running_count}"
-    if isinstance(needs_human_count, int):
-        scope += f"  Needs human: {needs_human_count}"
-    if isinstance(paused_count, int):
-        scope += f"  Paused: {paused_count}"
-    return scope
+    running_count, needs_human_count, paused_count = _fleet_counts(state)
+    return (
+        f"Scope: {project_label}  Operations: {state.total_operations}  "
+        f"Running: {running_count}  Needs human: {needs_human_count}  Paused: {paused_count}"
+    )
 
 
 def right_pane_title(state: FleetWorkbenchState) -> str:
@@ -829,7 +826,8 @@ def render_session_brief_table(state: FleetWorkbenchState) -> Table:
     if brief["review"] != "-":
         table.add_row("Review", brief["review"])
     table.add_row("Latest output", brief["latest_output"])
-    table.add_row("Open", "Forensic Enter/r; live detail i; retrospective report o")
+    table.add_row("Jump to", "Forensic Enter or r")
+    table.add_row("Right pane", "Live detail i; retrospective report o")
     return table
 
 
@@ -871,27 +869,27 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
 def human_footer_text(state: FleetWorkbenchState) -> Text:
     selected = state.selected_item
     if state.attention_picker_active:
-        return Text("Move j/k  Select Enter  Close A/Esc  Quit q")
+        return Text("j/k move  Enter answer selected  A or Esc close  q quit")
     if state.help_overlay_active:
-        return Text("Close help ?/Esc  Quit q")
+        return Text("? or Esc close help  q quit")
     if state.pending_filter_text is not None:
         return Text(
-            f"Fleet filter: {state.pending_filter_text}  Apply Enter  Cancel Esc  Edit Backspace"
+            f"fleet filter: {state.pending_filter_text}  Enter apply  Esc cancel  Backspace edit"
         )
     if state.pending_task_filter_text is not None:
         return Text(
-            "Task filter: "
-            f"{state.pending_task_filter_text}  Apply Enter  Cancel Esc  Edit Backspace"
+            "task filter: "
+            f"{state.pending_task_filter_text}  Enter apply  Esc cancel  Backspace edit"
         )
     if state.pending_session_filter_text is not None:
         return Text(
-            "Session filter: "
-            f"{state.pending_session_filter_text}  Apply Enter  Cancel Esc  Edit Backspace"
+            "session filter: "
+            f"{state.pending_session_filter_text}  Enter apply  Esc cancel  Backspace edit"
         )
     if state.pending_forensic_filter_text is not None:
         return Text(
-            "Forensic filter: "
-            f"{state.pending_forensic_filter_text}  Apply Enter  Cancel Esc  Edit Backspace"
+            "forensic filter: "
+            f"{state.pending_forensic_filter_text}  Enter apply  Esc cancel  Backspace edit"
         )
     if state.pending_answer_operation_id is not None:
         instruction = state.pending_answer_prompt
@@ -899,27 +897,27 @@ def human_footer_text(state: FleetWorkbenchState) -> Text:
             f"Answer {state.pending_answer_attention_id} in {state.pending_answer_operation_id}: "
             + instruction
             + state.pending_answer_text
-            + "  Send Enter  Cancel Esc"
+            + "  Enter send  Esc cancel"
         )
     if state.pending_confirmation is not None and selected is not None:
-        return Text(f"Cancel {state.pending_confirmation}?  Confirm y  Keep working with any other key")
+        return Text(f"Cancel {state.pending_confirmation}? [y/N]  Any other key keeps it running.")
     if state.last_message is not None:
         return Text(state.last_message)
     if state.view_level == "forensic":
         return Text("Forensic: Filter /  Answer a/n  Pick A  Back Esc/q  Help ?  Quit ctrl+c")
     if state.view_level == "session":
         return Text(
-            "Enter open transcript  r raw transcript  / filter  a/n answer  A pick"
-            "  i live detail  o report  Esc back  ? help"
+            "Session: Open forensic Enter/r  Live detail i  Report o"
+            "  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
         )
     if state.view_level == "operation":
         return Text(
-            "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A"
-            "  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o"
-            "  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Quit q"
+            "Operation: Open session Enter  Transcript/log l  Detail i  Decisions d  Timeline t"
+            "  Memory m  Report o  Answer a/n  Pick A  Filter /  Interrupt s"
+            "  Pause p  Resume u  Cancel c  Refresh r  Back Esc  Help ?  Quit q"
         )
     footer = Text(
-        "Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab"
+        "Fleet: Open Enter  Next blocker Tab  Answer a/n  Pick A"
         "  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
     )
     if selected is None:

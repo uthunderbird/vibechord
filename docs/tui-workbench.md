@@ -98,6 +98,7 @@ status lanes in this order: `RUNNING`, `READY`, `BLOCKED`, `COMPLETED`, `FAILED`
 Blocked tasks show a compact dependency continuation line, and tasks with linked session runtime
 state can show a compact session continuation line under the task row.
 Task rows now include a compact status glyph before the task short id.
+The operation footer uses a short action strip: `Enter session  l transcript/log  / filter  a/n answer  A pick  i/d/t/m/o detail  Esc back  ? help`.
 
 Available keys:
 
@@ -139,7 +140,8 @@ selected task's session timeline, ordered newest-first. The right pane defaults 
 screen:
 
 - a compact session brief with explicit session identity plus `Now`, `Wait`, `Attention`, and `Latest output`
-- a compact `Open` cue separating forensic drill-down (`Enter` / `r`), live detail (`i`), and retrospective report (`o`)
+- a compact `Jump to` row for forensic drill-down (`Enter` or `r`)
+- a compact `Right pane` row for live detail (`i`) and retrospective report (`o`)
 - a selected-event detail block for the currently highlighted timeline item
 
 The session header also carries a compact live summary line so you can orient before reading the
