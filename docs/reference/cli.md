@@ -3,6 +3,13 @@
 `operator` exposes a fleet-first CLI organized around a few primary entry surfaces plus deeper
 inspection and forensic commands.
 
+The workspace shell and lifecycle family is:
+
+- `operator` / `fleet` — enter supervision for the current workspace
+- `init` — prepare first-run workspace configuration
+- `run` — start a new operation in the current workspace
+- `clear` — reset project-local operator runtime state when the workspace needs a clean slate
+
 Implementation families for this delivery surface live under
 `agent_operator.cli.commands`, `agent_operator.cli.rendering`, `agent_operator.cli.tui`,
 `agent_operator.cli.workflows`, and `agent_operator.cli.helpers`.
@@ -54,6 +61,18 @@ In the current product model:
 - `watch` remains a lighter textual live follower rather than the flagship interactive surface
 - `watch` should stay compact and explicitly tell you whether attention is present, plus the next
   response command when intervention is required
+
+## Workspace lifecycle
+
+The shell is intended to read as one workspace lifecycle rather than a bag of unrelated commands:
+
+1. Run `operator init` once to prepare the workspace profile and local ignore rules.
+2. Start work with `operator run ...`.
+3. Return through `operator` or `operator fleet` to supervise current work.
+4. Use `operator clear` only when you need to reset project-local runtime state.
+
+`clear` is a destructive workspace reset command. It is not a generic cache cleaner and does not
+replace profile management under `operator project ...`.
 
 ## Common examples
 

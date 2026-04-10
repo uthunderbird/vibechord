@@ -6,7 +6,15 @@ import anyio
 import typer
 from typer.main import get_command as typer_get_command
 
-app = typer.Typer(no_args_is_help=False, context_settings={"help_option_names": []})
+app = typer.Typer(
+    no_args_is_help=False,
+    context_settings={"help_option_names": []},
+    help=(
+        "Workspace lifecycle shell for operator. Use `init` to prepare a workspace, "
+        "`run` to start work, `operator` or `fleet` to supervise it, and `clear` to "
+        "reset local runtime state."
+    ),
+)
 smoke_app = typer.Typer(no_args_is_help=True)
 debug_app = typer.Typer(no_args_is_help=False)
 project_app = typer.Typer(no_args_is_help=True)

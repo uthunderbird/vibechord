@@ -41,7 +41,9 @@ from ..options import (
 from ..workflows import clear_async, run_async
 
 
-@app.command()
+@app.command(
+    help="Start a new operation in the current workspace or from a named project profile."
+)
 def run(
     objective: str | None = typer.Argument(None, help="Objective for this run."),
     project: str | None = PROJECT_OPTION,
@@ -76,7 +78,9 @@ def run(
     )
 
 
-@app.command()
+@app.command(
+    help="Prepare this workspace for operator by writing the default committed project profile."
+)
 def init(
     cwd: Path | None = PROJECT_CWD_OPTION,
     path: list[Path] | None = PROJECT_PATH_OPTION,
@@ -121,7 +125,9 @@ def init(
     typer.echo(f"Initialized project profile: {profile_path}")
 
 
-@app.command()
+@app.command(
+    help="Reset project-local operator runtime state without removing committed workspace profiles."
+)
 def clear(
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt."),
 ) -> None:
