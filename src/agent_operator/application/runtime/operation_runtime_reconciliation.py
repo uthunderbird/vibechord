@@ -134,6 +134,19 @@ class OperationRuntimeReconciliationService:
         for existing in list(state.background_runs):
             existing_session_id = existing.session_id
             existing_task_id = existing.task_id
+            if existing.status in {
+                BackgroundRunStatus.COMPLETED,
+                BackgroundRunStatus.FAILED,
+                BackgroundRunStatus.CANCELLED,
+                BackgroundRunStatus.DISCONNECTED,
+            }:
+                await self.reconcile_terminal_background_run_from_supervisor(
+                    state,
+                    existing,
+                    session_id=existing_session_id,
+                    task_id=existing_task_id,
+                )
+                continue
             if existing.status not in {BackgroundRunStatus.PENDING, BackgroundRunStatus.RUNNING}:
                 continue
             run = await self._operation_runtime.poll_background_turn(existing.run_id)

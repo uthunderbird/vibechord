@@ -419,6 +419,21 @@ class FakeSupervisor:
                 ),
                 completed_at=datetime.now(UTC),
             )
+        if run.status is BackgroundRunStatus.FAILED:
+            existing = self.results.get(run_id)
+            if existing is not None and existing.status is AgentResultStatus.FAILED:
+                return existing
+            return AgentResult(
+                session_id=run.session_id or "session-1",
+                status=AgentResultStatus.FAILED,
+                output_text="",
+                error=AgentError(
+                    code="background_run_failed",
+                    message="Background run failed.",
+                    retryable=False,
+                ),
+                completed_at=datetime.now(UTC),
+            )
         run.status = BackgroundRunStatus.COMPLETED
         run.completed_at = datetime.now(UTC)
         return self.results.get(run_id)

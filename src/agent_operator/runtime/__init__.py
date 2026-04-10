@@ -33,6 +33,7 @@ from agent_operator.runtime.facts import FileFactStore
 from agent_operator.runtime.history import FileOperationHistoryLedger, HistoryLedgerEntry
 from agent_operator.runtime.policies import FilePolicyStore
 from agent_operator.runtime.profiles import (
+    apply_effective_adapter_settings_snapshot,
     apply_project_profile_settings,
     committed_default_profile_path,
     committed_profile_dir,
@@ -46,6 +47,7 @@ from agent_operator.runtime.profiles import (
     profile_path,
     resolve_operator_data_dir,
     resolve_project_run_config,
+    snapshot_effective_adapter_settings,
     write_project_profile,
 )
 from agent_operator.runtime.project_clear import (
@@ -85,6 +87,7 @@ __all__ = [
     "RichConsoleAdapter",
     "SystemClock",
     "agenda_matches_project",
+    "apply_effective_adapter_settings_snapshot",
     "apply_project_profile_settings",
     "clear_project_operator_state",
     "committed_default_profile_path",
@@ -110,5 +113,6 @@ __all__ = [
     "profile_dir",
     "resolve_operator_data_dir",
     "resolve_project_run_config",
+    "snapshot_effective_adapter_settings",
     "write_project_profile",
 ]

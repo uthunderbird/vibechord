@@ -34,6 +34,7 @@ from agent_operator.domain import (
     RunMode,
     RunOptions,
     SessionRecord,
+    SessionRecordStatus,
     TaskState,
     TaskStatus,
 )
@@ -249,6 +250,42 @@ def test_runtime_alert_brief_ignores_terminal_background_run_when_live_run_exist
     ]
 
     assert service.build_runtime_alert_brief(state) is None
+
+
+def test_operation_brief_does_not_report_waiting_on_attached_turn_when_run_is_terminal() -> None:
+    service = _build_service(MemoryTraceStore())
+    session = AgentSessionHandle(
+        adapter_key="claude_acp",
+        session_id="session-1",
+        session_name="main",
+    )
+    state = OperationState(
+        goal=OperationGoal(objective="background wait"),
+        **state_settings(max_iterations=3, allowed_agents=["claude_acp"]),
+        status=OperationStatus.RUNNING,
+        sessions=[
+            SessionRecord(
+                handle=session,
+                status=SessionRecordStatus.RUNNING,
+                current_execution_id="run-1",
+                latest_iteration=1,
+            )
+        ],
+        iterations=[IterationState(index=1, session=session)],
+        background_runs=[
+            ExecutionState(
+                run_id="run-1",
+                operation_id="op-1",
+                adapter_key="claude_acp",
+                session_id="session-1",
+                status=BackgroundRunStatus.FAILED,
+            )
+        ],
+    )
+
+    brief = service.build_operation_brief(state)
+
+    assert brief.blocker_brief != "Waiting on an attached agent turn."
 
 
 def test_report_surfaces_durable_truth_sections() -> None:

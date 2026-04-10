@@ -9,7 +9,7 @@ import typer
 from rich.console import Console as RichConsole
 from rich.live import Live
 
-from agent_operator.bootstrap import build_event_sink, build_wakeup_inbox
+from agent_operator.bootstrap import build_event_sink, build_store, build_wakeup_inbox
 from agent_operator.domain import (
     AgentSessionHandle,
     BackgroundRuntimeMode,
@@ -26,7 +26,13 @@ from agent_operator.domain import (
     RunOptions,
     RuntimeHints,
 )
-from agent_operator.runtime import apply_project_profile_settings, resolve_project_run_config
+from agent_operator.runtime import (
+    apply_effective_adapter_settings_snapshot,
+    apply_project_profile_settings,
+    load_project_profile_from_path,
+    resolve_project_run_config,
+    snapshot_effective_adapter_settings,
+)
 
 from ..helpers.rendering import (
     cli_projection_payload,
@@ -176,6 +182,10 @@ async def run_async(
     if profile is not None:
         goal_metadata["project_profile_name"] = profile.name
         goal_metadata["policy_scope"] = f"profile:{profile.name}"
+        goal_metadata["effective_adapter_settings"] = snapshot_effective_adapter_settings(
+            settings,
+            adapter_keys=resolved.default_agents,
+        )
         goal_metadata["resolved_project_profile"] = resolved.model_dump(mode="json")
         if selected_profile_path is not None:
             goal_metadata["project_profile_path"] = str(selected_profile_path)
@@ -293,6 +303,7 @@ async def dashboard_async(
 
 async def resume_async(operation_id: str, max_cycles: int, json_mode: bool) -> None:
     settings = load_settings()
+    await _restore_operation_scoped_runtime_settings(settings, operation_id)
     projector = CliEventProjector(json_mode=json_mode)
     if json_mode:
         projector.emit_operation(operation_id)
@@ -362,6 +373,7 @@ async def recover_async(
     operation_id: str, session_id: str | None, max_cycles: int, json_mode: bool
 ) -> None:
     settings = load_settings()
+    await _restore_operation_scoped_runtime_settings(settings, operation_id)
     projector = CliEventProjector(json_mode=json_mode)
     if json_mode:
         projector.emit_operation(operation_id)
@@ -490,3 +502,25 @@ async def enqueue_custom_command_async(
         target_id=target_id,
     )
     typer.echo(f"enqueued: {command.command_type.value} [{command.command_id}]")
+
+
+async def _restore_operation_scoped_runtime_settings(settings, operation_id: str) -> None:
+    operation = await build_store(settings).load_operation(operation_id)
+    if operation is None:
+        return
+    metadata = operation.goal.metadata if operation.goal is not None else {}
+    snapshot = metadata.get("effective_adapter_settings")
+    if isinstance(snapshot, dict):
+        apply_effective_adapter_settings_snapshot(settings, snapshot)
+        return
+    profile_path = metadata.get("project_profile_path")
+    if not isinstance(profile_path, str):
+        return
+    candidate = Path(profile_path)
+    if not candidate.is_file():
+        return
+    try:
+        profile = load_project_profile_from_path(candidate)
+    except Exception:
+        return
+    apply_project_profile_settings(settings, profile)

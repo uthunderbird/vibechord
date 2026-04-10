@@ -169,7 +169,8 @@ def build_runtime_alert(
             "Run `operator resume <operation-id>`."
         )
     has_terminal_run = any(
-        run.get("status") in {"completed", "failed", "cancelled"} for run in background_runs
+        run.get("status") in {"completed", "failed", "cancelled", "disconnected"}
+        for run in background_runs
     )
     has_live_run = any(run.get("status") in {"pending", "running"} for run in background_runs)
     if has_terminal_run and not has_live_run:

@@ -73,7 +73,14 @@ class OperationRuntimeContext:
         if latest.session is None or latest.result is not None:
             return False
         record = self._loaded_operation.find_session_record(state, latest.session.session_id)
-        return record is not None and record.status is SessionRecordStatus.RUNNING
+        if record is None or record.status is not SessionRecordStatus.RUNNING:
+            return False
+        if record.current_execution_id is not None:
+            run = self._loaded_operation.find_background_run(state, record.current_execution_id)
+            if run is None:
+                return False
+            return run.status in {BackgroundRunStatus.PENDING, BackgroundRunStatus.RUNNING}
+        return True
 
     def should_use_background_runtime(self, options: RunOptions) -> bool:
         return options.background_runtime_mode is not BackgroundRuntimeMode.INLINE

@@ -223,6 +223,38 @@ def apply_project_profile_settings(
                 setattr(target, field_name, value)
 
 
+def snapshot_effective_adapter_settings(
+    settings: OperatorSettings,
+    *,
+    adapter_keys: list[str] | None = None,
+) -> dict[str, dict[str, object]]:
+    keys = adapter_keys or ["claude", "claude_acp", "codex_acp", "opencode_acp"]
+    snapshot: dict[str, dict[str, object]] = {}
+    for adapter_key in keys:
+        target = getattr(settings, adapter_key, None)
+        if target is None or not hasattr(target, "model_dump"):
+            continue
+        snapshot[adapter_key] = target.model_dump(mode="json")
+    return snapshot
+
+
+def apply_effective_adapter_settings_snapshot(
+    settings: OperatorSettings,
+    snapshot: dict[str, object] | None,
+) -> None:
+    if not isinstance(snapshot, dict):
+        return
+    for adapter_key, overrides in snapshot.items():
+        if not isinstance(adapter_key, str) or not isinstance(overrides, dict):
+            continue
+        target = getattr(settings, adapter_key, None)
+        if target is None:
+            continue
+        for field_name, value in overrides.items():
+            if isinstance(field_name, str) and hasattr(target, field_name):
+                setattr(target, field_name, value)
+
+
 def resolve_project_run_config(
     settings: OperatorSettings,
     *,

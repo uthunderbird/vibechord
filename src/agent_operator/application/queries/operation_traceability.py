@@ -269,23 +269,30 @@ class OperationTraceabilityService:
                 f"{len(state.pending_wakeups)} wakeup(s) have been claimed and are waiting "
                 "to be reconciled."
             )
-        if state.status is not OperationStatus.RUNNING:
-            return None
-        if not self._runtime_context.is_blocked_on_background_wait(state):
-            return None
-        if any(
+        has_terminal_run = any(
             run.status
             in {
                 BackgroundRunStatus.COMPLETED,
                 BackgroundRunStatus.FAILED,
                 BackgroundRunStatus.CANCELLED,
+                BackgroundRunStatus.DISCONNECTED,
             }
             for run in state.background_runs
-        ):
+        )
+        has_live_run = any(
+            run.status in {BackgroundRunStatus.PENDING, BackgroundRunStatus.RUNNING}
+            for run in state.background_runs
+        )
+        if has_terminal_run and not has_live_run:
             return (
-                "A background run is already terminal, but the operation still appears to be "
-                "waiting. Run `operator resume <operation-id>` to reconcile persisted results."
+                "A background run is already terminal, but the operation still appears active. "
+                "Run `operator resume <operation-id>` if attached auto-reconciliation "
+                "did not recover."
             )
+        if state.status is not OperationStatus.RUNNING:
+            return None
+        if not self._runtime_context.is_blocked_on_background_wait(state):
+            return None
         return None
 
     def render_report(self, state: OperationState) -> str:

@@ -3170,6 +3170,67 @@ def test_run_enters_free_mode_stub_when_no_profile_exists(
     assert "planned but not implemented yet" in combined
 
 
+def test_run_records_effective_adapter_settings_in_goal_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: repo",
+                "cwd: .",
+                "default_objective: Close cards.",
+                "default_agents:",
+                "  - codex_acp",
+                "adapter_settings:",
+                "  codex_acp:",
+                "    command: npx @zed-industries/codex-acp --",
+                "    model: gpt-5.4",
+                "    reasoning_effort: high",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            captured["goal"] = goal
+            return OperationOutcome(
+                operation_id="op-effective-settings",
+                status=OperationStatus.RUNNING,
+                summary="Started.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["run", "Close cards"])
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    snapshot = goal.metadata["effective_adapter_settings"]
+    assert snapshot["codex_acp"]["command"] == "npx @zed-industries/codex-acp --"
+    assert snapshot["codex_acp"]["model"] == "gpt-5.4"
+    assert snapshot["codex_acp"]["reasoning_effort"] == "high"
+
+
 def test_run_uses_profile_default_objective_when_cli_objective_is_omitted(
     tmp_path: Path,
     monkeypatch,
@@ -3718,6 +3779,60 @@ def test_resume_streams_live_events(tmp_path: Path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert "[iter 2] command applied: resume_operator" in result.stdout
     assert "running: Resume cycle finished." in result.stdout
+
+
+def test_resume_restores_effective_adapter_settings_from_operation_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+    operation_id = "op-resume-settings"
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(
+                objective="Resume with restored settings",
+                metadata={
+                    "effective_adapter_settings": {
+                        "codex_acp": {
+                            "command": "npx @zed-industries/codex-acp --",
+                            "model": "gpt-5.4",
+                            "reasoning_effort": "high",
+                        }
+                    }
+                },
+            ),
+            **state_settings(),
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resumed.",
+            )
+
+    def _build_service(settings, event_sink=None):
+        captured["codex_command"] = settings.codex_acp.command
+        captured["codex_model"] = settings.codex_acp.model
+        captured["codex_effort"] = settings.codex_acp.reasoning_effort
+        return FakeService()
+
+    monkeypatch.setattr("agent_operator.cli.main.build_service", _build_service)
+
+    result = runner.invoke(app, ["resume", operation_id])
+
+    assert result.exit_code == 0
+    assert captured["codex_command"] == "npx @zed-industries/codex-acp --"
+    assert captured["codex_model"] == "gpt-5.4"
+    assert captured["codex_effort"] == "high"
 
 
 def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatch) -> None:
