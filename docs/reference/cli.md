@@ -61,6 +61,8 @@ In the current product model:
 - `watch` remains a lighter textual live follower rather than the flagship interactive surface
 - `watch` should stay compact and explicitly tell you whether attention is present, plus the next
   response command when intervention is required
+- in a real TTY, `watch` now redraws the current live snapshot in place instead of appending an
+  ever-growing event stream; `--json` continues to stream structured events/snapshots/outcomes
 
 ## Workspace lifecycle
 

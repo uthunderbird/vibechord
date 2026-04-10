@@ -15,6 +15,7 @@ from agent_operator.cli.rendering.text import (
     render_operation_list_line as _render_operation_list_line_view,
 )
 from agent_operator.cli.rendering.text import render_status_brief as _render_status_brief_view
+from agent_operator.cli.rendering.text import render_watch_snapshot as _render_watch_snapshot_view
 from agent_operator.domain import (
     AgentTurnBrief,
     ArtifactRecord,
@@ -152,6 +153,15 @@ def format_live_snapshot(snapshot: dict[str, object]) -> str:
         snapshot,
         base_formatter=PROJECTIONS.format_live_snapshot,
         shorten_live_text=lambda text: shorten_live_text(text, limit=100),
+    )
+
+
+def render_watch_snapshot(snapshot: dict[str, object], *, latest_update: str | None) -> str:
+    return _render_watch_snapshot_view(
+        snapshot,
+        base_formatter=PROJECTIONS.format_live_snapshot,
+        shorten_live_text=lambda text: shorten_live_text(text, limit=100),
+        latest_update=latest_update,
     )
 
 
