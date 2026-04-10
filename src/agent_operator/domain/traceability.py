@@ -66,6 +66,8 @@ class AgentTurnSummary(BaseModel):
     actual_work_done: str
     route_or_target_chosen: str | None = None
     repo_changes: list[str] = Field(default_factory=list)
+    progress_class: str | None = None
+    blocker_keys: list[str] = Field(default_factory=list)
     state_delta: str
     verification_status: str
     remaining_blockers: list[str] = Field(default_factory=list)

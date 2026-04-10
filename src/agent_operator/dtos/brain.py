@@ -74,6 +74,7 @@ class StructuredDecisionDTO(BaseModel):
     session_id: str | None = None
     session_name: str | None = None
     one_shot: bool = False
+    workfront_key: str | None = None
     instruction: str | None = None
     rationale: str
     confidence: float | None = None
@@ -103,6 +104,8 @@ class AgentTurnSummaryDTO(BaseModel):
     actual_work_done: str
     route_or_target_chosen: str | None = None
     repo_changes: list[str] = Field(default_factory=list)
+    progress_class: Literal["material_delta", "inspection_only", "no_verified_delta"] | None = None
+    blocker_keys: list[str] = Field(default_factory=list)
     state_delta: str
     verification_status: str
     remaining_blockers: list[str] = Field(default_factory=list)
