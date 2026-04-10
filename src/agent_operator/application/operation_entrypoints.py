@@ -104,10 +104,7 @@ class OperationEntrypointService:
         )
         if state.run_started_at is None:
             state.run_started_at = datetime.now(UTC)
-        state.runtime_hints.metadata["run_mode"] = options.run_mode.value
-        state.runtime_hints.metadata["background_runtime_mode"] = (
-            options.background_runtime_mode.value
-        )
+        self._persist_runtime_mode_metadata(state, options)
         if attached_sessions:
             attach_initial_sessions(state, attached_sessions)
         if self._event_sourced_operation_birth_service is not None:
@@ -141,10 +138,7 @@ class OperationEntrypointService:
             budget_override or state.execution_budget,
             options,
         )
-        state.runtime_hints.metadata["run_mode"] = options.run_mode.value
-        state.runtime_hints.metadata["background_runtime_mode"] = (
-            options.background_runtime_mode.value
-        )
+        self._persist_runtime_mode_metadata(state, options)
         return state
 
     async def load_for_recover(
@@ -174,10 +168,7 @@ class OperationEntrypointService:
             budget_override or state.execution_budget,
             options,
         )
-        state.runtime_hints.metadata["run_mode"] = options.run_mode.value
-        state.runtime_hints.metadata["background_runtime_mode"] = (
-            options.background_runtime_mode.value
-        )
+        self._persist_runtime_mode_metadata(state, options)
         await reconcile_orphaned_recoverable_background_runs(state)
         return state
 
@@ -250,3 +241,39 @@ class OperationEntrypointService:
             else None
         )
         return state
+
+    def _persist_runtime_mode_metadata(
+        self,
+        state: OperationState,
+        options: RunOptions,
+    ) -> None:
+        metadata = state.runtime_hints.metadata
+        continuity_run_mode = self._resolve_persisted_mode(
+            metadata.get("continuity_run_mode"),
+            fallback=metadata.get("run_mode"),
+            default=options.run_mode.value,
+        )
+        continuity_background_runtime_mode = self._resolve_persisted_mode(
+            metadata.get("continuity_background_runtime_mode"),
+            fallback=metadata.get("background_runtime_mode"),
+            default=options.background_runtime_mode.value,
+        )
+        metadata["run_mode"] = continuity_run_mode
+        metadata["background_runtime_mode"] = continuity_background_runtime_mode
+        metadata["continuity_run_mode"] = continuity_run_mode
+        metadata["continuity_background_runtime_mode"] = continuity_background_runtime_mode
+        metadata["invocation_run_mode"] = options.run_mode.value
+        metadata["invocation_background_runtime_mode"] = options.background_runtime_mode.value
+
+    def _resolve_persisted_mode(
+        self,
+        value: object,
+        *,
+        fallback: object,
+        default: str,
+    ) -> str:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(fallback, str) and fallback.strip():
+            return fallback.strip()
+        return default

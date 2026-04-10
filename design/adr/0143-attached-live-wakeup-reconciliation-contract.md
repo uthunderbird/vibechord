@@ -18,8 +18,13 @@ Skim-safe current truth on 2026-04-10:
   terminal/disconnected runs as still-live background waits
 - `implemented`: `run` persists an operation-scoped snapshot of effective adapter settings and
   `resume`/`recover` restore that snapshot before rebuilding runtimes
+- `implemented`: runtime metadata now keeps the operation's continuity-mode identity distinct from
+  the current `run` / `resume` / `recover` invocation mode, so attached-live continuity is not
+  silently rewritten during recovery entrypoints
 - `verified`: targeted regression coverage landed in `tests/test_cli.py` and
   `tests/test_operation_traceability_service.py`
+- `verified`: focused entrypoint/projection coverage for continuity-vs-invocation runtime metadata
+  now exists in `tests/test_operation_entrypoints.py` and `tests/test_operation_projections.py`
 - `partial`: this ADR's broader continuity contract is not fully closed yet; the remaining work is
   tracked in [ADR 0143 implementation plan](../internal/0143-attached-live-continuity-implementation-plan.md)
 

@@ -176,10 +176,36 @@ class OperationProjectionService:
         return payload
 
     def resolve_run_mode(self, operation: OperationState) -> str:
+        raw_mode = operation.runtime_hints.metadata.get("continuity_run_mode")
+        if isinstance(raw_mode, str) and raw_mode.strip():
+            return raw_mode.strip()
         raw_mode = operation.runtime_hints.metadata.get("run_mode")
         if isinstance(raw_mode, str) and raw_mode.strip():
             return raw_mode.strip()
         return RunMode.ATTACHED.value
+
+    def resolve_invocation_run_mode(self, operation: OperationState) -> str:
+        raw_mode = operation.runtime_hints.metadata.get("invocation_run_mode")
+        if isinstance(raw_mode, str) and raw_mode.strip():
+            return raw_mode.strip()
+        return self.resolve_run_mode(operation)
+
+    def resolve_background_runtime_mode(self, operation: OperationState) -> str | None:
+        raw_mode = operation.runtime_hints.metadata.get("continuity_background_runtime_mode")
+        if isinstance(raw_mode, str) and raw_mode.strip():
+            return raw_mode.strip()
+        raw_mode = operation.runtime_hints.metadata.get("background_runtime_mode")
+        if isinstance(raw_mode, str) and raw_mode.strip():
+            return raw_mode.strip()
+        return None
+
+    def resolve_invocation_background_runtime_mode(
+        self, operation: OperationState
+    ) -> str | None:
+        raw_mode = operation.runtime_hints.metadata.get("invocation_background_runtime_mode")
+        if isinstance(raw_mode, str) and raw_mode.strip():
+            return raw_mode.strip()
+        return self.resolve_background_runtime_mode(operation)
 
     def available_agent_descriptors_payload(
         self, operation: OperationState
@@ -218,6 +244,11 @@ class OperationProjectionService:
             "status": operation.status.value,
             "scheduler_state": operation.scheduler_state.value,
             "run_mode": self.resolve_run_mode(operation),
+            "invocation_run_mode": self.resolve_invocation_run_mode(operation),
+            "background_runtime_mode": self.resolve_background_runtime_mode(operation),
+            "invocation_background_runtime_mode": self.resolve_invocation_background_runtime_mode(
+                operation
+            ),
             "objective": operation.objective_state.objective,
             "harness_instructions": operation.objective_state.harness_instructions,
             "success_criteria": list(operation.objective_state.success_criteria),

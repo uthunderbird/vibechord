@@ -186,6 +186,21 @@ def test_build_operation_context_payload_preserves_context() -> None:
     assert payload["open_attention"][0]["attention_id"] == "att-1"
 
 
+def test_build_operation_context_payload_exposes_invocation_modes_separately() -> None:
+    operation = _operation()
+    operation.runtime_hints.metadata["continuity_run_mode"] = "attached"
+    operation.runtime_hints.metadata["continuity_background_runtime_mode"] = "attached_live"
+    operation.runtime_hints.metadata["invocation_run_mode"] = "resumable"
+    operation.runtime_hints.metadata["invocation_background_runtime_mode"] = "resumable_wakeup"
+
+    payload = OperationProjectionService().build_operation_context_payload(operation)
+
+    assert payload["run_mode"] == "attached"
+    assert payload["invocation_run_mode"] == "resumable"
+    assert payload["background_runtime_mode"] == "attached_live"
+    assert payload["invocation_background_runtime_mode"] == "resumable_wakeup"
+
+
 def test_build_fleet_payload_returns_actions() -> None:
     item = AgendaItem(
         operation_id="op-1",

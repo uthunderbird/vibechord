@@ -196,7 +196,9 @@ def _build_policy_match_context(operation: OperationState) -> dict[str, object]:
     ).casefold()
     allowed_agents = set(operation.policy.allowed_agents)
     allowed_agents.update(session.adapter_key for session in operation.sessions)
-    raw_mode = operation.runtime_hints.metadata.get("run_mode")
+    raw_mode = operation.runtime_hints.metadata.get("continuity_run_mode")
+    if not (isinstance(raw_mode, str) and raw_mode.strip()):
+        raw_mode = operation.runtime_hints.metadata.get("run_mode")
     run_mode = RunMode.ATTACHED.value
     if isinstance(raw_mode, str) and raw_mode.strip():
         run_mode = raw_mode.strip()

@@ -14,6 +14,7 @@ from agent_operator.domain import (
     AgentResultStatus,
     AgentSessionHandle,
     BackgroundRunStatus,
+    BackgroundRuntimeMode,
     CanonicalPersistenceMode,
     ExecutionBudget,
     ExecutionState,
@@ -22,6 +23,7 @@ from agent_operator.domain import (
     OperationState,
     OperationStatus,
     RunEventKind,
+    RunMode,
     RunOptions,
     RuntimeHints,
     SessionState,
@@ -121,6 +123,73 @@ async def test_operation_entrypoint_service_loads_recover_state_with_reconciliat
 
     assert called is True
     assert loaded.operation_id == "op-1"
+
+
+@pytest.mark.anyio
+async def test_prepare_run_persists_continuity_and_invocation_runtime_modes() -> None:
+    store = MemoryStore()
+    service = OperationEntrypointService(store=store)
+
+    state = await service.prepare_run(
+        goal=OperationGoal(objective="Inspect the repository."),
+        policy=OperationPolicy(),
+        budget=ExecutionBudget(),
+        runtime_hints=RuntimeHints(),
+        options=RunOptions(
+            run_mode=RunMode.ATTACHED,
+            background_runtime_mode=BackgroundRuntimeMode.ATTACHED_LIVE,
+        ),
+        operation_id="op-runtime-modes",
+        attached_sessions=None,
+        merge_runtime_flags=lambda budget, _options: budget,
+        attach_initial_sessions=lambda _state, _sessions: None,
+    )
+
+    assert state.runtime_hints.metadata["run_mode"] == "attached"
+    assert state.runtime_hints.metadata["background_runtime_mode"] == "attached_live"
+    assert state.runtime_hints.metadata["continuity_run_mode"] == "attached"
+    assert state.runtime_hints.metadata["continuity_background_runtime_mode"] == "attached_live"
+    assert state.runtime_hints.metadata["invocation_run_mode"] == "attached"
+    assert (
+        state.runtime_hints.metadata["invocation_background_runtime_mode"] == "attached_live"
+    )
+
+
+@pytest.mark.anyio
+async def test_resume_preserves_continuity_runtime_modes_for_legacy_operation() -> None:
+    store = MemoryStore()
+    state = OperationState(
+        operation_id="op-legacy-attached",
+        goal=OperationGoal(objective="Recover me."),
+        policy=OperationPolicy(),
+        runtime_hints=RuntimeHints(
+            metadata={
+                "run_mode": "attached",
+                "background_runtime_mode": "attached_live",
+            }
+        ),
+    )
+    await store.save_operation(state)
+    service = OperationEntrypointService(store=store)
+
+    loaded = await service.load_for_resume(
+        operation_id="op-legacy-attached",
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+        merge_runtime_flags=lambda budget, _options: budget,
+    )
+
+    assert loaded.runtime_hints.metadata["run_mode"] == "attached"
+    assert loaded.runtime_hints.metadata["background_runtime_mode"] == "attached_live"
+    assert loaded.runtime_hints.metadata["continuity_run_mode"] == "attached"
+    assert loaded.runtime_hints.metadata["continuity_background_runtime_mode"] == "attached_live"
+    assert loaded.runtime_hints.metadata["invocation_run_mode"] == "resumable"
+    assert (
+        loaded.runtime_hints.metadata["invocation_background_runtime_mode"]
+        == "resumable_wakeup"
+    )
 
 
 @pytest.mark.anyio
