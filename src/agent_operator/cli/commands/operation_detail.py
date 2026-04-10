@@ -535,8 +535,6 @@ def session(
             task_line = format_task_line(operation, task_record.task_id)
             if task_line is None:
                 task_line = task_record.task_id
-            typer.echo(f"Session scope for {task_line}")
-            typer.echo(f"Operation: {resolved_operation_id}")
             adapter_key = str(session_payload_data.get("adapter_key") or "-")
             session_status = str(session_payload_data.get("status") or "-")
             bound_tasks = ", ".join(
@@ -547,6 +545,13 @@ def session(
             session_display_id = (
                 session_payload_data.get("session_id") or task_record.linked_session_id
             )
+            transcript_command = (
+                transcript_hint.get("command") if isinstance(transcript_hint, dict) else None
+            )
+            if not (isinstance(transcript_command, str) and transcript_command.strip()):
+                transcript_command = f"operator log {resolved_operation_id}"
+            typer.echo(f"Session scope for {task_line}")
+            typer.echo(f"Operation: {resolved_operation_id}")
             typer.echo(f"Session: {session_display_id} [{adapter_key}] state={session_status}")
             typer.echo(f"Bound tasks: {bound_tasks}")
             typer.echo(f"Now: {_shorten(session_brief.get('now'))}")
@@ -554,8 +559,9 @@ def session(
             typer.echo(f"Attention: {_shorten(session_brief.get('attention'))}")
             typer.echo(f"Latest output: {_shorten(session_brief.get('latest_output'))}")
             typer.echo("Recent events:")
+            event_limit = 2 if follow else 4
             if session_events:
-                for event in session_events[-4:]:
+                for event in session_events[-event_limit:]:
                     event_line = (
                         f"  - iter={event.get('iteration', '-')}: {event.get('event_type', '-')}"
                     )
@@ -565,7 +571,7 @@ def session(
                     typer.echo(event_line)
             else:
                 typer.echo("  - none")
-            if latest_event is not None:
+            if not follow and latest_event is not None:
                 typer.echo(f"Selected event: {latest_event.get('event_type', '-')}")
                 typer.echo(f"  iteration: {latest_event.get('iteration', '-')}")
                 typer.echo(f"  task: {latest_event.get('task_id', '-')}")
@@ -573,15 +579,9 @@ def session(
                 event_summary = _selected_event_summary(latest_event)
                 if event_summary is not None:
                     typer.echo(f"  summary: {event_summary}")
-            else:
+            elif not follow:
                 typer.echo("Selected event: none")
-            transcript_command = (
-                transcript_hint.get("command") if isinstance(transcript_hint, dict) else None
-            )
-            if isinstance(transcript_command, str) and transcript_command.strip():
-                typer.echo(f"Transcript: {transcript_command}")
-            else:
-                typer.echo(f"Transcript: operator log {resolved_operation_id}")
+            typer.echo(f"Transcript: {transcript_command}")
 
         if follow:
             while True:

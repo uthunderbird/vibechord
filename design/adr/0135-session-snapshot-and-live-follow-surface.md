@@ -18,6 +18,10 @@ Skim-safe current truth on 2026-04-10:
   machine-readable payload output, selected-event detail, and `--follow --once` live rendering
 - `implemented`: current session payloads and output keep transcript escalation explicit rather than
   collapsing the default surface into transcript body
+- `implemented`: human-readable `session --follow` now stays narrower than snapshot mode by keeping
+  the transcript hint while dropping selected-event detail and trimming the recent-event slice
+- `verified`: focused CLI coverage now checks that `session --follow --once` stays compact and keeps
+  transcript escalation explicit
 - `partial`: this ADR's full RFC 0014 alignment remains incomplete; the command family exists, but
   the broader command-family output-contract closure is still tracked in
   [RFC 0014](../rfc/0014-cli-output-contract-and-example-corpus.md)
