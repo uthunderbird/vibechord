@@ -193,7 +193,7 @@ async def test_session_header_summary_surfaces_latest_output() -> None:
 
     assert (
         "Now: Working through the board layout.  Wait: Working through the board layout.  "
-        "Attention: Need a layout decision  Latest: [iter 1] agent started: codex_acp"
+        "Attention: Need a layout decision  Latest output: [iter 1] agent started: codex_acp"
     ) in rendered
 
 

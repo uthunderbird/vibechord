@@ -36,7 +36,7 @@ beneath it:
 
 - `fleet`: scope plus the shared fleet counts (`Operations / Running / Needs human / Paused`) and a short `Selected / Now / Wait` summary for the current row
 - `operation`: scope plus compact task counts (`Tasks / Running / Blocked`) and a `Now / Wait / Attention` summary for the current operation
-- `session`: scope plus a compact `Now / Wait / Attention / Latest` summary for the current task session
+- `session`: scope plus a compact `Now / Wait / Attention / Latest output` summary for the current task session
 - `forensic`: scope plus the currently focused event summary
 
 The footer is the action band for the current state. It shows either:
