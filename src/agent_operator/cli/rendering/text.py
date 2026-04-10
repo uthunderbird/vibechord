@@ -364,7 +364,10 @@ def render_inspect_summary(
                 + ("…" if len(turn.raw_log_refs) > 2 else "")
             )
     attention_lines: list[str] = []
-    for attention in open_attention_requests(operation):
+    open_attention = open_attention_requests(operation)
+    if not open_attention:
+        attention_lines.append("- none")
+    for attention in open_attention:
         blocking_label = "blocking" if attention.blocking else "non-blocking"
         attention_lines.append(
             f"- [{attention.attention_type.value}] {attention.title} ({blocking_label})"

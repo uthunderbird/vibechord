@@ -48,6 +48,8 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator
 In the current product model:
 
 - `status` is the canonical shell-native one-operation summary surface
+- `status` should make the current attention state explicit, including showing when there is no open
+  attention
 - the TUI workbench launched from `operator` / `fleet` is the preferred interactive live supervision surface
 - `watch` remains a lighter textual live follower rather than the flagship interactive surface
 - `watch` should stay compact and explicitly tell you whether attention is present, plus the next

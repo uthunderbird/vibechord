@@ -2261,6 +2261,8 @@ def test_status_command_prints_human_readable_summary(tmp_path: Path, monkeypatc
     assert result.exit_code == 0
     assert "status: completed" in result.stdout
     assert "objective: Test objective" in result.stdout
+    assert "Open Attention" in result.stdout
+    assert "- none" in result.stdout
 
 
 def test_status_brief_prints_single_line_summary(tmp_path: Path, monkeypatch) -> None:
