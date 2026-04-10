@@ -2722,6 +2722,28 @@ def test_project_list_inspect_and_resolve(tmp_path: Path, monkeypatch) -> None:
     assert '"involvement_level": "unattended"' in resolved.stdout
 
 
+def test_project_inspect_and_resolve_are_human_readable_by_default(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _seed_project_profile(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    inspected = runner.invoke(app, ["project", "inspect", "femtobot"])
+    resolved = runner.invoke(app, ["project", "resolve", "femtobot"])
+
+    assert inspected.exit_code == 0
+    assert "Profile: femtobot" in inspected.stdout
+    assert "Harness:" in inspected.stdout
+    assert "Continue most of the time." in inspected.stdout
+    assert '"default_harness_instructions"' not in inspected.stdout
+
+    assert resolved.exit_code == 0
+    assert "Resolved run defaults:" in resolved.stdout
+    assert "- Objective: -" in resolved.stdout
+    assert "- Involvement: unattended" in resolved.stdout
+    assert '"profile_name"' not in resolved.stdout
+
+
 def test_init_creates_committed_project_profile_and_gitignore(tmp_path: Path, monkeypatch) -> None:
     repo_root = tmp_path / "operator"
     nested = repo_root / "src"
@@ -3028,6 +3050,40 @@ def test_policy_list_and_inspect(tmp_path: Path, monkeypatch) -> None:
     assert inspected.exit_code == 0
     assert '"category": "testing"' in inspected.stdout
     assert '"run_modes": [' in inspected.stdout
+
+
+def test_policy_inspect_is_human_readable_by_default(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FilePolicyStore(tmp_path / "policies")
+
+    async def _seed() -> None:
+        await store.save(
+            PolicyEntry(
+                policy_id="policy-1",
+                project_scope="profile:femtobot",
+                title="Manual testing debt",
+                category=PolicyCategory.TESTING,
+                rule_text="Document manual-only verification in MANUAL_TESTING_REQUIRED.md.",
+                applicability=PolicyApplicability(
+                    objective_keywords=["manual testing"],
+                    agent_keys=["codex_acp"],
+                    run_modes=[RunMode.ATTACHED],
+                    involvement_levels=[InvolvementLevel.AUTO],
+                ),
+                rationale="Keeps unresolved checks visible.",
+            )
+        )
+
+    anyio.run(_seed)
+
+    inspected = runner.invoke(app, ["policy", "inspect", "policy-1"])
+
+    assert inspected.exit_code == 0
+    assert "Policy: policy-1" in inspected.stdout
+    assert "Category: testing" in inspected.stdout
+    assert "Applicability details:" in inspected.stdout
+    assert "Run modes: attached" in inspected.stdout
+    assert '"category": "testing"' not in inspected.stdout
 
 
 def test_run_with_project_uses_profile_defaults_and_cli_overrides(
@@ -3351,7 +3407,9 @@ def test_project_inspect_reads_local_operator_profile_yaml(tmp_path: Path, monke
     result = runner.invoke(app, ["project", "inspect"])
 
     assert result.exit_code == 0
-    assert '"name": "erdos-461"' in result.stdout
+    assert "Profile: erdos-461" in result.stdout
+    assert "Harness:" in result.stdout
+    assert "Stay attached." in result.stdout
 
 
 def test_project_resolve_reads_local_operator_profile_yaml(tmp_path: Path, monkeypatch) -> None:

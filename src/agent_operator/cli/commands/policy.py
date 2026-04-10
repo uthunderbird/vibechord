@@ -45,6 +45,39 @@ POLICY_AGENT_OPTION = typer.Option(
 )
 
 
+def _emit_policy_entry(payload: dict[str, object]) -> None:
+    typer.echo(f"Policy: {payload['policy_id']}")
+    typer.echo(f"Project scope: {payload['project_scope']}")
+    typer.echo(f"Status: {payload['status']}")
+    typer.echo(f"Title: {payload['title']}")
+    typer.echo(f"Category: {payload['category']}")
+    typer.echo("Rule:")
+    typer.echo(str(payload["rule_text"]))
+    typer.echo(f"Applicability: {payload['applicability_summary']}")
+
+    applicability = payload.get("applicability")
+    if isinstance(applicability, dict):
+        typer.echo("Applicability details:")
+        for label, key in (
+            ("Objective keywords", "objective_keywords"),
+            ("Task keywords", "task_keywords"),
+            ("Agents", "agent_keys"),
+            ("Run modes", "run_modes"),
+            ("Involvement levels", "involvement_levels"),
+        ):
+            values = applicability.get(key, [])
+            if isinstance(values, list) and values:
+                typer.echo(f"- {label}: {', '.join(str(item) for item in values)}")
+            else:
+                typer.echo(f"- {label}: none")
+    rationale = payload.get("rationale")
+    typer.echo(f"Rationale: {rationale or '-'}")
+    typer.echo(f"Created at: {payload.get('created_at') or '-'}")
+    typer.echo(f"Revoked at: {payload.get('revoked_at') or '-'}")
+    typer.echo(f"Revoked reason: {payload.get('revoked_reason') or '-'}")
+    typer.echo(f"Superseded by: {payload.get('superseded_by') or '-'}")
+
+
 @policy_app.command("projects")
 def policy_projects() -> None:
     settings = load_settings()
@@ -111,7 +144,11 @@ def policy_inspect(policy_id: str, json_mode: bool = POLICY_JSON_OPTION) -> None
         entry = await store.load(policy_id)
         if entry is None:
             raise typer.BadParameter(f"Policy entry {policy_id!r} was not found.")
-        typer.echo(json.dumps(policy_payload(entry), indent=2, ensure_ascii=False))
+        payload = policy_payload(entry)
+        if json_mode:
+            typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+            return
+        _emit_policy_entry(payload)
 
     anyio.run(_inspect_policy)
 

@@ -373,6 +373,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
         return [
             ("j / k", "move task selection"),
             ("Enter", "open selected task session"),
+            ("l", "open selected task transcript/log path"),
             ("/", "filter tasks"),
             ("Tab", "jump to next blocking task attention"),
             ("a", "answer oldest blocking attention for selected task"),
@@ -640,7 +641,10 @@ def render_task_detail_table(state: FleetWorkbenchState) -> Table:
     session_line = task_session_summary(payload, task)
     if session_line is not None:
         table.add_row("Session detail", session_line)
-        table.add_row("Escalate", "Enter session for live context; o opens retrospective report")
+        table.add_row(
+            "Escalate",
+            "Enter session live detail; l transcript-log path; o retrospective report",
+        )
     attentions = task_attention_titles(payload, task)
     if attentions:
         table.add_row("Attention", "\n".join(attentions))
@@ -759,7 +763,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         return Text(
             "j/k move  Enter session  / filter  a/n answer"
             "  A picker"
-            "  i detail  d decisions  t events  m memory  o report"
+            "  i detail  d decisions  t events  m memory  l transcript/log  o report"
             "  Esc back  p pause  u unpause  s interrupt task/session  c cancel  r refresh  q quit"
         )
     help_line = Text(

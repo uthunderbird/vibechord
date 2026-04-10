@@ -79,6 +79,7 @@ Available keys:
 
 - `j` / `k` or arrow keys: move the selected task
 - `Enter`: open the Level 2 session view for the selected task if it has a linked session
+- `l`: open the selected task's transcript/log escalation path directly in the Level 3 forensic view
 - `n`: answer the oldest non-blocking attention for the selected task
 - `A`: open the current-scope attention picker for the selected task
 - `/`: start task filter input; match by task id, short id, title, status, agent, goal, or notes
@@ -97,7 +98,8 @@ Available keys:
 - `q`: quit the workbench
 
 If the selected task has no linked session, `Enter` stays in the operation view and shows a status
-message instead of opening Level 2.
+message instead of opening Level 2. `l` follows the same linked-session guardrail before opening
+the direct transcript/log escalation path.
 
 Task filter input:
 

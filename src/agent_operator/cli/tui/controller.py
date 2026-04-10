@@ -300,14 +300,15 @@ class FleetWorkbenchController:
             self._start_task_filter_input()
             return True
         if key == "enter":
-            task = self.state.selected_task
-            if task is None or task.linked_session_id is None:
+            if not self._open_session_view_from_operation():
                 self.state.last_message = "The selected task has no linked session to inspect."
                 return True
-            self.state.view_level = "session"
-            self.state.session_panel_mode = "timeline"
-            self._clear_session_filter()
-            self._restore_selected_timeline_event(None)
+            return True
+        if key == "l":
+            if not self._open_session_view_from_operation():
+                self.state.last_message = "The selected task has no linked session to inspect."
+                return True
+            self._open_forensic_view_from_session()
             return True
         if key in {"i", "d", "t", "m", "o"}:
             self.state.operation_panel_mode = {
@@ -454,6 +455,17 @@ class FleetWorkbenchController:
         self.state.view_level = "forensic"
         self._clear_forensic_filter()
         self.state.last_message = None
+
+    def _open_session_view_from_operation(self) -> bool:
+        task = self.state.selected_task
+        if task is None or task.linked_session_id is None:
+            return False
+        self.state.view_level = "session"
+        self.state.session_panel_mode = "timeline"
+        self._clear_session_filter()
+        self._restore_selected_timeline_event(None)
+        self.state.last_message = None
+        return True
 
     def _open_attention_picker_for_scope(self) -> None:
         if self.state.selected_operation_payload is None:

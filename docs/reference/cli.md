@@ -22,6 +22,7 @@ Primary workflow surfaces:
 - `init` — set up operator in the current project
 - `clear` — wipe project-local operator runtime state while preserving profiles
 - `project ...` — manage project profiles
+- `policy ...` — inspect and mutate project-local policy memory
 
 Situational and forensic surfaces:
 
@@ -81,6 +82,20 @@ Inspect the session bound to a task:
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --once
+```
+
+Inspect project defaults and effective resolved run settings:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator project inspect femtobot
+UV_CACHE_DIR=/tmp/uv-cache uv run operator project resolve femtobot
+```
+
+Inspect a stored policy entry or explain current policy coverage:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator policy inspect policy-1
+UV_CACHE_DIR=/tmp/uv-cache uv run operator policy explain last
 ```
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and

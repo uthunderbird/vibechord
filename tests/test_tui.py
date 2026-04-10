@@ -460,6 +460,63 @@ async def test_operation_view_switches_modes_and_moves_task_selection() -> None:
     assert controller.state.operation_panel_mode == "detail"
 
 
+async def test_operation_view_l_opens_selected_task_transcript_path() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("l")
+
+    assert controller.state.view_level == "forensic"
+
+    console = Console(record=True, width=160, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+
+    assert "Forensic Transcript" in rendered
+    assert "Focused event: [iter 1] agent completed: success" in rendered
+
+
+async def test_operation_view_l_reports_missing_session_context() -> None:
+    async def _load_operation_payload_without_linked_session(
+        operation_id: str,
+    ) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        tasks = payload.get("tasks")
+        if isinstance(tasks, list) and tasks:
+            first_task = tasks[0]
+            if isinstance(first_task, dict):
+                first_task["linked_session_id"] = None
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_without_linked_session,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("l")
+
+    assert controller.state.view_level == "operation"
+    assert controller.state.last_message == "The selected task has no linked session to inspect."
+
+
 async def test_operation_view_report_mode_shows_retrospective_report() -> None:
     async def _load_operation_payload_with_report(operation_id: str) -> dict[str, object]:
         payload = await _load_operation_payload(operation_id)
@@ -509,6 +566,7 @@ async def test_help_overlay_lists_operation_report_mode() -> None:
     rendered = console.export_text(styles=False)
 
     assert "i / d / t / m / o" in rendered
+    assert "open selected task transcript/log path" in rendered
 
 
 async def test_help_overlay_lists_session_report_toggle() -> None:
@@ -1460,6 +1518,29 @@ async def test_session_view_o_shows_retrospective_report() -> None:
 
     await controller.handle_key("i")
     assert controller.state.session_panel_mode == "timeline"
+
+
+async def test_operation_view_renders_transcript_and_report_escalation_cues() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+
+    console = Console(record=True, width=180, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+
+    assert "Escalate" in rendered
+    assert "Enter session live detail; l transcript-log path; o retrospective report" in rendered
 
 
 async def test_session_filter_matches_event_type_and_summary_fields() -> None:

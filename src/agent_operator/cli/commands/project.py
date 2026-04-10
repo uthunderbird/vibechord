@@ -31,6 +31,101 @@ from ..options import (
 from ..workflows import project_dashboard_async
 
 
+def _emit_project_profile(profile: ProjectProfile, *, profile_path: Path | None = None) -> None:
+    typer.echo(f"Profile: {profile.name}")
+    if profile_path is not None:
+        typer.echo(f"Path: {profile_path}")
+    typer.echo(f"CWD: {profile.cwd or '-'}")
+    typer.echo("Paths:")
+    if profile.paths:
+        for item in profile.paths:
+            typer.echo(f"- {item}")
+    else:
+        typer.echo("- none")
+    typer.echo("Default objective:")
+    typer.echo(profile.default_objective or "-")
+    typer.echo("Default agents:")
+    if profile.default_agents:
+        for agent_key in profile.default_agents:
+            typer.echo(f"- {agent_key}")
+    else:
+        typer.echo("- none")
+    typer.echo("Harness:")
+    typer.echo(profile.default_harness_instructions or "-")
+    typer.echo("Success criteria:")
+    if profile.default_success_criteria:
+        for criterion in profile.default_success_criteria:
+            typer.echo(f"- {criterion}")
+    else:
+        typer.echo("- none")
+    typer.echo(f"Max iterations: {profile.default_max_iterations or '-'}")
+    typer.echo(f"Run mode: {profile.default_run_mode.value if profile.default_run_mode else '-'}")
+    involvement = (
+        profile.default_involvement_level.value
+        if profile.default_involvement_level
+        else "-"
+    )
+    typer.echo(f"Involvement: {involvement}")
+    typer.echo("Adapter settings:")
+    if profile.adapter_settings:
+        for adapter_key, settings in sorted(profile.adapter_settings.items()):
+            rendered = json.dumps(settings, ensure_ascii=False, sort_keys=True)
+            typer.echo(f"- {adapter_key}: {rendered}")
+    else:
+        typer.echo("- none")
+    typer.echo("Dashboard prefs:")
+    if profile.dashboard_prefs:
+        rendered = json.dumps(
+            profile.dashboard_prefs,
+            indent=2,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        typer.echo(rendered)
+    else:
+        typer.echo("- none")
+    typer.echo(f"History ledger: {'enabled' if profile.history_ledger else 'disabled'}")
+    typer.echo(f"Session reuse policy: {profile.session_reuse_policy or '-'}")
+    typer.echo(f"Message window: {profile.default_message_window or '-'}")
+
+
+def _emit_resolved_project_config(payload: dict[str, object]) -> None:
+    profile = payload["profile"]
+    resolved = payload["resolved"]
+    assert isinstance(profile, dict)
+    assert isinstance(resolved, dict)
+    typer.echo(f"Profile: {profile.get('name') or '-'}")
+    typer.echo(f"Profile source: {payload.get('profile_source') or '-'}")
+    typer.echo(f"Profile path: {payload.get('profile_path') or '-'}")
+    typer.echo(f"Data dir: {payload.get('data_dir') or '-'}")
+    typer.echo(f"Data dir source: {payload.get('data_dir_source') or '-'}")
+    typer.echo("Resolved run defaults:")
+    typer.echo(f"- CWD: {resolved.get('cwd') or '-'}")
+    typer.echo(f"- Objective: {resolved.get('objective_text') or '-'}")
+    typer.echo(
+        f"- Agents: {', '.join(resolved.get('default_agents', [])) or '-'}"
+    )
+    typer.echo(f"- Harness: {resolved.get('harness_instructions') or '-'}")
+    success_criteria = resolved.get("success_criteria", [])
+    if isinstance(success_criteria, list) and success_criteria:
+        typer.echo("- Success criteria:")
+        for criterion in success_criteria:
+            typer.echo(f"  - {criterion}")
+    else:
+        typer.echo("- Success criteria: none")
+    typer.echo(f"- Max iterations: {resolved.get('max_iterations') or '-'}")
+    typer.echo(f"- Run mode: {resolved.get('run_mode') or '-'}")
+    typer.echo(f"- Involvement: {resolved.get('involvement_level') or '-'}")
+    typer.echo(f"- Message window: {resolved.get('message_window') or '-'}")
+    overrides = resolved.get("overrides", [])
+    if isinstance(overrides, list) and overrides:
+        typer.echo("- Overrides:")
+        for item in overrides:
+            typer.echo(f"  - {item}")
+    else:
+        typer.echo("- Overrides: none")
+
+
 @project_app.command("list")
 def project_list() -> None:
     settings = load_settings()
@@ -91,12 +186,15 @@ def project_inspect(
 ) -> None:
     settings, _ = load_settings_with_data_dir()
     try:
-        profile, _, _ = resolve_project_profile_selection(settings, name=name)
+        profile, profile_path, _ = resolve_project_profile_selection(settings, name=name)
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
     if profile is None:
         raise typer.BadParameter("No local operator-profile.yaml was found.")
-    typer.echo(json.dumps(profile.model_dump(mode="json"), indent=2, ensure_ascii=False))
+    if json_mode:
+        typer.echo(json.dumps(profile.model_dump(mode="json"), indent=2, ensure_ascii=False))
+        return
+    _emit_project_profile(profile, profile_path=profile_path)
 
 
 @project_app.command("resolve")
@@ -132,7 +230,10 @@ def project_resolve(
         "profile_path": str(selected_path) if selected_path is not None else None,
         "profile_source": profile_source,
     }
-    typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    if json_mode:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+    _emit_resolved_project_config(payload)
 
 
 @project_app.command("dashboard")

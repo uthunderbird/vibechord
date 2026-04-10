@@ -7,6 +7,10 @@ This note covers the current interactive forensic drill-down inside the `operato
 From the Level 2 `session` view, press `Enter` on the selected timeline event to open the Level 3
 forensic view.
 
+From the Level 1 `operation` view, press `l` on a task with a linked session to take the direct
+transcript/log escalation path into the same Level 3 forensic view without stopping in the live
+session screen first.
+
 The forensic view opens even if the session has no raw transcript payload. In that case, the right
 pane still shows the selected event context and an explicit `No raw transcript available for the
 selected session.` message.
