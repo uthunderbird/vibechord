@@ -76,7 +76,8 @@ objective, status, agent cue, project, and attention text, and operation view su
 live task filter over task id, title, status, agent, goal, and notes. Session view also supports
 `/` for a live timeline filter over event type, summary, task id, session id, and iteration.
 Forensic view now supports `/` for a live raw-transcript/detail filter, `?` opens a compact help
-overlay for the current workbench level, `n` answers the oldest non-blocking attention in the
+overlay for the current workbench level, and the session and operation footers now keep `Help ?`
+visible alongside their direct action strips. `n` answers the oldest non-blocking attention in the
 current scope with the same inline flow used for blocking attention, and `A` opens a compact
 current-scope attention picker so you can choose a specific attention item before answering.
 Operation view now renders the task board in grouped status lanes, including a `BLOCKED` display
