@@ -898,7 +898,7 @@ def human_footer_text(state: FleetWorkbenchState) -> Text:
             "  Pause p  Resume u  Cancel c  Refresh r  Back Esc  Help ?  Quit q"
         )
     footer = Text(
-        "Fleet: Open Enter  Next blocker Tab  Answer a/n  Pick A"
+        "Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab"
         "  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
     )
     if selected is None:
@@ -1038,7 +1038,7 @@ def human_footer_text(state: FleetWorkbenchState) -> Text:
             "  Pause p  Resume u  Cancel c  Refresh r  Back Esc  Help ?  Quit q"
         )
     footer = Text(
-        "Fleet: Open Enter  Next blocker Tab  Answer a/n  Pick A"
+        "Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab"
         "  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
     )
     if selected is None:

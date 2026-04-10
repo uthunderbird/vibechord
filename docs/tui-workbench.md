@@ -47,7 +47,7 @@ The footer is the action band for the current state. It shows either:
 
 Representative footer copy:
 
-- `fleet`: `op-1 selected. Fleet: Open Enter  Next blocker Tab  Answer a/n  Pick A  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q`
+- `fleet`: `Selected op-1. Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q`
 - `session`: `Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?`
 
 At fleet level, each selected operation row is rendered as a compact multi-line summary:
