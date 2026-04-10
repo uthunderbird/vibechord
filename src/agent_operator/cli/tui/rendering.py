@@ -73,26 +73,25 @@ def header_lines(state: FleetWorkbenchState) -> list[str]:
                 f" > iter-{state.selected_timeline_event.iteration}:"
                 f"{state.selected_timeline_event.event_type}"
             )
-    lines = [f"breadcrumb={breadcrumb}"]
+    lines = [f"View: {breadcrumb}"]
     if state.view_level == "session":
         identity = session_identity_text(state.selected_operation_payload, state.selected_task)
         if state.session_filter_query:
-            identity += f"  session_filter={state.session_filter_query}"
+            identity += f"  |  Filter: {state.session_filter_query}"
         lines.append(identity)
         return lines
     if state.view_level == "forensic":
         scope = session_identity_text(state.selected_operation_payload, state.selected_task)
         if state.forensic_filter_query:
-            scope += f"  forensic_filter={state.forensic_filter_query}"
+            scope += f"  |  Filter: {state.forensic_filter_query}"
         lines.append(scope)
         return lines
-    scope = (f"project={state.project}" if state.project is not None else "project=all") + (
-        f"  operations={state.total_operations}"
-    )
+    project_label = state.project if state.project is not None else "all projects"
+    scope = f"Scope: {project_label}  |  Operations: {state.total_operations}"
     if state.view_level == "operation" and state.task_filter_query:
-        scope += f"  task_filter={state.task_filter_query}"
+        scope += f"  |  Task filter: {state.task_filter_query}"
     if state.filter_query:
-        scope += f"  filter={state.filter_query}"
+        scope += f"  |  Fleet filter: {state.filter_query}"
     lines.append(scope)
     return lines
 
@@ -660,7 +659,7 @@ def render_task_detail_table(state: FleetWorkbenchState) -> Table:
         table.add_row("Session detail", session_line)
         table.add_row(
             "Escalate",
-            "Enter session live detail; l transcript-log path; o retrospective report",
+            "Enter session detail; l transcript/log; o retrospective report",
         )
     attentions = task_attention_titles(payload, task)
     if attentions:
@@ -701,7 +700,7 @@ def render_session_brief_table(state: FleetWorkbenchState) -> Table:
     if brief["review"] != "-":
         table.add_row("Review", brief["review"])
     table.add_row("Latest output", brief["latest_output"])
-    table.add_row("Escalate", "Enter/r transcript-log path; o retrospective report")
+    table.add_row("Open", "Enter event detail; r transcript/log; o retrospective report")
     return table
 
 
@@ -764,7 +763,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
     if state.pending_answer_operation_id is not None:
         instruction = state.pending_answer_prompt
         return Text(
-            f"answer[{state.pending_answer_attention_id}] for {state.pending_answer_operation_id}: "
+            f"Answer {state.pending_answer_attention_id} for {state.pending_answer_operation_id}: "
             + instruction
             + state.pending_answer_text
             + "  Enter send  Esc cancel"
@@ -774,23 +773,25 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
     if state.last_message is not None:
         return Text(state.last_message)
     if state.view_level == "forensic":
-        return Text("a/n answer  A picker  / filter  Esc/q back to session timeline  ctrl+c quit")
+        return Text(
+            "a/n answer  A choose attention  / filter  Esc/q back to session  ctrl+c quit"
+        )
     if state.view_level == "session":
         return Text(
-            "j/k move  / filter  Enter forensic  r forensic/raw transcript  i live detail  o report"
+            "j/k move  / filter  Enter event detail  r transcript/log  i live detail  o report"
             "  Esc back  a/n answer"
-            "  A picker"
+            "  A choose attention"
             "  s interrupt task/session  p pause  u unpause  c cancel  q quit"
         )
     if state.view_level == "operation":
         return Text(
             "j/k move  Enter session  / filter  a/n answer"
-            "  A picker"
+            "  A choose attention"
             "  i detail  d decisions  t events  m memory  l transcript/log  o report"
             "  Esc back  p pause  u unpause  s interrupt task/session  c cancel  r refresh  q quit"
         )
     help_line = Text(
-        "j/k or arrows move  Enter open  a/n answer  A picker  tab next-attention"
+        "j/k or arrows move  Enter open operation  a/n answer  A choose attention"
         "  / filter  p pause  u unpause  s interrupt  c cancel  r refresh  q quit"
     )
     if selected is None:

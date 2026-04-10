@@ -30,8 +30,9 @@ The workbench keeps a left pane for selection and a right pane for detail:
 - `session`: selected task's session timeline on the left, selected event detail on the right
 - `forensic`: selected event context on the left, focused raw transcript/detail on the right
 
-The header shows the current breadcrumb and operation count. The footer shows either the active key
-help, the latest action result, or a cancel confirmation prompt.
+The header shows the current view path in human-readable form plus a compact scope line. The footer
+shows either the primary actions for the current level, the latest action result, or a cancel
+confirmation prompt.
 
 At fleet level, each selected operation row is rendered as a compact multi-line summary:
 
@@ -123,7 +124,7 @@ selected task's session timeline, ordered newest-first. The right pane defaults 
 screen:
 
 - a compact session brief with `Now`, `Wait`, `Attention`, and `Latest output`
-- an explicit escalation cue separating transcript/log (`Enter` / `r`) from retrospective report (`o`)
+- an explicit `Open` cue separating event detail (`Enter`), transcript/log (`r`), and retrospective report (`o`)
 - a selected-event detail block for the currently highlighted timeline item
 
 Use `Enter` or `r` on the selected timeline item to drill into the Level 3 forensic/raw-transcript

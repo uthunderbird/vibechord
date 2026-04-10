@@ -1583,7 +1583,7 @@ async def test_operation_view_renders_transcript_and_report_escalation_cues() ->
     rendered = console.export_text(styles=False)
 
     assert "Escalate" in rendered
-    assert "Enter session live detail; l transcript-log path; o retrospective report" in rendered
+    assert "Enter session detail; l transcript/log; o retrospective report" in rendered
 
 
 async def test_session_filter_matches_event_type_and_summary_fields() -> None:
@@ -1682,11 +1682,17 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
         "Attention",
         "Review",
         "Latest output",
+        "Open",
         "Selected Event",
         "agent started",
         "Need a layout decision",
     ):
         assert section in rendered
+
+    assert "View: fleet > op-run > task-1" in rendered
+    assert "Open" in rendered
+    assert "Enter event detail; r transcript/log; o retrospective report" in rendered
+    assert "Enter event detail  r transcript/log  i live detail  o report" in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
