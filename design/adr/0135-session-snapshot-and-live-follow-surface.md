@@ -20,6 +20,8 @@ Skim-safe current truth on 2026-04-10:
   collapsing the default surface into transcript body
 - `implemented`: human-readable `session --follow` now stays narrower than snapshot mode by keeping
   the transcript hint while dropping selected-event detail and trimming the recent-event slice
+- `implemented`: human-readable `session --follow` now points transcript escalation at the live
+  `operator log ... --follow` path instead of reusing the snapshot hint verbatim
 - `verified`: focused CLI coverage now checks that `session --follow --once` stays compact and keeps
   transcript escalation explicit
 - `partial`: this ADR's full RFC 0014 alignment remains incomplete; the command family exists, but

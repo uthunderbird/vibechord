@@ -2120,7 +2120,7 @@ def test_session_command_follow_once_prints_single_live_snapshot(
     assert result.stdout.count("Session scope for Primary objective") == 1
     assert "Latest output:" in result.stdout
     assert "Selected event:" not in result.stdout
-    assert "Transcript: operator log op-cli-1 --agent codex" in result.stdout
+    assert "Transcript: operator log op-cli-1 --agent codex --follow" in result.stdout
     assert result.stdout.count("  - iter=") <= 2
 
 

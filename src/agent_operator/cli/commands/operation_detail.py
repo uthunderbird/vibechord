@@ -550,6 +550,8 @@ def session(
             )
             if not (isinstance(transcript_command, str) and transcript_command.strip()):
                 transcript_command = f"operator log {resolved_operation_id}"
+            if follow and " --follow" not in transcript_command:
+                transcript_command = f"{transcript_command} --follow"
             typer.echo(f"Session scope for {task_line}")
             typer.echo(f"Operation: {resolved_operation_id}")
             typer.echo(f"Session: {session_display_id} [{adapter_key}] state={session_status}")
