@@ -113,10 +113,13 @@ selected task's session timeline, ordered newest-first. The right pane defaults 
 screen:
 
 - a compact session brief with `Now`, `Wait`, `Attention`, and `Latest output`
+- an explicit escalation cue separating transcript/log (`Enter` / `r`) from retrospective report (`o`)
 - a selected-event detail block for the currently highlighted timeline item
 
 Use `Enter` or `r` on the selected timeline item to drill into the Level 3 forensic/raw-transcript
-view. `r` is the direct raw-transcript shortcut from session level.
+view. `r` is the direct raw-transcript shortcut from session level. Use `o` to switch the session
+right pane to the operation retrospective report, and `i` to return to the live session detail
+panel.
 
 Available keys:
 
@@ -127,6 +130,8 @@ Available keys:
 - `a`: answer the oldest blocking attention for the current task
 - `Enter`: open the selected timeline item in the Level 3 forensic view
 - `r`: open the selected timeline item in the Level 3 forensic/raw-transcript view
+- `i`: show the live session detail panel
+- `o`: show the operation retrospective report in the session right pane
 - `Esc`: return to the operation view
 - `s`: enqueue a task-scoped stop-turn interrupt when the task has a linked session; otherwise fall back to an operation-scoped interrupt
 - `p`: enqueue pause for the parent operation

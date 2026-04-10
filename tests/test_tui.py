@@ -511,6 +511,30 @@ async def test_help_overlay_lists_operation_report_mode() -> None:
     assert "i / d / t / m / o" in rendered
 
 
+async def test_help_overlay_lists_session_report_toggle() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("?")
+
+    console = Console(record=True, width=140, markup=False)
+    console.print(render_help_overlay(controller.state))
+    rendered = console.export_text(styles=False)
+
+    assert "i / o" in rendered
+
+
 async def test_operation_view_shows_operation_brief_sections() -> None:
     async def _load_operation_payload_with_brief(operation_id: str) -> dict[str, object]:
         payload = await _load_operation_payload(operation_id)
@@ -1401,6 +1425,41 @@ async def test_session_view_r_opens_forensic_and_session_interrupt_stays_task_sc
     await controller.handle_key("s")
     assert calls == [("op-run", "task-1")]
     assert controller.state.last_message == "interrupt op-run:task-1"
+
+
+async def test_session_view_o_shows_retrospective_report() -> None:
+    async def _load_operation_payload_with_report(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["report_text"] = "# Report\n\nRetrospective summary."
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_report,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+    await controller.handle_key("o")
+
+    assert controller.state.session_panel_mode == "report"
+
+    console = Console(record=True, width=140, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+
+    assert "Report" in rendered
+    assert "Retrospective summary." in rendered
+
+    await controller.handle_key("i")
+    assert controller.state.session_panel_mode == "timeline"
 
 
 async def test_session_filter_matches_event_type_and_summary_fields() -> None:

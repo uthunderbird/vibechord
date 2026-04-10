@@ -34,11 +34,14 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
         "Wait",
         "Attention",
         "Latest output",
+        "Escalate",
         "Selected Event",
         "agent started",
         "Need a layout decision",
     ):
         assert section in rendered
+
+    assert "Enter/r transcript-log path; o retrospective report" in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:

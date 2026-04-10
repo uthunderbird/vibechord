@@ -109,6 +109,8 @@ def right_pane_title(state: FleetWorkbenchState) -> str:
             return f"{mode}: {state.selected_task.task_short_id}"
         return mode
     if state.view_level == "session":
+        if state.session_panel_mode == "report":
+            return "Report"
         if state.session_panel_mode == "raw_transcript":
             return "Raw Transcript"
         return "Session Detail"
@@ -386,6 +388,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("Enter", "open selected event in forensic view"),
             ("/", "filter session timeline"),
             ("r", "open forensic raw transcript"),
+            ("i / o", "show live session detail or retrospective report"),
             ("a", "answer oldest blocking attention for current task"),
             ("n", "answer oldest non-blocking attention for current task"),
             ("A", "open attention picker for current task"),
@@ -589,6 +592,12 @@ def render_operation_brief_table(state: FleetWorkbenchState) -> Table:
 
 
 def render_session_panel(state: FleetWorkbenchState) -> Group | Table | Text:
+    if state.session_panel_mode == "report":
+        payload = state.selected_operation_payload
+        report_text = payload.get("report_text") if isinstance(payload, dict) else None
+        if isinstance(report_text, str) and report_text.strip():
+            return Text(report_text.strip())
+        return Text("No retrospective report has been recorded for this operation.")
     if state.session_panel_mode == "raw_transcript":
         return render_raw_transcript_panel(state)
     return Group(
@@ -631,6 +640,7 @@ def render_task_detail_table(state: FleetWorkbenchState) -> Table:
     session_line = task_session_summary(payload, task)
     if session_line is not None:
         table.add_row("Session detail", session_line)
+        table.add_row("Escalate", "Enter session for live context; o opens retrospective report")
     attentions = task_attention_titles(payload, task)
     if attentions:
         table.add_row("Attention", "\n".join(attentions))
@@ -664,6 +674,7 @@ def render_session_brief_table(state: FleetWorkbenchState) -> Table:
     table.add_row("Wait", brief["wait"])
     table.add_row("Attention", brief["attention"])
     table.add_row("Latest output", brief["latest_output"])
+    table.add_row("Escalate", "Enter/r transcript-log path; o retrospective report")
     return table
 
 
@@ -739,7 +750,8 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         return Text("a/n answer  A picker  / filter  Esc/q back to session timeline  ctrl+c quit")
     if state.view_level == "session":
         return Text(
-            "j/k move  / filter  Enter forensic  r forensic/raw transcript  Esc back  a/n answer"
+            "j/k move  / filter  Enter forensic  r forensic/raw transcript  i live detail  o report"
+            "  Esc back  a/n answer"
             "  A picker"
             "  s interrupt task/session  p pause  u unpause  c cancel  q quit"
         )

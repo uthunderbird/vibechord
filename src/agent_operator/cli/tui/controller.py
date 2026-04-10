@@ -380,6 +380,12 @@ class FleetWorkbenchController:
         if key == "enter":
             self._open_forensic_view_from_session()
             return True
+        if key == "i":
+            self.state.session_panel_mode = "timeline"
+            return True
+        if key == "o":
+            self.state.session_panel_mode = "report"
+            return True
         selected = self.state.selected_item
         task = self.state.selected_task
         if selected is None:
