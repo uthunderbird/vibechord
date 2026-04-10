@@ -17,7 +17,6 @@ from agent_operator.cli.tui.rendering import (
     human_footer_text,
     human_header_lines,
     render_attention_picker,
-    render_footer_text,
     render_forensic_transcript_panel,
     render_help_overlay,
     render_list_table,
@@ -41,13 +40,46 @@ def test_human_header_lines_use_human_first_scope_counts() -> None:
     state = FleetWorkbenchState(
         project="alpha",
         total_operations=4,
-        fleet_header={"needs_human_count": 1, "running_count": 2, "paused_count": 1},
+        all_items=[
+            tui_models_pkg.FleetItem.from_payload(
+                {
+                    "operation_id": "op-run-1",
+                    "status": "running",
+                    "scheduler_state": "active",
+                    "bucket": "active",
+                }
+            ),
+            tui_models_pkg.FleetItem.from_payload(
+                {
+                    "operation_id": "op-run-2",
+                    "status": "running",
+                    "scheduler_state": "active",
+                    "bucket": "active",
+                }
+            ),
+            tui_models_pkg.FleetItem.from_payload(
+                {
+                    "operation_id": "op-attn",
+                    "status": "needs_human",
+                    "scheduler_state": "active",
+                    "bucket": "needs_attention",
+                }
+            ),
+            tui_models_pkg.FleetItem.from_payload(
+                {
+                    "operation_id": "op-pause",
+                    "status": "completed",
+                    "scheduler_state": "paused",
+                    "bucket": "active",
+                }
+            ),
+        ],
     )
 
     lines = human_header_lines(state)
 
     assert lines[0] == "Fleet"
-    assert lines[1] == "Active 4  Needs human 1  Running 2  Paused 1  Scope: alpha"
+    assert lines[1] == "Scope: alpha  Operations: 4  Running: 2  Needs human: 1  Paused: 1"
 
 
 def test_human_footer_text_uses_compact_fleet_actions() -> None:
@@ -57,9 +89,9 @@ def test_human_footer_text_uses_compact_fleet_actions() -> None:
 
     rendered = str(human_footer_text(state))
 
-    assert "Tab next blocker" in rendered
-    assert "p/u/s/c control" in rendered
-    assert "Help ?" not in rendered
+    assert "Next blocker Tab" in rendered
+    assert "Pause p  Resume u  Interrupt s  Cancel c" in rendered
+    assert "Help ?" in rendered
 
 
 def _fleet_payload() -> dict[str, object]:
@@ -1717,11 +1749,10 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     ):
         assert section in rendered
 
-    assert "View: fleet > op-run > task-1 > session" in rendered
-    assert "Jump to" in rendered
+    assert "Fleet / op-run / session / task-1" in rendered
+    assert "Open" in rendered
     assert "Enter event detail; r transcript/log; o retrospective report" in rendered
-    assert "Session: Open event detail Enter  Open transcript r  Live session i  Report o" in rendered
-    assert "Enter open transcript  r raw transcript  / filter" in rendered
+    assert "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q" in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
@@ -2107,16 +2138,11 @@ def test_fleet_header_uses_human_summary_language() -> None:
         ],
         selected_index=0,
         total_operations=3,
-        fleet_header={
-            "running_count": 2,
-            "needs_human_count": 1,
-            "paused_count": 1,
-        },
     )
 
     assert human_header_lines(state) == [
         "Fleet",
-        "Active 3  Needs human 1  Running 2  Paused 1  Scope: all projects",
+        "Scope: all projects  Operations: 3  Running: 1  Needs human: 1  Paused: 1",
         "Selected: Ship dashboard  Now: Working on the task board  Wait: awaiting review",
     ]
 
@@ -2138,19 +2164,12 @@ def test_fleet_header_keeps_filter_visible_with_human_counts() -> None:
         selected_index=0,
         total_operations=4,
         filter_query="dashboard",
-        fleet_header={
-            "running_count": 2,
-            "needs_human_count": 1,
-            "paused_count": 0,
-        },
     )
 
     scope_line = human_header_lines(state)[1]
-    assert "Filter: dashboard" in scope_line
-    assert "Running 2" in scope_line
-    assert "Needs human 1" in scope_line
-    assert "Scope: all projects" in scope_line
-    assert "Paused 0" in scope_line
+    assert scope_line == (
+        "Scope: all projects  Operations: 4  Running: 1  Needs human: 0  Paused: 0  Fleet filter: dashboard"
+    )
 
 
 async def test_operation_header_surfaces_now_wait_and_attention_summary() -> None:
@@ -2178,7 +2197,7 @@ async def test_operation_header_surfaces_now_wait_and_attention_summary() -> Non
     await controller.handle_key("\r")
 
     lines = human_header_lines(controller.state)
-    assert lines[0] == "View: fleet > op-run > tasks"
+    assert lines[0] == "Fleet / op-run / operation"
     summary_line = next(line for line in lines if "Tasks: 2" in line)
     assert "Running: 1" in summary_line
     assert "Blocked: 1" in summary_line
@@ -2204,15 +2223,16 @@ async def test_session_header_and_footer_use_human_action_language() -> None:
     await controller.handle_key("\r")
 
     lines = human_header_lines(controller.state)
-    assert lines[0] == "View: fleet > op-run > task-1 > session"
-    assert "codex_acp" in lines[1]
-    assert "session-1" in lines[1]
+    assert lines[0] == "Fleet > op-run > task-1 > session"
+    assert (
+        lines[1] == "Session: codex_acp · session-1 · running · Working through the board layout."
+    )
     assert "Now: Working through the board layout." in lines[2]
     assert "Wait: Working through the board layout." in lines[2]
     assert "Attention: Need a layout decision" in lines[2]
     assert (
         human_footer_text(controller.state).plain
-        == "Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?"
+        == "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
     )
 
 
@@ -2255,7 +2275,7 @@ async def test_operation_footer_uses_short_human_first_actions() -> None:
 
     assert (
         human_footer_text(controller.state).plain
-        == "Enter session  l transcript/log  / filter  a/n answer  A pick  i/d/t/m/o detail  Esc back  ? help"
+        == "Operation: Open session Enter  Open transcript l  Detail i  Decisions d  Events t  Memory m  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?"
     )
 
 

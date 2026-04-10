@@ -31,12 +31,12 @@ The workbench keeps a left pane for selection and a right pane for detail:
 - `forensic`: selected event context on the left, focused raw transcript/detail on the right
 
 The header is a compact workbench summary band. It keeps the current breadcrumb on the first line
-and adds human-readable scope or situation lines beneath it:
+as `View: fleet > ...` and adds human-readable scope or situation lines beneath it:
 
-- `fleet`: scope plus the shared fleet counts (`Active / Running / Needs human / Paused`) and a short `Selected / Working on / Waiting on` summary for the current row
-- `operation`: scope plus compact task counts (`Tasks / Running / Ready / Blocked / Done`) and a `Now / Waiting on / Needs input` summary for the current operation
-- `session`: scope, session identity, and a compact `Now / Waiting on / Needs input` summary for the current task session
-- `forensic`: session identity plus the currently focused event summary
+- `fleet`: scope plus the shared fleet counts (`Operations / Running / Needs human / Paused`) and a short `Selected / Now / Waiting on` summary for the current row
+- `operation`: scope plus compact task counts (`Tasks / Running / Blocked`) and a `Now / Wait / Attention` summary for the current operation
+- `session`: scope plus a compact `Now / Wait / Attention` summary for the current task session
+- `forensic`: scope plus the currently focused event summary
 
 The footer is the action band for the current state. It shows either:
 
@@ -45,9 +45,10 @@ The footer is the action band for the current state. It shows either:
 - the latest action result
 - a cancel confirmation prompt
 
-The live session footer now uses the shorter human-first action phrasing documented here:
+Representative footer copy:
 
-- `session`: `Enter open transcript  r raw transcript  / filter  a/n answer  A pick  i live detail  o report  Esc back  ? help`
+- `fleet`: `op-1 selected. Fleet: Open Enter  Next blocker Tab  Answer a/n  Pick A  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q`
+- `session`: `Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?`
 
 At fleet level, each selected operation row is rendered as a compact multi-line summary:
 
@@ -98,7 +99,7 @@ status lanes in this order: `RUNNING`, `READY`, `BLOCKED`, `COMPLETED`, `FAILED`
 Blocked tasks show a compact dependency continuation line, and tasks with linked session runtime
 state can show a compact session continuation line under the task row.
 Task rows now include a compact status glyph before the task short id.
-The operation footer uses a short action strip: `Enter session  l transcript/log  / filter  a/n answer  A pick  i/d/t/m/o detail  Esc back  ? help`.
+The operation footer uses a short action strip: `Operation: Open session Enter  Open transcript l  Detail i  Decisions d  Events t  Memory m  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?`.
 
 Available keys:
 
@@ -140,8 +141,7 @@ selected task's session timeline, ordered newest-first. The right pane defaults 
 screen:
 
 - a compact session brief with explicit session identity plus `Now`, `Wait`, `Attention`, and `Latest output`
-- a compact `Jump to` row for forensic drill-down (`Enter` or `r`)
-- a compact `Right pane` row for live detail (`i`) and retrospective report (`o`)
+- a compact `Jump to` row for forensic drill-down, rendered as `Enter event detail; r transcript/log; o retrospective report`
 - a selected-event detail block for the currently highlighted timeline item
 
 The session header also carries a compact live summary line so you can orient before reading the

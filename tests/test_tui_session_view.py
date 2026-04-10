@@ -29,11 +29,13 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     rendered = console.export_text(styles=False)
 
     for section in (
-        "codex_acp · session-1 [running]",
+        "codex_acp · session-1",
         "Now",
-        "Waiting on",
-        "Needs input",
+        "Wait",
+        "Attention",
         "Latest output",
+        "Timeline",
+        "Selected 1 of 2 events (newest first)",
         "Open",
         "Selected Event",
         "agent started",
@@ -41,10 +43,11 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     ):
         assert section in rendered
 
-    assert "Fleet / op-run / session / task-1" in rendered
-    assert "Jump to" in rendered
+    assert "Fleet > op-run > task-1 > session" in rendered
+    assert "Timeline: Selected 1 of 2 events (newest first)" in rendered
+    assert "Open" in rendered
     assert "Enter event detail; r transcript/log; o retrospective report" in rendered
-    assert "j/k move  Enter open event detail  r open raw transcript  / filter" in rendered
+    assert "Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?" in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
@@ -188,7 +191,7 @@ async def test_forensic_view_renders_richer_session_context_when_available() -> 
     rendered = console.export_text(styles=False)
 
     assert "Session" in rendered
-    assert "codex_acp · session-1 [running]" in rendered
+    assert "codex_acp · session-1" in rendered
     assert "Waiting" in rendered
     assert "Working through the board layout." in rendered
 
