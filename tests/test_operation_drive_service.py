@@ -121,6 +121,48 @@ class StartThenStopOnlyAfterResultBrain:
         return result
 
 
+class StartThenContinueBackgroundTurnBrain:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        if self.calls == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="claude_acp",
+                instruction="run background turn one",
+                rationale="Start the first attached-live background turn.",
+            )
+        if self.calls == 2:
+            return BrainDecision(
+                action_type=BrainActionType.CONTINUE_AGENT,
+                target_agent="claude_acp",
+                session_id=(
+                    state.active_session.session_id if state.active_session is not None else None
+                ),
+                instruction="run background turn two",
+                rationale="Continue automatically into the next attached-live turn.",
+            )
+        return BrainDecision(
+            action_type=BrainActionType.STOP,
+            rationale="Both attached-live background turns completed without manual resume.",
+        )
+
+    async def evaluate_result(self, state) -> Evaluation:
+        return Evaluation(
+            goal_satisfied=False,
+            should_continue=True,
+            summary="continue",
+        )
+
+    async def summarize_progress(self, state) -> ProgressSummary:
+        return ProgressSummary(summary="summary")
+
+    async def normalize_artifact(self, goal, result) -> AgentResult:
+        return result
+
+
 @pytest.mark.anyio
 async def test_service_refreshes_available_agent_descriptors_before_decision() -> None:
     brain = DescriptorCapturingBrain()
@@ -296,6 +338,44 @@ async def test_attached_background_wait_does_not_spin_brain_iterations() -> None
     assert brain.calls == 2
     assert supervisor.poll_counts["run-1"] >= 3
     assert operation.iterations[0].result is not None
+
+
+@pytest.mark.anyio
+async def test_attached_live_progresses_across_repeated_background_turns_without_resume() -> None:
+    store = MemoryStore()
+    inbox = MemoryWakeupInbox()
+    supervisor = FakeSupervisor(auto_complete_on_poll=True)
+    brain = StartThenContinueBackgroundTurnBrain()
+    service = make_service(
+        brain=brain,
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        wakeup_inbox=inbox,
+        supervisor=supervisor,
+    )
+
+    outcome = await service.run(
+        OperationGoal(objective="advance across repeated attached-live background turns"),
+        **run_settings(max_iterations=6, allowed_agents=["claude_acp"]),
+    )
+
+    operation = await store.load_operation(outcome.operation_id)
+    assert operation is not None
+    assert outcome.status is OperationStatus.COMPLETED
+    assert brain.calls == 3
+    assert len(operation.iterations) == 3
+    assert operation.iterations[0].result is not None
+    assert operation.iterations[1].result is not None
+    assert operation.iterations[2].result is None
+    assert len(supervisor.requests) == 2
+    assert supervisor.wakeup_deliveries == ["enqueue", "enqueue"]
+    assert supervisor.existing_sessions[0] is None
+    assert supervisor.existing_sessions[1] is not None
+    assert supervisor.existing_sessions[1].session_id == operation.iterations[0].session.session_id
+    assert operation.pending_wakeups == []
+    assert await inbox.list_pending(outcome.operation_id) == []
 
 
 @pytest.mark.anyio
