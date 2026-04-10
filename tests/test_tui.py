@@ -608,6 +608,7 @@ async def test_operation_view_shows_operation_brief_sections() -> None:
                 "next": "resume execution",
             },
             "attention": "policy gap in mode switch",
+            "review": "follow up on the non-blocking queue",
             "recent": "task board layout in progress",
         }
         return payload
@@ -637,6 +638,7 @@ async def test_operation_view_shows_operation_brief_sections() -> None:
         "Operator",
         "Progress",
         "Attention",
+        "Review",
         "Recent",
         "doing=awaiting operator response",
     ):
@@ -1641,6 +1643,7 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
         "Agent",
         "Operator",
         "Attention",
+        "Review",
         "Latest output",
         "Selected Event",
         "agent started",
@@ -2139,7 +2142,8 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
                     "wait": "Working through the board layout.",
                     "agent_activity": "codex_acp session",
                     "operator_state": "observing",
-                    "attention": "Need a layout decision; Another layout question",
+                    "attention": "Need a layout decision",
+                    "review": "Another layout question",
                     "latest_output": "[iter 1] agent completed: success",
                 },
                 "timeline": [
@@ -2245,6 +2249,7 @@ async def test_fleet_view_uses_selected_fleet_brief_sections() -> None:
                         "next": "resume after review",
                     },
                     "attention": "[policy_gap] policy review",
+                    "review": "review the non-blocking follow-up",
                     "recent": "intervention requested",
                 },
             }
@@ -2285,6 +2290,7 @@ async def test_fleet_view_uses_selected_fleet_brief_sections() -> None:
         "Operator",
         "Progress",
         "Attention",
+        "Review",
         "Recent",
         "doing=awaiting operator response",
     ):

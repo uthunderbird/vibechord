@@ -71,6 +71,7 @@ class SupervisoryActivitySummary:
     wait: str | None
     progress: SupervisoryProgressSummary
     attention: str | None
+    review: str | None
     recent: str | None
     agent_activity: str | None = None
     operator_state: str | None = None
@@ -82,6 +83,7 @@ class SupervisoryActivitySummary:
             "wait": self.wait,
             "progress": self.progress.to_payload(),
             "attention": self.attention,
+            "review": self.review,
             "recent": self.recent,
             "agent_activity": self.agent_activity,
             "operator_state": self.operator_state,
@@ -463,7 +465,8 @@ class OperationProjectionService:
                     limit=120,
                 ),
             ),
-            attention=self._shorten_text("; ".join(item.attention_titles), limit=120),
+            attention=self._shorten_text("; ".join(item.blocking_attention_titles), limit=120),
+            review=self._shorten_text("; ".join(item.nonblocking_attention_titles), limit=120),
             recent=self._shorten_text(item.latest_outcome_brief, limit=120),
             agent_activity=self._fleet_workbench_agent_activity(item),
             operator_state=self._scheduler_operator_state(item.scheduler_state),
@@ -598,6 +601,16 @@ class OperationProjectionService:
             for attention in operation.attention_requests
             if attention.status is AttentionStatus.OPEN
         ]
+        blocking_attention = [
+            attention.title
+            for attention in operation.attention_requests
+            if attention.status is AttentionStatus.OPEN and attention.blocking
+        ]
+        nonblocking_attention = [
+            attention.title
+            for attention in operation.attention_requests
+            if attention.status is AttentionStatus.OPEN and not attention.blocking
+        ]
         progress_done = self._turn_verification_summary(latest_turn)
         if operation.status is OperationStatus.COMPLETED:
             progress_done = (
@@ -644,7 +657,8 @@ class OperationProjectionService:
                 doing=progress_doing,
                 next=progress_next,
             ),
-            attention=(self._shorten_text("; ".join(open_attention), limit=220) or ""),
+            attention=(self._shorten_text("; ".join(blocking_attention), limit=220) or ""),
+            review=(self._shorten_text("; ".join(nonblocking_attention), limit=220) or ""),
             recent=self._shorten_text(
                 self._turn_work_summary(latest_turn)
                 or (operation_brief.latest_outcome_brief if operation_brief is not None else None)
@@ -661,7 +675,8 @@ class OperationProjectionService:
         *,
         session: SessionRecord,
         timeline: list[dict[str, object]],
-        attention_titles: list[str],
+        blocking_attention_titles: list[str],
+        nonblocking_attention_titles: list[str],
     ) -> dict[str, object]:
         wait = self._shorten_text(session.waiting_reason, limit=120)
         latest_output = "-"
@@ -682,7 +697,14 @@ class OperationProjectionService:
             now=now,
             wait=wait or session.status.value,
             progress=SupervisoryProgressSummary(done=None, doing=latest_output, next=None),
-            attention="; ".join(attention_titles[:2]) if attention_titles else "-",
+            attention="; ".join(blocking_attention_titles[:2])
+            if blocking_attention_titles
+            else "-",
+            review=(
+                "; ".join(nonblocking_attention_titles[:2])
+                if nonblocking_attention_titles
+                else None
+            ),
             recent=latest_output,
             agent_activity=f"{session.adapter_key} session",
             operator_state=self._session_operator_state(session),
@@ -708,8 +730,15 @@ class OperationProjectionService:
             for event in events
         ]
         selected_event = timeline[-1] if timeline else None
-        attention_titles = [
-            attention.title for attention in open_attention if attention.target_id == task.task_id
+        blocking_attention_titles = [
+            attention.title
+            for attention in open_attention
+            if attention.target_id == task.task_id and attention.blocking
+        ]
+        nonblocking_attention_titles = [
+            attention.title
+            for attention in open_attention
+            if attention.target_id == task.task_id and not attention.blocking
         ]
         return {
             "task_id": task.task_id,
@@ -727,7 +756,8 @@ class OperationProjectionService:
             "session_brief": self.build_session_brief_payload(
                 session=session,
                 timeline=timeline,
-                attention_titles=attention_titles,
+                blocking_attention_titles=blocking_attention_titles,
+                nonblocking_attention_titles=nonblocking_attention_titles,
             ),
             "timeline": timeline,
             "selected_event": selected_event,

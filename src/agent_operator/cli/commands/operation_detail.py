@@ -559,6 +559,8 @@ def session(
             typer.echo(f"Now: {_shorten(session_brief.get('now'))}")
             typer.echo(f"Wait: {_shorten(session_brief.get('wait'))}")
             typer.echo(f"Attention: {_shorten(session_brief.get('attention'))}")
+            if _shorten(session_brief.get("review")) != "-":
+                typer.echo(f"Review: {_shorten(session_brief.get('review'))}")
             typer.echo(f"Latest output: {_shorten(session_brief.get('latest_output'))}")
             typer.echo("Recent events:")
             event_limit = 2 if follow else 4

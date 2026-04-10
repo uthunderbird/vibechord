@@ -40,6 +40,8 @@ class AgendaItem(BaseModel):
     open_nonblocking_attention_count: int = 0
     attention_titles: list[str] = Field(default_factory=list)
     attention_briefs: list[str] = Field(default_factory=list)
+    blocking_attention_titles: list[str] = Field(default_factory=list)
+    nonblocking_attention_titles: list[str] = Field(default_factory=list)
     runnable_task_count: int = 0
     reusable_session_count: int = 0
     updated_at: datetime
@@ -64,9 +66,7 @@ def build_agenda_item(
         item for item in operation.attention_requests if item.status is AttentionStatus.OPEN
     ]
     blocking_open_attention = [item for item in open_attention if item.blocking]
-    nonblocking_open_attention = [
-        item for item in open_attention if not item.blocking
-    ]
+    nonblocking_open_attention = [item for item in open_attention if not item.blocking]
     latest_outcome = None
     if brief is not None:
         latest_outcome = brief.latest_outcome_brief or brief.blocker_brief
@@ -92,6 +92,8 @@ def build_agenda_item(
         attention_briefs=[
             f"[{item.attention_type.value}] {item.title}" for item in open_attention[:3]
         ],
+        blocking_attention_titles=[item.title for item in blocking_open_attention[:3]],
+        nonblocking_attention_titles=[item.title for item in nonblocking_open_attention[:3]],
         runnable_task_count=summary.runnable_task_count,
         reusable_session_count=summary.reusable_session_count,
         updated_at=summary.updated_at,

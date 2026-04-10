@@ -10,6 +10,20 @@ Accepted
 
 Partial
 
+Skim-safe current truth on 2026-04-10:
+
+- `implemented`: TUI workbench surfaces blocking and non-blocking attention as distinct selectable
+  intervention classes
+- `implemented`: `n` answers the oldest non-blocking attention in the current scope
+- `implemented`: `A` opens a compact current-scope attention picker across blocking and
+  non-blocking items
+- `implemented`: shared supervisory summaries now expose blocking attention separately from
+  non-blocking review cues, and those cues are rendered in TUI detail panes plus the
+  human-readable `operator session` snapshot
+- `verified`: focused projection, TUI, and session-CLI coverage now checks the review cue path
+- `partial`: broader fleet/status/list family closure for the distinction remains distributed
+  across the newer CLI/TUI ADR wave rather than fully closed here
+
 ## Context
 
 Earlier TUI ADRs established:
@@ -20,16 +34,6 @@ Earlier TUI ADRs established:
 
 Implementation has since gone further and already introduced non-blocking attention flow as a real
 product behavior.
-
-Current repository truth on 2026-04-10:
-
-- `implemented`: TUI workbench surfaces blocking and non-blocking attention as distinct selectable
-  intervention classes
-- `implemented`: `n` answers the oldest non-blocking attention in the current scope
-- `implemented`: `A` opens a compact current-scope attention picker across blocking and
-  non-blocking items
-- `partial`: the broader cross-surface closure for this distinction remains distributed across the
-  newer CLI/TUI ADR wave rather than fully closed here
 
 That creates a new design question:
 
@@ -132,8 +136,11 @@ When implemented, the repository should preserve these conditions:
 Current focused evidence:
 
 - [tests/test_tui.py](/Users/thunderbird/Projects/operator/tests/test_tui.py)
+- [tests/test_cli.py](/Users/thunderbird/Projects/operator/tests/test_cli.py)
+- [tests/test_operation_projections.py](/Users/thunderbird/Projects/operator/tests/test_operation_projections.py)
 - [src/agent_operator/cli/tui/controller.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui/controller.py)
 - [src/agent_operator/cli/tui/rendering.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/tui/rendering.py)
+- [src/agent_operator/application/queries/operation_projections.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/queries/operation_projections.py)
 
 ## Related
 

@@ -236,6 +236,8 @@ def test_build_fleet_workbench_payload_normalizes_rows_and_header() -> None:
             open_blocking_attention_count=1,
             open_nonblocking_attention_count=1,
             attention_titles=["policy gap", "timeout check"],
+            blocking_attention_titles=["policy gap"],
+            nonblocking_attention_titles=["timeout check"],
             focus_brief="waiting on input",
             latest_outcome_brief="paused at checkpoint",
             blocker_brief="blocked by human policy",
@@ -280,6 +282,8 @@ def test_build_fleet_workbench_payload_normalizes_rows_and_header() -> None:
     assert brief["goal"] == "Answer a policy question"
     assert isinstance(brief["progress"], dict)
     assert brief["progress"]["done"] is None
+    assert brief["attention"] == "policy gap"
+    assert brief["review"] == "timeout check"
     assert brief["operator_state"] is None
     assert "status_counts" in payload["mix"]
     assert payload["mix"]["bucket_counts"]["needs_attention"] == 1
@@ -336,8 +340,23 @@ def test_build_dashboard_payload_emits_normalized_session_views() -> None:
     assert session_view["session_brief"]["wait"] == "Working"
     assert session_view["session_brief"]["agent_activity"] == "codex_acp session"
     assert session_view["session_brief"]["operator_state"] == "observing"
+    assert session_view["session_brief"]["attention"] == "-"
+    assert session_view["session_brief"]["review"] is None
     assert session_view["transcript_hint"]["command"] == "operator log op-1 --agent codex"
     assert payload["report_text"] == "# Report\n\nRetrospective summary."
+
+
+def test_build_operation_brief_payload_splits_blocking_and_nonblocking_attention() -> None:
+    operation, _ = _operation_with_mixed_attention()
+
+    payload = OperationProjectionService().build_operation_brief_payload(
+        operation,
+        brief=None,
+        runtime_alert=None,
+    )
+
+    assert payload["attention"] == "Need a policy response"
+    assert payload["review"] == "Additional context needed"
 
 
 def test_build_live_snapshot_and_format_live_snapshot() -> None:

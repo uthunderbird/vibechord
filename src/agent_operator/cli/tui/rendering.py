@@ -251,6 +251,9 @@ def render_fleet_detail_table(state: FleetWorkbenchState) -> Table:
         table.add_row(
             "Attention", "\n".join(selected.attention_briefs) if selected.attention_briefs else "-"
         )
+        nonblocking = selected.brief.get("review") if isinstance(selected.brief, dict) else None
+        if _fleet_optional_text(nonblocking) != "-":
+            table.add_row("Review", _fleet_optional_text(nonblocking))
         table.add_row("Recent", selected.latest_outcome_brief or "-")
         return table
     table.add_row("Operation", selected.operation_id)
@@ -263,6 +266,8 @@ def render_fleet_detail_table(state: FleetWorkbenchState) -> Table:
         table.add_row("Operator", _fleet_optional_text(brief.get("operator_state")))
     table.add_row("Progress", _fleet_progress_text(brief.get("progress")))
     table.add_row("Attention", _fleet_optional_text(brief.get("attention")))
+    if _fleet_optional_text(brief.get("review")) != "-":
+        table.add_row("Review", _fleet_optional_text(brief.get("review")))
     table.add_row("Recent", _fleet_optional_text(brief.get("recent")))
     return table
 
@@ -596,6 +601,8 @@ def render_operation_brief_table(state: FleetWorkbenchState) -> Table:
         table.add_row("Operator", _fleet_optional_text(payload_brief.get("operator_state")))
     table.add_row("Progress", _fleet_progress_text(payload_brief.get("progress")))
     table.add_row("Attention", _fleet_optional_text(payload_brief.get("attention")))
+    if _fleet_optional_text(payload_brief.get("review")) != "-":
+        table.add_row("Review", _fleet_optional_text(payload_brief.get("review")))
     table.add_row("Recent", _fleet_optional_text(payload_brief.get("recent")))
     return table
 
@@ -689,6 +696,8 @@ def render_session_brief_table(state: FleetWorkbenchState) -> Table:
     if brief["operator_state"] != "-":
         table.add_row("Operator", brief["operator_state"])
     table.add_row("Attention", brief["attention"])
+    if brief["review"] != "-":
+        table.add_row("Review", brief["review"])
     table.add_row("Latest output", brief["latest_output"])
     table.add_row("Escalate", "Enter/r transcript-log path; o retrospective report")
     return table

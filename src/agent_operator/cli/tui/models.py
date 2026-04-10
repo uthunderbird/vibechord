@@ -425,6 +425,7 @@ def session_brief(
                 "now": optional_text(brief.get("now")) or "-",
                 "wait": optional_text(brief.get("wait")) or "-",
                 "attention": optional_text(brief.get("attention")) or "-",
+                "review": optional_text(brief.get("review")) or "-",
                 "latest_output": optional_text(brief.get("latest_output")) or "-",
                 "agent_activity": optional_text(brief.get("agent_activity")) or "-",
                 "operator_state": optional_text(brief.get("operator_state")) or "-",
@@ -434,6 +435,7 @@ def session_brief(
             "now": "-",
             "wait": "-",
             "attention": "-",
+            "review": "-",
             "latest_output": "-",
             "agent_activity": "-",
             "operator_state": "-",
@@ -448,6 +450,7 @@ def session_brief(
         "now": now,
         "wait": wait or (status or "-"),
         "attention": "; ".join(attention_titles[:2]) if attention_titles else "-",
+        "review": "-",
         "latest_output": latest_output,
         "agent_activity": f"{optional_text(session.get('adapter_key')) or '-'} session"
         if session is not None

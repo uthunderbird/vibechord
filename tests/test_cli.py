@@ -2146,6 +2146,7 @@ def test_session_command_prints_selected_event_summary_when_present(
                             "now": "Running the task board migration",
                             "wait": "waiting for review",
                             "attention": "-",
+                            "review": "Review the non-blocking note",
                             "latest_output": "agent completed: success",
                         },
                         "timeline": [
@@ -2179,6 +2180,7 @@ def test_session_command_prints_selected_event_summary_when_present(
 
     assert result.exit_code == 0
     assert "summary: [iter 1] agent completed: success" in result.stdout
+    assert "Review: Review the non-blocking note" in result.stdout
 
 
 def test_session_command_errors_when_task_has_no_linked_session(
