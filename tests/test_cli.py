@@ -2994,6 +2994,7 @@ def test_policy_record_list_inspect_and_revoke(tmp_path: Path, monkeypatch) -> N
             "policy-123",
             "--reason",
             "Superseded by CI coverage.",
+            "--yes",
         ],
     )
     assert revoke.exit_code == 0
@@ -3002,6 +3003,38 @@ def test_policy_record_list_inspect_and_revoke(tmp_path: Path, monkeypatch) -> N
         OperationCommandType.RECORD_POLICY_DECISION.value,
         OperationCommandType.REVOKE_POLICY_DECISION.value,
     }
+
+
+def test_policy_revoke_requires_confirmation_by_default(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["policy", "revoke", operation_id, "--policy", "policy-123"],
+        input="n\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Revoke policy policy-123 for operation" in result.stdout
+    assert "cancelled" in result.stdout
+    assert _read_control_intents(tmp_path) == []
+
+
+def test_policy_revoke_yes_skips_confirmation(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["policy", "revoke", operation_id, "--policy", "policy-123", "--yes"],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.REVOKE_POLICY_DECISION
+    assert record.command.payload["policy_id"] == "policy-123"
 
 
 def test_policy_projects_is_inventory_shaped_by_default_and_supports_json(

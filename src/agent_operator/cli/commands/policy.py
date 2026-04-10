@@ -312,8 +312,16 @@ def policy_record(
 
 @policy_app.command("revoke")
 def policy_revoke(
-    operation_id: str, policy_id: str = POLICY_ID_OPTION, reason: str | None = POLICY_REASON_OPTION
+    operation_id: str,
+    policy_id: str = POLICY_ID_OPTION,
+    reason: str | None = POLICY_REASON_OPTION,
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt."),
 ) -> None:
+    if not yes:
+        confirmed = typer.confirm(f"Revoke policy {policy_id} for operation {operation_id}?")
+        if not confirmed:
+            typer.echo("cancelled")
+            raise typer.Exit()
     anyio.run(
         enqueue_custom_command_async,
         operation_id,
