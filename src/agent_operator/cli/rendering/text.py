@@ -117,6 +117,13 @@ def format_live_snapshot(
         count = snapshot.get("open_attention_count")
         if isinstance(count, int) and count > 0:
             lines.append(f"Attention: {count} open; {attention_brief}")
+    else:
+        lines.append("Attention: none")
+    action_hint = shorten_live_text(
+        str(snapshot.get("action_hint")) if snapshot.get("action_hint") is not None else None
+    )
+    if action_hint is not None and attention_brief is not None:
+        lines.append(f"Action: {action_hint}")
     if latest is not None and latest != focus:
         lines.append(f"Latest: {latest}")
     if next_step is not None:

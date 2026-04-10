@@ -4138,6 +4138,7 @@ def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:
         "scheduler_state": "active",
         "open_attention_count": 1,
         "attention_brief": "[policy_gap] Testing policy is missing",
+        "action_hint": "operator answer op-1 attention-1 --text '...'",
         "summary": "Blocked on attention request: Testing policy is missing.",
     }
 
@@ -4145,6 +4146,22 @@ def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:
 
     assert "Operation op-1 [NEEDS_HUMAN]" in formatted
     assert "Attention: 1 open; [policy_gap] Testing policy is missing" in formatted
+    assert "Action: operator answer op-1 attention-1 --text '...'" in formatted
+
+
+def test_format_live_snapshot_surfaces_attention_absence_explicitly() -> None:
+    snapshot = {
+        "operation_id": "op-2",
+        "status": "running",
+        "scheduler_state": "active",
+        "focus": "Inspecting repository boundaries.",
+        "summary": "Inspecting repository boundaries.",
+    }
+
+    formatted = _format_live_snapshot(snapshot)
+
+    assert "Operation op-2 [RUNNING]" in formatted
+    assert "Attention: none" in formatted
 
 
 def test_unpause_resumes_paused_attached_operation(tmp_path: Path, monkeypatch) -> None:

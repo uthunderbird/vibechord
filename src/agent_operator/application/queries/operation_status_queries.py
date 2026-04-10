@@ -137,6 +137,9 @@ class OperationStatusQueryService:
         payload.update(
             self.projection_service.build_live_snapshot(operation, None, runtime_alert=None)
         )
+        action_hint = self.build_status_action_hint(operation)
+        if action_hint is not None:
+            payload["action_hint"] = action_hint
         payload["involvement_level"] = operation.involvement_level.value
         payload["updated_at"] = operation.updated_at.isoformat()
         active_session = operation.active_session_record
