@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -39,6 +40,7 @@ from ..helpers.rendering import (
     format_live_event,
     format_live_snapshot,
     render_dashboard,
+    render_watch_snapshot,
 )
 from ..helpers.resolution import resolve_project_profile_selection
 from ..helpers.services import (
@@ -240,12 +242,53 @@ async def watch_async(operation_id: str, json_mode: bool, poll_interval: float) 
         _, outcome, _, _ = await status_queries.build_status_payload(operation_id)
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    projector.emit_operation(operation_id)
+    use_live_tty = not json_mode and sys.stdout.isatty() and sys.stdin.isatty()
+    if not use_live_tty:
+        projector.emit_operation(operation_id)
     seen_event_ids: set[str] = set()
+    latest_update: str | None = None
     for event in event_sink.iter_events(operation_id):
         seen_event_ids.add(event.event_id)
-        projector.handle_event(event)
+        rendered = format_live_event(event)
+        if rendered is not None:
+            latest_update = rendered
+            if not use_live_tty:
+                typer.echo(rendered)
     last_snapshot: dict[str, object] | None = None
+    if use_live_tty:
+        console = RichConsole()
+        initial_operation, initial_outcome, _, _ = await status_queries.build_status_payload(
+            operation_id
+        )
+        initial_snapshot = status_queries.build_live_snapshot(
+            operation_id, initial_operation, initial_outcome
+        )
+        last_snapshot = initial_snapshot
+        with Live(
+            render_watch_snapshot(initial_snapshot, latest_update=latest_update),
+            console=console,
+            refresh_per_second=4,
+        ) as live:
+            while True:
+                for event in event_sink.iter_events(operation_id):
+                    if event.event_id in seen_event_ids:
+                        continue
+                    seen_event_ids.add(event.event_id)
+                    rendered = format_live_event(event)
+                    if rendered is not None:
+                        latest_update = rendered
+                operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
+                snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
+                if snapshot != last_snapshot:
+                    last_snapshot = snapshot
+                live.update(
+                    render_watch_snapshot(last_snapshot, latest_update=latest_update),
+                    refresh=True,
+                )
+                if outcome is not None and outcome.status is not OperationStatus.RUNNING:
+                    console.print(f"{outcome.status.value}: {outcome.summary}")
+                    return
+                await anyio.sleep(poll_interval)
     while True:
         for event in event_sink.iter_events(operation_id):
             if event.event_id in seen_event_ids:

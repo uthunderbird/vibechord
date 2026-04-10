@@ -12,6 +12,7 @@ import agent_operator.cli.commands as cli_commands_pkg
 import agent_operator.cli.commands.operation_detail as commands_operation_detail
 import agent_operator.cli.helpers as cli_helpers_pkg
 import agent_operator.cli.workflows as cli_workflows
+from agent_operator.cli.helpers.rendering import render_watch_snapshot
 from agent_operator.cli.main import _format_live_snapshot, app
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -4181,6 +4182,49 @@ def test_format_live_snapshot_surfaces_attention_absence_explicitly() -> None:
 
     assert "Operation op-2 [RUNNING]" in formatted
     assert "Attention: none" in formatted
+
+
+def test_render_watch_snapshot_keeps_compact_live_summary() -> None:
+    snapshot = {
+        "operation_id": "op-watch-1",
+        "status": "running",
+        "focus": "Implement the operation watch live surface.",
+        "session_id": "session-1",
+        "adapter_key": "codex_acp",
+        "waiting_reason": "Waiting for the current agent turn to finish.",
+        "open_attention_count": 0,
+        "summary": {
+            "work_summary": "Updated the watch output contract and focused tests.",
+        },
+    }
+
+    rendered = render_watch_snapshot(
+        snapshot,
+        latest_update="[iter 4] agent completed: success | Updated watch rendering.",
+    )
+
+    assert "Operation op-watch-1 [RUNNING]" in rendered
+    assert "Session: session-1 via codex_acp" in rendered
+    assert "Attention: none" in rendered
+    assert "Recent: [iter 4] agent completed: success | Updated watch rendering." in rendered
+    assert "scheduler=" not in rendered
+
+
+def test_render_watch_snapshot_omits_recent_line_without_update() -> None:
+    snapshot = {
+        "operation_id": "op-watch-2",
+        "status": "needs_human",
+        "attention_brief": "[approval_request] Approve deploy",
+        "open_attention_count": 1,
+        "action_hint": "operator answer op-watch-2 attention-1 --text 'Approved.'",
+        "summary": "Blocked on approval request.",
+    }
+
+    rendered = render_watch_snapshot(snapshot, latest_update=None)
+
+    assert "Attention: 1 open; [approval_request] Approve deploy" in rendered
+    assert "Action: operator answer op-watch-2 attention-1 --text 'Approved.'" in rendered
+    assert "Recent:" not in rendered
 
 
 def test_unpause_resumes_paused_attached_operation(tmp_path: Path, monkeypatch) -> None:
