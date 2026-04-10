@@ -9,13 +9,13 @@ import typer
 from agent_operator.domain import InvolvementLevel, ProjectProfile, RunMode
 from agent_operator.runtime import committed_default_profile_path, committed_profile_dir
 
-from .app import app
-from .helpers_services import (
+from ..app import app
+from ..helpers.services import (
     normalize_agent_override,
     update_gitignore_with_operator_dir,
     write_default_project_profile,
 )
-from .options import (
+from ..options import (
     ATTACH_AGENT_OPTION,
     ATTACH_NAME_OPTION,
     ATTACH_SESSION_OPTION,
@@ -38,7 +38,7 @@ from .options import (
     RUN_MODE_OPTION,
     RUN_SUCCESS_CRITERION_OPTION,
 )
-from .workflows import clear_async, run_async
+from ..workflows import clear_async, run_async
 
 
 @app.command()

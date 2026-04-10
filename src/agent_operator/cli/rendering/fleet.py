@@ -91,11 +91,7 @@ def render_fleet_items_table(
     for item in items[:8]:
         state = str(item.get("state_label") or item.get("status") or "-")
         scheduler_state = str(item.get("scheduler_state") or "")
-        if (
-            scheduler_state
-            and scheduler_state != SchedulerState.ACTIVE.value
-            and "/" not in state
-        ):
+        if scheduler_state and scheduler_state != SchedulerState.ACTIVE.value and "/" not in state:
             state += f" / {scheduler_state}"
         signal = str(item.get("attention_badge") or "-")
         runtime_alert = shorten_live_text(str(item.get("runtime_alert") or ""))
@@ -104,12 +100,20 @@ def render_fleet_items_table(
         cue = str(item.get("agent_cue") or item.get("project_profile_name") or "-")
         hint = str(item.get("row_hint") or "-")
         recency = shorten_live_text(
-            str(item.get("recency_brief") or item.get("focus_brief") or item.get("latest_outcome_brief") or "-")
+            str(
+                item.get("recency_brief")
+                or item.get("focus_brief")
+                or item.get("latest_outcome_brief")
+                or "-"
+            )
         )
-        details = shorten_live_text(
-            str(item.get("display_name") or item.get("objective_brief") or "-"),
-            limit=78,
-        ) or "-"
+        details = (
+            shorten_live_text(
+                str(item.get("display_name") or item.get("objective_brief") or "-"),
+                limit=78,
+            )
+            or "-"
+        )
         if recency is not None:
             details = f"{details} | {recency}"
         table.add_row(
@@ -169,18 +173,40 @@ def render_fleet_dashboard(
                 + f" paused={paused_count if paused_count is not None else 0}"
             )
     hint_renderable = "\n".join(str(item) for item in hints if isinstance(item, str)) or "- none"
-    recent_renderable = render_fleet_items_table(recent, shorten_live_text=shorten_live_text) if isinstance(recent, list) else "-"
+    recent_renderable = (
+        render_fleet_items_table(recent, shorten_live_text=shorten_live_text)
+        if isinstance(recent, list)
+        else "-"
+    )
     return Group(
         Panel("\n".join(header_lines), title="Fleet Dashboard", border_style="cyan"),
         Columns(
             [
-                Panel(render_fleet_items_table(needs_attention, shorten_live_text=shorten_live_text) if isinstance(needs_attention, list) else "-", title=f"Needs Attention ({len(needs_attention)})" if isinstance(needs_attention, list) else "Needs Attention", border_style="yellow"),
-                Panel(render_fleet_items_table(active, shorten_live_text=shorten_live_text) if isinstance(active, list) else "-", title=f"Active ({len(active)})" if isinstance(active, list) else "Active", border_style="green"),
+                Panel(
+                    render_fleet_items_table(needs_attention, shorten_live_text=shorten_live_text)
+                    if isinstance(needs_attention, list)
+                    else "-",
+                    title=f"Needs Attention ({len(needs_attention)})"
+                    if isinstance(needs_attention, list)
+                    else "Needs Attention",
+                    border_style="yellow",
+                ),
+                Panel(
+                    render_fleet_items_table(active, shorten_live_text=shorten_live_text)
+                    if isinstance(active, list)
+                    else "-",
+                    title=f"Active ({len(active)})" if isinstance(active, list) else "Active",
+                    border_style="green",
+                ),
             ]
         ),
         Columns(
             [
-                Panel(recent_renderable, title=f"Recent ({len(recent)})" if isinstance(recent, list) else "Recent", border_style="blue"),
+                Panel(
+                    recent_renderable,
+                    title=f"Recent ({len(recent)})" if isinstance(recent, list) else "Recent",
+                    border_style="blue",
+                ),
                 Panel(hint_renderable, title="Suggested Next Commands", border_style="magenta"),
             ]
         ),

@@ -31,7 +31,7 @@ from agent_operator.runtime import (
     resolve_project_run_config,
 )
 
-from ..helpers_logs import (
+from ..helpers.logs import (
     format_opencode_log_event,
     iter_opencode_log_events,
     load_opencode_log_events,
@@ -39,7 +39,7 @@ from ..helpers_logs import (
     resolve_jsonl_log_path_for_session,
     resolve_log_target,
 )
-from ..helpers_rendering import (
+from ..helpers.rendering import (
     build_runtime_alert,
     cli_projection_payload,
     latest_agent_turn_brief,
@@ -49,12 +49,12 @@ from ..helpers_rendering import (
     shorten_live_text,
     turn_work_summary,
 )
-from ..helpers_resolution import (
+from ..helpers.resolution import (
     resolve_history_entry,
     resolve_operation_id,
     resolve_project_profile_selection,
 )
-from ..helpers_services import (
+from ..helpers.services import (
     build_agenda_query_service,
     build_delivery_commands_service,
     build_fleet_workbench_query_service,
@@ -204,7 +204,7 @@ async def history_async(operation_ref: str | None, json_mode: bool) -> None:
 
 
 async def agenda_async(project: str | None, include_all: bool, json_mode: bool) -> None:
-    from ..helpers_rendering import print_agenda_section
+    from ..helpers.rendering import print_agenda_section
 
     snapshot = await _load_agenda_snapshot(project=project, include_all=include_all)
     if json_mode:

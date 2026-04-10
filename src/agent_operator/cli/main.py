@@ -3,7 +3,7 @@ from __future__ import annotations
 from agent_operator.bootstrap import build_service
 
 from .app import app
-from .helpers_rendering import format_live_snapshot as _format_live_snapshot
+from .helpers.rendering import format_live_snapshot as _format_live_snapshot
 from .workflows import fleet_async as _fleet_async
 from .workflows import fleet_tui_async as _fleet_tui_async
 

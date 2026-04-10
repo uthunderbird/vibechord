@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import typer
 from rich.console import Group
 
@@ -9,15 +7,30 @@ from agent_operator.application import OperationProjectionService
 from agent_operator.cli.rendering import render_dashboard as _render_dashboard_view
 from agent_operator.cli.rendering import render_fleet_dashboard as _render_fleet_dashboard_view
 from agent_operator.cli.rendering import render_project_dashboard as _render_project_dashboard_view
-from agent_operator.cli.rendering_text import emit_context_lines as _emit_context_lines_view
-from agent_operator.cli.rendering_text import format_live_event as _format_live_event_view
-from agent_operator.cli.rendering_text import format_live_snapshot as _format_live_snapshot_view
-from agent_operator.cli.rendering_text import render_inspect_summary as _render_inspect_summary_view
-from agent_operator.cli.rendering_text import render_operation_list_line as _render_operation_list_line_view
-from agent_operator.cli.rendering_text import render_status_brief as _render_status_brief_view
-from agent_operator.domain import AgentTurnBrief, ArtifactRecord, AttentionRequest, AttentionStatus, MemoryEntry
-from agent_operator.domain import MemoryFreshness, OperationOutcome, OperationState, OperationStatus, RunEvent
-from agent_operator.domain import SchedulerState, SessionRecord, TaskState, TaskStatus, TraceBriefBundle
+from agent_operator.cli.rendering.text import emit_context_lines as _emit_context_lines_view
+from agent_operator.cli.rendering.text import format_live_event as _format_live_event_view
+from agent_operator.cli.rendering.text import format_live_snapshot as _format_live_snapshot_view
+from agent_operator.cli.rendering.text import render_inspect_summary as _render_inspect_summary_view
+from agent_operator.cli.rendering.text import (
+    render_operation_list_line as _render_operation_list_line_view,
+)
+from agent_operator.cli.rendering.text import render_status_brief as _render_status_brief_view
+from agent_operator.domain import (
+    AgentTurnBrief,
+    ArtifactRecord,
+    AttentionRequest,
+    AttentionStatus,
+    MemoryEntry,
+    MemoryFreshness,
+    OperationState,
+    OperationStatus,
+    RunEvent,
+    SchedulerState,
+    SessionRecord,
+    TaskState,
+    TaskStatus,
+    TraceBriefBundle,
+)
 from agent_operator.runtime import AgendaItem
 
 PROJECTIONS = OperationProjectionService()
@@ -78,7 +91,9 @@ def recent_iteration_briefs(brief: TraceBriefBundle | None, *, limit: int = 3) -
 def recent_agent_turn_briefs(brief: TraceBriefBundle | None, *, limit: int = 2) -> list:
     if brief is None:
         return []
-    return sorted(brief.agent_turn_briefs, key=lambda item: (item.iteration, item.created_at))[-limit:]
+    return sorted(brief.agent_turn_briefs, key=lambda item: (item.iteration, item.created_at))[
+        -limit:
+    ]
 
 
 def turn_work_summary(turn: AgentTurnBrief | None) -> str | None:
@@ -123,7 +138,9 @@ def render_section(title: str, lines: list[str]) -> list[str]:
 
 
 def format_live_event(event: RunEvent) -> str | None:
-    return _format_live_event_view(event, shorten_live_text=lambda text: shorten_live_text(text, limit=100))
+    return _format_live_event_view(
+        event, shorten_live_text=lambda text: shorten_live_text(text, limit=100)
+    )
 
 
 def open_attention_requests(operation: OperationState) -> list[AttentionRequest]:
@@ -193,7 +210,9 @@ def render_inspect_summary(
 ) -> str:
     return _render_inspect_summary_view(
         operation,
-        summary=PROJECTIONS.build_inspect_summary_payload(operation, brief, runtime_alert=runtime_alert),
+        summary=PROJECTIONS.build_inspect_summary_payload(
+            operation, brief, runtime_alert=runtime_alert
+        ),
         brief=brief,
         recent_iteration_briefs=recent_iteration_briefs,
         recent_agent_turn_briefs=recent_agent_turn_briefs,
@@ -254,15 +273,24 @@ def format_agenda_item(item: AgendaItem) -> list[str]:
     if details:
         lines.append("  " + " ".join(details))
     if item.runtime_alert is not None:
-        lines.append("  alert: " + (shorten_paragraph_text(item.runtime_alert, limit=180) or item.runtime_alert))
+        lines.append(
+            "  alert: "
+            + (shorten_paragraph_text(item.runtime_alert, limit=180) or item.runtime_alert)
+        )
     elif item.blocker_brief is not None:
-        lines.append("  blocker: " + (shorten_paragraph_text(item.blocker_brief, limit=180) or item.blocker_brief))
+        lines.append(
+            "  blocker: "
+            + (shorten_paragraph_text(item.blocker_brief, limit=180) or item.blocker_brief)
+        )
     if item.attention_briefs:
         lines.append(f"  attention: {' | '.join(item.attention_briefs)}")
     elif item.attention_titles:
         lines.append(f"  attention_titles: {' | '.join(item.attention_titles)}")
     if item.latest_outcome_brief is not None:
-        latest_brief = shorten_paragraph_text(item.latest_outcome_brief, limit=220) or item.latest_outcome_brief
+        latest_brief = (
+            shorten_paragraph_text(item.latest_outcome_brief, limit=220)
+            or item.latest_outcome_brief
+        )
         lines.append("  latest: " + latest_brief)
     return lines
 
@@ -298,15 +326,21 @@ def cli_projection_payload(payload: dict[str, object]) -> dict[str, object]:
 
 
 def render_fleet_dashboard(payload: dict[str, object]) -> Group:
-    return _render_fleet_dashboard_view(payload, shorten_live_text=lambda text, *, limit=48: shorten_live_text(text, limit=limit))
+    return _render_fleet_dashboard_view(
+        payload, shorten_live_text=lambda text, *, limit=48: shorten_live_text(text, limit=limit)
+    )
 
 
 def render_project_dashboard(payload: dict[str, object]) -> Group:
-    return _render_project_dashboard_view(payload, shorten_live_text=lambda text: shorten_live_text(text, limit=88))
+    return _render_project_dashboard_view(
+        payload, shorten_live_text=lambda text: shorten_live_text(text, limit=88)
+    )
 
 
 def render_dashboard(payload: dict[str, object]) -> Group:
-    return _render_dashboard_view(payload, shorten_live_text=lambda text: shorten_live_text(text, limit=60))
+    return _render_dashboard_view(
+        payload, shorten_live_text=lambda text: shorten_live_text(text, limit=60)
+    )
 
 
 def resolve_task_title(operation: OperationState, task_id: str | None) -> str | None:

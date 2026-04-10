@@ -181,15 +181,13 @@ See [RFC 0011](./rfc/0011-delivery-package-boundary-for-cli-and-tui.md) for the 
 
 Current repository truth under `ADR 0123` is only partial:
 
-- `implemented`: the workflow family now lives under `agent_operator.cli.workflows` with a
-  top-level compatibility facade at `agent_operator.cli.workflows.py`
-- `implemented`: the TUI family now lives under `agent_operator.cli.tui` with package-local
-  `controller`, `io`, `models`, and `rendering` modules, while top-level `tui_*` modules remain as
-  compatibility shims
-- `partial`: commands and rendering still use flat top-level `commands_*` and `rendering_*`
-  modules
-- `deferred`: helpers remain flat by design pending a later cohesion review rather than moving for
-  symmetry alone
+- `implemented`: the command family lives under `agent_operator.cli.commands`
+- `implemented`: the rendering family lives under `agent_operator.cli.rendering`
+- `implemented`: the TUI family lives under `agent_operator.cli.tui`
+- `implemented`: the workflow family lives under `agent_operator.cli.workflows`
+- `implemented`: the helper family lives under `agent_operator.cli.helpers`
+- `implemented`: top-level flat family modules have been retired rather than retained as enduring
+  compatibility paths
 
 That means the repository should not grow a separate enduring architectural layer between delivery
 and application for TUI work. When delivery extractions are needed, they should expose
@@ -197,8 +195,8 @@ application-facing command/query contracts more explicitly rather than creating 
 authority above or beside the existing application layer.
 
 The CLI commands are organized in a three-tier model (Everyday / Situational / Forensic). See
-`Inspection Surfaces` below for the full surface list and VISION.md CLI Design for the tier
-descriptions.
+`Inspection Surfaces` below for the full surface list, VISION.md CLI Design for the tier
+descriptions, and RFC 0014 for the command-family output grammar.
 
 ## Core Runtime Model
 
@@ -332,7 +330,7 @@ The live control seam supports:
 - representing scheduler states such as `pause_requested` and `paused`,
 - and surfacing human-required attention explicitly rather than only through coarse blocked status.
 
-The attached-mode delivery surfaces (`watch`, `agenda`, `fleet`, `dashboard`) are projections over
+The attached-mode delivery surfaces (`watch`, `fleet`, `status`, `session`) are projections over
 persisted operation state. See VISION.md CLI Design for the full surface descriptions.
 
 The most important boundary rule is:
@@ -520,8 +518,8 @@ The initial implemented policy slice includes:
 - an operation-centric `context` CLI surface that shows the effective profile, policy scope,
   active policy set, and runtime control state steering one operation
 
-Delivery surfaces for these layers (`tasks`, `memory`, `artifacts`, `report`, `agenda`, `fleet`,
-`dashboard`, `context`) are described in VISION.md CLI Design.
+Delivery surfaces for these layers (`tasks`, `memory`, `artifacts`, `report`, `list`, `fleet`,
+`status`, `session`, and hidden debug/context inspection) are described in VISION.md CLI Design.
 
 ## Traceability
 
@@ -1215,20 +1213,25 @@ The default CLI inspection surfaces stay grounded in persisted operation truth a
 projections:
 
 - `list`
-- `agenda`
 - `fleet`
 - `status`
 - `watch`
-- `dashboard`
-- `context`
-- `inspect`
+- `session`
 - `tasks`
 - `memory`
 - `artifacts`
 - `attention`
 - `report`
-- `trace`
+- `history`
 - `log`
+
+Deeper forensic and recovery inspection remains available through hidden `debug` surfaces such as:
+
+- `debug context`
+- `debug trace`
+- `debug inspect`
+- `debug sessions`
+- `debug wakeups`
 
 When a run is backed by Codex ACP, the most detailed upstream evidence still lives in the native
 Codex transcript under `~/.codex/sessions/...jsonl`.
@@ -1243,7 +1246,12 @@ This keeps:
 - the full Codex transcript as upstream evidence,
 - and Codex-specific transcript parsing localized to the CLI/runtime edge.
 
-The three-tier CLI model (Everyday / Situational / Forensic) and each command's purpose are described in VISION.md CLI Design.
+The three-tier CLI model, command-family ownership, and textual output grammar are described in:
+
+- VISION.md CLI Design
+- [RFC 0014](./rfc/0014-cli-output-contract-and-example-corpus.md)
+- [ADR 0131](./adr/0131-cross-operation-supervisory-snapshot-surface.md) through
+  [ADR 0142](./adr/0142-hidden-debug-recovery-and-forensic-inspection-surfaces.md)
 
 ## Operator Workspace (Future Direction)
 
@@ -1327,7 +1335,7 @@ Deviations from these principles should be captured in an ADR. For decisions alr
 
 ## CLI / Workflow ADR Wave
 
-The current CLI/workflow implementation decomposition is captured by:
+The current CLI/workflow design decomposition is captured by:
 
 - [ADR 0093](./adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md)
 - [ADR 0094](./adr/0094-run-init-project-create-workflow-and-project-profile-lifecycle.md)
@@ -1335,3 +1343,16 @@ The current CLI/workflow implementation decomposition is captured by:
 - [ADR 0096](./adr/0096-one-operation-control-and-summary-surface.md)
 - [ADR 0097](./adr/0097-forensic-log-unification-and-debug-surface-relocation.md)
 - [ADR 0098](./adr/0098-history-ledger-and-history-command-contract.md)
+- [RFC 0014](./rfc/0014-cli-output-contract-and-example-corpus.md)
+- [ADR 0131](./adr/0131-cross-operation-supervisory-snapshot-surface.md)
+- [ADR 0132](./adr/0132-workspace-shell-and-lifecycle-commands.md)
+- [ADR 0133](./adr/0133-one-operation-summary-and-control-surface.md)
+- [ADR 0134](./adr/0134-one-operation-live-follow-surface.md)
+- [ADR 0135](./adr/0135-session-snapshot-and-live-follow-surface.md)
+- [ADR 0136](./adr/0136-transcript-retrospective-and-ledger-surfaces.md)
+- [ADR 0137](./adr/0137-operation-detail-and-inventory-surfaces.md)
+- [ADR 0138](./adr/0138-project-profile-inventory-and-inspection-surfaces.md)
+- [ADR 0139](./adr/0139-project-dashboard-and-entry-surface.md)
+- [ADR 0140](./adr/0140-policy-inventory-and-explainability-surfaces.md)
+- [ADR 0141](./adr/0141-policy-mutation-and-attention-promotion-workflow.md)
+- [ADR 0142](./adr/0142-hidden-debug-recovery-and-forensic-inspection-surfaces.md)

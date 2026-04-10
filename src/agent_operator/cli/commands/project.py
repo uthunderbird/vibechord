@@ -7,12 +7,16 @@ import anyio
 import typer
 
 from agent_operator.domain import InvolvementLevel, ProjectProfile
-from agent_operator.runtime import list_project_profiles, resolve_project_run_config, write_project_profile
+from agent_operator.runtime import (
+    list_project_profiles,
+    resolve_project_run_config,
+    write_project_profile,
+)
 
-from .app import project_app
-from .helpers_services import load_settings, load_settings_with_data_dir
-from .helpers_resolution import resolve_project_profile_selection
-from .options import (
+from ..app import project_app
+from ..helpers.resolution import resolve_project_profile_selection
+from ..helpers.services import load_settings, load_settings_with_data_dir
+from ..options import (
     PROJECT_AGENT_OPTION,
     PROJECT_CWD_OPTION,
     PROJECT_FORCE_OPTION,
@@ -24,7 +28,7 @@ from .options import (
     PROJECT_SUCCESS_CRITERION_OPTION,
     WATCH_POLL_INTERVAL_OPTION,
 )
-from .workflows import project_dashboard_async
+from ..workflows import project_dashboard_async
 
 
 @project_app.command("list")
@@ -45,7 +49,11 @@ def project_create(
     success_criterion: list[str] | None = PROJECT_SUCCESS_CRITERION_OPTION,
     max_iterations: int | None = PROJECT_MAX_ITERATIONS_OPTION,
     involvement: InvolvementLevel | None = PROJECT_INVOLVEMENT_OPTION,
-    local: bool = typer.Option(False, "--local", help="Write the profile to .operator/profiles instead of operator-profiles."),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Write the profile to .operator/profiles instead of operator-profiles.",
+    ),
     force: bool = PROJECT_FORCE_OPTION,
     json_mode: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -98,7 +106,9 @@ def project_resolve(
 ) -> None:
     settings, data_dir_source = load_settings_with_data_dir()
     try:
-        profile, selected_path, profile_source = resolve_project_profile_selection(settings, name=name)
+        profile, selected_path, profile_source = resolve_project_profile_selection(
+            settings, name=name
+        )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
     if profile is None:
@@ -129,7 +139,9 @@ def project_resolve(
 def project_dashboard(
     name: str | None = typer.Argument(None),
     once: bool = typer.Option(False, "--once", help="Render a single dashboard snapshot and exit."),
-    json_mode: bool = typer.Option(False, "--json", help="Emit a machine-readable project dashboard snapshot."),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Emit a machine-readable project dashboard snapshot."
+    ),
     poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
 ) -> None:
     anyio.run(project_dashboard_async, name, once, json_mode, poll_interval)

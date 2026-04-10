@@ -19,8 +19,8 @@ from agent_operator.runtime import (
     load_codex_log_events,
 )
 
-from .app import app
-from .helpers_logs import (
+from ..app import app
+from ..helpers.logs import (
     format_opencode_log_event,
     iter_opencode_log_events,
     load_opencode_log_events,
@@ -28,7 +28,7 @@ from .helpers_logs import (
     resolve_jsonl_log_path_for_session,
     resolve_log_target,
 )
-from .helpers_rendering import (
+from ..helpers.rendering import (
     PROJECTIONS,
     artifact_preview,
     format_task_line,
@@ -36,14 +36,14 @@ from .helpers_rendering import (
     shorten_live_text,
     summarize_task_counts,
 )
-from .helpers_resolution import resolve_operation_id, resolve_operation_id_async
-from .helpers_services import (
+from ..helpers.resolution import resolve_operation_id, resolve_operation_id_async
+from ..helpers.services import (
     build_operation_dashboard_query_service,
     build_status_query_service,
     load_settings,
 )
-from .options import CODEX_HOME_OPTION, JSON_OPTION, MEMORY_ALL_OPTION, WATCH_POLL_INTERVAL_OPTION
-from .workflows import dashboard_async, watch_async
+from ..options import CODEX_HOME_OPTION, JSON_OPTION, MEMORY_ALL_OPTION, WATCH_POLL_INTERVAL_OPTION
+from ..workflows import dashboard_async, watch_async
 
 
 def _resolve_task(operation, task_ref: str) -> TaskState:
@@ -547,10 +547,7 @@ def session(
             session_display_id = (
                 session_payload_data.get("session_id") or task_record.linked_session_id
             )
-            typer.echo(
-                f"Session: {session_display_id} "
-                f"[{adapter_key}] state={session_status}"
-            )
+            typer.echo(f"Session: {session_display_id} [{adapter_key}] state={session_status}")
             typer.echo(f"Bound tasks: {bound_tasks}")
             typer.echo(f"Now: {_shorten(session_brief.get('now'))}")
             typer.echo(f"Wait: {_shorten(session_brief.get('wait'))}")

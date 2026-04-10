@@ -14,8 +14,8 @@ from agent_operator.bootstrap import (
     build_wakeup_inbox,
 )
 
-from .app import app, debug_app
-from .helpers_rendering import (
+from ..app import app, debug_app
+from ..helpers.rendering import (
     PROJECTIONS,
     artifact_preview,
     emit_context_lines,
@@ -28,9 +28,9 @@ from .helpers_rendering import (
     shorten_live_text,
     summarize_task_counts,
 )
-from .helpers_services import build_status_query_service, load_settings
-from .options import JSON_OPTION, WATCH_POLL_INTERVAL_OPTION
-from .workflows import daemon_async, recover_async, resume_async, tick_async
+from ..helpers.services import build_status_query_service, load_settings
+from ..options import JSON_OPTION, WATCH_POLL_INTERVAL_OPTION
+from ..workflows import daemon_async, recover_async, resume_async, tick_async
 
 
 @app.command(hidden=True)
@@ -102,8 +102,7 @@ def recover(
         None,
         "--session",
         help=(
-            "Force recovery for a specific session instead of auto-selecting "
-            "the active stuck one."
+            "Force recovery for a specific session instead of auto-selecting the active stuck one."
         ),
     ),
     max_cycles: int = typer.Option(1, help="Maximum scheduler cycles after forced recovery."),
@@ -119,8 +118,7 @@ def debug_recover(
         None,
         "--session",
         help=(
-            "Force recovery for a specific session instead of auto-selecting "
-            "the active stuck one."
+            "Force recovery for a specific session instead of auto-selecting the active stuck one."
         ),
     ),
     max_cycles: int = typer.Option(1, help="Maximum scheduler cycles after forced recovery."),

@@ -31,8 +31,22 @@ Use these labels where helpful:
 - `planned`
 - `blocked`
 
-For ADRs and RFCs, prefer an explicit implementation-status section when the document could
-otherwise be read as "accepted therefore complete".
+For ADRs, always expose both:
+
+- `Decision Status`
+- `Implementation Status`
+
+For RFCs and other design documents, use an explicit implementation-status section whenever the
+document could otherwise read as "accepted or drafted therefore complete".
+
+If an ADR has `Decision Status: Accepted` and `Implementation Status: Partial`, it must include an
+early skim-safe summary of:
+
+- what has landed
+- what has not landed
+- where the remaining work is tracked canonically
+
+Do not rely on scattered body prose to communicate partiality.
 
 ## Documentation Placement
 

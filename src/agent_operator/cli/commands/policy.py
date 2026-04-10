@@ -6,17 +6,23 @@ import anyio
 import typer
 
 from agent_operator.bootstrap import build_policy_store, build_store
-from agent_operator.domain import CommandTargetScope, InvolvementLevel, OperationCommandType, PolicyStatus, RunMode
+from agent_operator.domain import (
+    CommandTargetScope,
+    InvolvementLevel,
+    OperationCommandType,
+    PolicyStatus,
+    RunMode,
+)
 
-from .app import policy_app
-from .helpers_policy import (
+from ..app import policy_app
+from ..helpers.policy import (
     policy_applicability_payload,
     policy_evaluation_payload,
     policy_payload,
     resolve_operation_policy_scope,
 )
-from .helpers_services import load_settings
-from .options import (
+from ..helpers.services import load_settings
+from ..options import (
     POLICY_ATTENTION_OPTION,
     POLICY_CATEGORY_OPTION,
     POLICY_ID_OPTION,
@@ -30,7 +36,13 @@ from .options import (
     POLICY_TEXT_OPTION,
     POLICY_TITLE_OPTION,
 )
-from .workflows import enqueue_custom_command_async
+from ..workflows import enqueue_custom_command_async
+
+POLICY_AGENT_OPTION = typer.Option(
+    None,
+    "--agent",
+    help="Limit the policy to operations that allow or use this adapter key.",
+)
 
 
 @policy_app.command("projects")
@@ -51,7 +63,9 @@ def policy_list(
     project: str | None = typer.Argument(None, help="Project profile name."),
     project_option: str | None = typer.Option(None, "--project", help="Project profile name."),
     scope: str | None = typer.Option(None, "--scope", help="Explicit project scope."),
-    include_inactive: bool = typer.Option(False, "--all", help="Include revoked and superseded entries."),
+    include_inactive: bool = typer.Option(
+        False, "--all", help="Include revoked and superseded entries."
+    ),
     json_mode: bool = typer.Option(False, "--json"),
 ) -> None:
     settings = load_settings()
@@ -66,7 +80,13 @@ def policy_list(
             entries = [entry for entry in entries if entry.status is PolicyStatus.ACTIVE]
         payload = [policy_payload(entry) for entry in entries]
         if json_mode:
-            typer.echo(json.dumps({"project_scope": resolved_scope, "policy_entries": payload}, indent=2, ensure_ascii=False))
+            typer.echo(
+                json.dumps(
+                    {"project_scope": resolved_scope, "policy_entries": payload},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
             return
         typer.echo(f"Project scope: {resolved_scope or '(all)'}")
         typer.echo("Policy entries:")
@@ -99,7 +119,9 @@ def policy_inspect(policy_id: str, json_mode: bool = POLICY_JSON_OPTION) -> None
 @policy_app.command("explain")
 def policy_explain(
     operation_id: str,
-    include_inactive: bool = typer.Option(False, "--all", help="Include revoked and superseded entries from the same project scope."),
+    include_inactive: bool = typer.Option(
+        False, "--all", help="Include revoked and superseded entries from the same project scope."
+    ),
     json_mode: bool = POLICY_JSON_OPTION,
 ) -> None:
     settings = load_settings()
@@ -111,7 +133,11 @@ def policy_explain(
         if operation is None:
             raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
         project_scope = resolve_operation_policy_scope(operation)
-        entries = await policy_store.list(project_scope=project_scope) if project_scope is not None else []
+        entries = (
+            await policy_store.list(project_scope=project_scope)
+            if project_scope is not None
+            else []
+        )
         if not include_inactive:
             entries = [entry for entry in entries if entry.status is PolicyStatus.ACTIVE]
         evaluations = [policy_evaluation_payload(entry, operation) for entry in entries]
@@ -130,7 +156,10 @@ def policy_explain(
         typer.echo(f"Operation {operation_id}")
         typer.echo(f"Project scope: {project_scope or '-'}")
         if project_scope is None:
-            typer.echo("Policy evaluation: operation has no persisted policy scope, so scoped project policy cannot be evaluated.")
+            typer.echo(
+                "Policy evaluation: operation has no persisted policy scope, so scoped "
+                "project policy cannot be evaluated."
+            )
             return
         typer.echo("Matched policy:")
         if not matched:
@@ -167,7 +196,7 @@ def policy_record(
     category: str = POLICY_CATEGORY_OPTION,
     objective_keyword: list[str] | None = POLICY_OBJECTIVE_KEYWORD_OPTION,
     task_keyword: list[str] | None = POLICY_TASK_KEYWORD_OPTION,
-    agent: list[str] | None = typer.Option(None, "--agent", help="Limit the policy to operations that allow or use this adapter key."),
+    agent: list[str] | None = POLICY_AGENT_OPTION,
     run_mode: list[RunMode] | None = POLICY_RUN_MODE_OPTION,
     involvement: list[InvolvementLevel] | None = POLICY_INVOLVEMENT_MATCH_OPTION,
     rationale: str | None = typer.Option(None, "--rationale", help="Optional rationale."),
@@ -187,16 +216,22 @@ def policy_record(
             "title": effective_title,
             "text": effective_text,
             "category": category,
-            **policy_applicability_payload(objective_keyword, task_keyword, agent, run_mode, involvement),
+            **policy_applicability_payload(
+                objective_keyword, task_keyword, agent, run_mode, involvement
+            ),
             "rationale": rationale,
         },
-        CommandTargetScope.ATTENTION_REQUEST if attention_id is not None else CommandTargetScope.OPERATION,
+        CommandTargetScope.ATTENTION_REQUEST
+        if attention_id is not None
+        else CommandTargetScope.OPERATION,
         attention_id or operation_id,
     )
 
 
 @policy_app.command("revoke")
-def policy_revoke(operation_id: str, policy_id: str = POLICY_ID_OPTION, reason: str | None = POLICY_REASON_OPTION) -> None:
+def policy_revoke(
+    operation_id: str, policy_id: str = POLICY_ID_OPTION, reason: str | None = POLICY_REASON_OPTION
+) -> None:
     anyio.run(
         enqueue_custom_command_async,
         operation_id,

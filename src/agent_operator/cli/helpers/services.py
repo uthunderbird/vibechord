@@ -36,8 +36,8 @@ from agent_operator.runtime import (
     resolve_operator_data_dir,
 )
 
-from .helpers_logs import build_dashboard_upstream_transcript
-from .helpers_rendering import (
+from .logs import build_dashboard_upstream_transcript
+from .rendering import (
     PROJECTIONS,
     build_runtime_alert,
     find_task_by_display_id,

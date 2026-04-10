@@ -14,13 +14,11 @@ from agent_operator.runtime import (
     find_codex_session_log,
     format_claude_log_event,
     format_codex_log_event,
-    iter_claude_log_events,
-    iter_codex_log_events,
     load_claude_log_events,
     load_codex_log_events,
 )
 
-from .helpers_rendering import shorten_live_text
+from .rendering import shorten_live_text
 
 
 def resolve_claude_log_path_for_session(session: AgentSessionHandle) -> Path:
@@ -30,7 +28,9 @@ def resolve_claude_log_path_for_session(session: AgentSessionHandle) -> Path:
 def resolve_jsonl_log_path_for_session(session: AgentSessionHandle, *, provider: str) -> Path:
     raw_path = session.metadata.get("log_path")
     if not isinstance(raw_path, str) or not raw_path.strip():
-        raise typer.BadParameter(f"{provider} log path for session {session.session_id!r} is not available.")
+        raise typer.BadParameter(
+            f"{provider} log path for session {session.session_id!r} is not available."
+        )
     path = Path(raw_path)
     if not path.exists():
         raise typer.BadParameter(
@@ -93,7 +93,9 @@ def parse_opencode_log_line(raw: str) -> OpencodeLogEvent | None:
         or shorten_live_text(json.dumps(payload, ensure_ascii=False), limit=120)
         or "-"
     )
-    return OpencodeLogEvent(timestamp=timestamp, category=category, summary=summary, details=payload)
+    return OpencodeLogEvent(
+        timestamp=timestamp, category=category, summary=summary, details=payload
+    )
 
 
 def load_opencode_log_events(path: Path) -> list[OpencodeLogEvent]:
@@ -142,17 +144,26 @@ def resolve_log_target(operation: OperationState, *, agent: str) -> tuple[str, A
     if normalized == "claude":
         session = next((item for item in session_handles if item.adapter_key == "claude_acp"), None)
         if session is None:
-            raise typer.BadParameter(f"Operation {operation.operation_id!r} does not have a claude_acp session.")
+            raise typer.BadParameter(
+                f"Operation {operation.operation_id!r} does not have a claude_acp session."
+            )
         return "claude", session
     if normalized == "opencode":
-        session = next((item for item in session_handles if item.adapter_key in {"opencode", "opencode_acp"}), None)
+        session = next(
+            (item for item in session_handles if item.adapter_key in {"opencode", "opencode_acp"}),
+            None,
+        )
         if session is None:
-            raise typer.BadParameter(f"Operation {operation.operation_id!r} does not have an opencode session.")
+            raise typer.BadParameter(
+                f"Operation {operation.operation_id!r} does not have an opencode session."
+            )
         return "opencode", session
     if normalized == "codex":
         session = next((item for item in session_handles if item.adapter_key == "codex_acp"), None)
         if session is None:
-            raise typer.BadParameter(f"Operation {operation.operation_id!r} does not have a codex_acp session.")
+            raise typer.BadParameter(
+                f"Operation {operation.operation_id!r} does not have a codex_acp session."
+            )
         return "codex", session
     codex = next((item for item in session_handles if item.adapter_key == "codex_acp"), None)
     if codex is not None:
@@ -160,13 +171,19 @@ def resolve_log_target(operation: OperationState, *, agent: str) -> tuple[str, A
     claude = next((item for item in session_handles if item.adapter_key == "claude_acp"), None)
     if claude is not None:
         return "claude", claude
-    opencode = next((item for item in session_handles if item.adapter_key in {"opencode", "opencode_acp"}), None)
+    opencode = next(
+        (item for item in session_handles if item.adapter_key in {"opencode", "opencode_acp"}), None
+    )
     if opencode is not None:
         return "opencode", opencode
-    raise typer.BadParameter(f"Operation {operation.operation_id!r} does not have a transcript-capable session.")
+    raise typer.BadParameter(
+        f"Operation {operation.operation_id!r} does not have a transcript-capable session."
+    )
 
 
-def build_dashboard_upstream_transcript(operation: OperationState, *, codex_home: Path) -> dict[str, object] | None:
+def build_dashboard_upstream_transcript(
+    operation: OperationState, *, codex_home: Path
+) -> dict[str, object] | None:
     if not operation.sessions:
         return None
     try:
@@ -179,16 +196,22 @@ def build_dashboard_upstream_transcript(operation: OperationState, *, codex_home
             return None
         return {
             "title": "Codex Log",
-            "events": [format_codex_log_event(event) for event in load_codex_log_events(path)[-30:]],
+            "events": [
+                format_codex_log_event(event) for event in load_codex_log_events(path)[-30:]
+            ],
         }
     if log_kind == "claude":
         path = resolve_claude_log_path_for_session(session)
         return {
             "title": "Claude Log",
-            "events": [format_claude_log_event(event) for event in load_claude_log_events(path)[-30:]],
+            "events": [
+                format_claude_log_event(event) for event in load_claude_log_events(path)[-30:]
+            ],
         }
     path = resolve_jsonl_log_path_for_session(session, provider="OpenCode")
     return {
         "title": "OpenCode Log",
-        "events": [format_opencode_log_event(event) for event in load_opencode_log_events(path)[-30:]],
+        "events": [
+            format_opencode_log_event(event) for event in load_opencode_log_events(path)[-30:]
+        ],
     }

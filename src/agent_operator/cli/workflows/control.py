@@ -28,14 +28,14 @@ from agent_operator.domain import (
 )
 from agent_operator.runtime import apply_project_profile_settings, resolve_project_run_config
 
-from ..helpers_rendering import (
+from ..helpers.rendering import (
     cli_projection_payload,
     format_live_event,
     format_live_snapshot,
     render_dashboard,
 )
-from ..helpers_resolution import resolve_project_profile_selection
-from ..helpers_services import (
+from ..helpers.resolution import resolve_project_profile_selection
+from ..helpers.services import (
     build_operation_dashboard_query_service,
     build_projected_service,
     build_projecting_delivery_commands_service,

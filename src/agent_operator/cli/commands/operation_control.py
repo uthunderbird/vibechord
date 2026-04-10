@@ -3,11 +3,16 @@ from __future__ import annotations
 import anyio
 import typer
 
-from agent_operator.domain import CommandTargetScope, InvolvementLevel, OperationCommandType, RunMode
+from agent_operator.domain import (
+    CommandTargetScope,
+    InvolvementLevel,
+    OperationCommandType,
+    RunMode,
+)
 
-from .app import app, debug_app
-from .helpers_resolution import resolve_operation_id
-from .options import (
+from ..app import app, debug_app
+from ..helpers.resolution import resolve_operation_id
+from ..options import (
     COMMAND_ALLOWED_AGENT_OPTION,
     COMMAND_CLEAR_SUCCESS_CRITERIA_OPTION,
     COMMAND_MAX_ITERATIONS_OPTION,
@@ -20,7 +25,13 @@ from .options import (
     PROMOTE_POLICY_RUN_MODE_OPTION,
     PROMOTE_POLICY_TASK_KEYWORD_OPTION,
 )
-from .workflows import answer_async, cancel_async, enqueue_command_async, status_async, stop_turn_async
+from ..workflows import (
+    answer_async,
+    cancel_async,
+    enqueue_command_async,
+    status_async,
+    stop_turn_async,
+)
 
 
 @app.command()
@@ -97,12 +108,19 @@ def debug_command(
 
 @app.command()
 def involvement(operation_id: str, level: InvolvementLevel = INVOLVEMENT_LEVEL_OPTION) -> None:
-    anyio.run(enqueue_command_async, operation_id, OperationCommandType.SET_INVOLVEMENT_LEVEL, level.value)
+    anyio.run(
+        enqueue_command_async, operation_id, OperationCommandType.SET_INVOLVEMENT_LEVEL, level.value
+    )
 
 
 @app.command()
 def pause(operation_id: str) -> None:
-    anyio.run(enqueue_command_async, resolve_operation_id(operation_id), OperationCommandType.PAUSE_OPERATOR, None)
+    anyio.run(
+        enqueue_command_async,
+        resolve_operation_id(operation_id),
+        OperationCommandType.PAUSE_OPERATOR,
+        None,
+    )
 
 
 @app.command()
@@ -119,7 +137,9 @@ def unpause(operation_id: str) -> None:
 @app.command("interrupt")
 def interrupt(
     operation_ref: str,
-    task_id: str | None = typer.Option(None, "--task", help="Task ID (UUID or task-XXXX short ID) whose session to stop."),
+    task_id: str | None = typer.Option(
+        None, "--task", help="Task ID (UUID or task-XXXX short ID) whose session to stop."
+    ),
 ) -> None:
     anyio.run(stop_turn_async, resolve_operation_id(operation_ref), task_id)
 
@@ -127,7 +147,9 @@ def interrupt(
 @app.command(hidden=True)
 def stop_turn(
     operation_ref: str,
-    task_id: str | None = typer.Option(None, "--task", help="Task ID (UUID or task-XXXX short ID) whose session to stop."),
+    task_id: str | None = typer.Option(
+        None, "--task", help="Task ID (UUID or task-XXXX short ID) whose session to stop."
+    ),
 ) -> None:
     interrupt(operation_ref, task_id)
 
@@ -147,16 +169,26 @@ def answer(
     operation_ref: str,
     attention_id: str | None = typer.Argument(None, help="Attention request id."),
     text: str = typer.Option(..., "--text", help="Human answer text."),
-    promote: bool = typer.Option(False, "--promote", help="Also promote this answered attention into durable project policy."),
-    policy_title: str | None = typer.Option(None, "--policy-title", help="Optional policy title override when --promote is used."),
-    policy_text: str | None = typer.Option(None, "--policy-text", help="Optional policy text override when --promote is used."),
-    policy_category: str = typer.Option("general", "--policy-category", help="Policy category for --promote."),
+    promote: bool = typer.Option(
+        False, "--promote", help="Also promote this answered attention into durable project policy."
+    ),
+    policy_title: str | None = typer.Option(
+        None, "--policy-title", help="Optional policy title override when --promote is used."
+    ),
+    policy_text: str | None = typer.Option(
+        None, "--policy-text", help="Optional policy text override when --promote is used."
+    ),
+    policy_category: str = typer.Option(
+        "general", "--policy-category", help="Policy category for --promote."
+    ),
     policy_objective_keyword: list[str] | None = PROMOTE_POLICY_OBJECTIVE_KEYWORD_OPTION,
     policy_task_keyword: list[str] | None = PROMOTE_POLICY_TASK_KEYWORD_OPTION,
     policy_agent: list[str] | None = PROMOTE_POLICY_AGENT_OPTION,
     policy_run_mode: list[RunMode] | None = PROMOTE_POLICY_RUN_MODE_OPTION,
     policy_involvement: list[InvolvementLevel] | None = PROMOTE_POLICY_INVOLVEMENT_OPTION,
-    policy_rationale: str | None = typer.Option(None, "--policy-rationale", help="Optional rationale for the promoted policy."),
+    policy_rationale: str | None = typer.Option(
+        None, "--policy-rationale", help="Optional rationale for the promoted policy."
+    ),
 ) -> None:
     anyio.run(
         answer_async,

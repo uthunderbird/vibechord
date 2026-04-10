@@ -68,7 +68,9 @@ def _emit_help(*, show_all: bool) -> None:
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    help_: bool = typer.Option(False, "--help", "-h", help="Show this message and exit.", is_eager=True),
+    help_: bool = typer.Option(
+        False, "--help", "-h", help="Show this message and exit.", is_eager=True
+    ),
     all_commands: bool = typer.Option(
         False, "--all", help="Show hidden commands when combined with --help.", is_eager=True
     ),
@@ -91,11 +93,11 @@ def main(
     raise typer.Exit()
 
 
-from . import commands_debug as _commands_debug  # noqa: E402,F401
-from . import commands_fleet as _commands_fleet  # noqa: E402,F401
-from . import commands_operation_control as _commands_operation_control  # noqa: E402,F401
-from . import commands_operation_detail as _commands_operation_detail  # noqa: E402,F401
-from . import commands_policy as _commands_policy  # noqa: E402,F401
-from . import commands_project as _commands_project  # noqa: E402,F401
-from . import commands_run as _commands_run  # noqa: E402,F401
-from . import commands_smoke as _commands_smoke  # noqa: E402,F401
+from .commands import debug as _commands_debug  # noqa: E402,F401
+from .commands import fleet as _commands_fleet  # noqa: E402,F401
+from .commands import operation_control as _commands_operation_control  # noqa: E402,F401
+from .commands import operation_detail as _commands_operation_detail  # noqa: E402,F401
+from .commands import policy as _commands_policy  # noqa: E402,F401
+from .commands import project as _commands_project  # noqa: E402,F401
+from .commands import run as _commands_run  # noqa: E402,F401
+from .commands import smoke as _commands_smoke  # noqa: E402,F401

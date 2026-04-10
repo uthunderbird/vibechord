@@ -11,8 +11,8 @@ from typer.testing import CliRunner
 import agent_operator.cli.main as cli_main
 from agent_operator.cli.tui import build_fleet_workbench_controller
 from agent_operator.cli.tui import models as tui_models_pkg
-from agent_operator.cli.tui_models import FleetWorkbenchState, dashboard_tasks, task_signal_text
-from agent_operator.cli.tui_rendering import (
+from agent_operator.cli.tui.models import FleetWorkbenchState, dashboard_tasks, task_signal_text
+from agent_operator.cli.tui.rendering import (
     render_attention_picker,
     render_forensic_transcript_panel,
     render_help_overlay,
@@ -1494,7 +1494,7 @@ def test_session_timeline_renders_newest_event_first() -> None:
                     "session_id": "session-1",
                     "summary": "completed later",
                 },
-            ]
+            ],
         },
         selected_task_index=0,
     )
@@ -1656,9 +1656,10 @@ async def test_forensic_filter_escape_restores_previous_query() -> None:
     await controller.handle_key("z")
 
     assert controller.state.pending_forensic_filter_text == "startinz"
-    assert "No raw transcript lines match the current filter." in render_forensic_transcript_panel(
-        controller.state
-    ).plain
+    assert (
+        "No raw transcript lines match the current filter."
+        in render_forensic_transcript_panel(controller.state).plain
+    )
 
     await controller.handle_key("\x1b")
     assert controller.state.pending_forensic_filter_text is None

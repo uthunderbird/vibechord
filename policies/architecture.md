@@ -48,10 +48,15 @@ Store ADRs under [`../design/adr/`](../design/adr/).
 ## ADR Lifecycle Semantics
 
 - ADRs must separate decision adoption from implementation completion.
-- Use a decision-status field such as `Proposed`, `Accepted`, `Rejected`, `Superseded`, or
+- ADRs must expose both a `Decision Status` section and an `Implementation Status` section near the
+  top of the document.
+- Do not rely on a lone `Status` field for ADR lifecycle truth.
+- Canonical `Decision Status` values are `Proposed`, `Accepted`, `Rejected`, `Superseded`, and
   `Stale`.
-- Use a distinct implementation-status field such as `Planned`, `Partial`, `Implemented`,
-  `Verified`, or `N/A`.
+- Canonical `Implementation Status` values are `Planned`, `Partial`, `Implemented`, `Verified`,
+  and `N/A`.
 - Do not treat `Accepted` as a synonym for "fully done".
 - Migration and tranche ADRs with partial implementation must link a canonical remaining-work
   artifact such as a tranche ADR, backlog note, checklist, or status document.
+- Architecture review and ADR sweeps must distinguish decision acceptance from implementation
+  completion rather than treating `Accepted` as closure.

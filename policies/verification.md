@@ -27,3 +27,12 @@ For computation- or script-derived outputs, be explicit about whether the result
 suite.
 
 `planned`: full repository-wide `mypy` coverage.
+
+## ADR Verification And Closure Reporting
+
+- Do not infer implementation completeness or verification completeness from `Decision Status`
+  alone.
+- When reporting ADR state, use `Implementation Status` plus explicit evidence rather than treating
+  `Accepted` as closure.
+- If an ADR is `Partial`, verification notes and status sweeps should preserve that truth even when
+  the decision itself is already accepted.

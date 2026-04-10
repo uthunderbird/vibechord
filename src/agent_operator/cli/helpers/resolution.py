@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import anyio
 import typer
 
 from agent_operator.bootstrap import build_store
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import OperationState
-from agent_operator.runtime import resolve_operator_data_dir
-from agent_operator.runtime import discover_local_project_profile, load_project_profile, profile_path
+from agent_operator.runtime import (
+    discover_local_project_profile,
+    load_project_profile,
+    profile_path,
+    resolve_operator_data_dir,
+)
 
 
 def _load_settings() -> OperatorSettings:
@@ -34,15 +36,24 @@ async def resolve_operation_id_async(operation_ref: str) -> str:
             raise typer.BadParameter("No persisted operations were found.")
         latest = max(states, key=lambda item: item.created_at)
         return latest.operation_id
-    exact = next((item.operation_id for item in summaries if item.operation_id == operation_ref), None)
+    exact = next(
+        (item.operation_id for item in summaries if item.operation_id == operation_ref), None
+    )
     if exact is not None:
         return exact
-    matches = [item.operation_id for item in summaries if item.operation_id.startswith(operation_ref)]
+    matches = [
+        item.operation_id for item in summaries if item.operation_id.startswith(operation_ref)
+    ]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
+        rendered_matches = ", ".join(sorted(matches))
+        message = (
+            f"Operation reference {operation_ref!r} is ambiguous. "
+            f"Matches: {rendered_matches}"
+        )
         raise typer.BadParameter(
-            f"Operation reference {operation_ref!r} is ambiguous. Matches: {', '.join(sorted(matches))}"
+            message
         )
     raise typer.BadParameter(f"Operation {operation_ref!r} was not found.")
 
@@ -51,7 +62,9 @@ def resolve_operation_id(operation_ref: str) -> str:
     return anyio.run(resolve_operation_id_async, operation_ref)
 
 
-def resolve_history_entry(operation_ref: str, entries: list[dict[str, object]]) -> dict[str, object]:
+def resolve_history_entry(
+    operation_ref: str, entries: list[dict[str, object]]
+) -> dict[str, object]:
     if not entries:
         raise typer.BadParameter("No committed history entries were found.")
     if operation_ref == "last":

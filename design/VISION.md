@@ -97,7 +97,7 @@ Default stop conditions include:
 
 Stop conditions are part of the control plane (Principle 2: Deterministic guardrails). They are
 not subject to LLM override. When a stop condition fires, the operation moves to `TERMINAL` with
-a specific `stop_reason` that is visible in `inspect` and `trace`.
+a specific `stop_reason` that is visible in `status` and `debug trace`.
 
 ## Design Principles
 
@@ -182,7 +182,7 @@ project file system.
 The operator brain has read-only access to the project file system for planning purposes: `read_file`, `list_dir`, and `search_text` — read only, no writes. All writes go through agents.
 
 Results of operator file reads either inform the immediate brain decision or are persisted as
-`MemoryEntry` with freshness tracking. "Same file" means the same normalized absolute path after symlink resolution — if the same path is read again, the new entry supersedes the prior one regardless of whether the file content changed. File reads emit `operator.context_read` events visible in `trace` and `dashboard`.
+`MemoryEntry` with freshness tracking. "Same file" means the same normalized absolute path after symlink resolution — if the same path is read again, the new entry supersedes the prior one regardless of whether the file content changed. File reads emit `operator.context_read` events visible in `debug trace` and richer supervisory/detail surfaces.
 
 `MemoryEntry` supports two scopes:
 
@@ -230,7 +230,7 @@ An operation moves through three user-visible macro-states:
 - **TERMINAL** — the operation has completed, failed, or been cancelled.
 
 Internal scheduler states (`pause_requested`, `paused`, `draining`) are control-plane details. They
-are visible through `context` and `dashboard` but are not part of the user's primary mental model.
+are visible through richer inspection/debug surfaces but are not part of the user's primary mental model.
 
 ### Failure visibility
 
@@ -243,9 +243,9 @@ the three outcomes:
   the goal unachievable.
 - **cancelled** — the user issued a `cancel` command.
 
-The cause is surfaced by `inspect op-id` (human-readable summary) and `trace op-id` (full event
-log including the specific guardrail or failure event that triggered the terminal transition). The
-user does not need to read raw exception traces to understand what went wrong.
+The cause is surfaced by `status op-id` (human-readable summary) and `debug trace op-id` (full
+forensic event log including the specific guardrail or failure event that triggered the terminal
+transition). The user does not need to read raw exception traces to understand what went wrong.
 
 **Attention during drain:** If a new attention request arrives while the scheduler is in a `draining` state (e.g., draining after `pause` or due to an error recovery path), the attention is accepted and queued; the operation transitions to or remains in `NEEDS_HUMAN`. Exception: a drain caused by `cancel` is not interruptible — new attentions arriving during a cancel drain are rejected with `operation_cancelling`, and the operation proceeds to `TERMINAL`.
 
@@ -378,7 +378,8 @@ Operator messages are distinct from typed commands:
 | Effect | shapes next brain decision | mutates persisted state |
 | When it takes effect | next decision / replanning | deterministic on apply |
 
-**Transparency:** active operator messages are visible in `watch` and `dashboard`. Operator
+**Transparency:** active operator messages are visible in `watch` and the richer supervisory/detail
+surfaces. Operator
 messages persist in the brain's context for a configurable number of planning cycles (the
 **operator message window**, set per project or at run time; default is **3 planning cycles**). A window of 0 means the message is injected into the very next planning cycle and then immediately aged out; no minimum beyond 0 is enforced. Very large window values are permitted but may retain stale context across many iterations. When a message ages out of the window, an `operator_message.dropped_from_context` event is emitted — there is no silent expiry.
 
@@ -406,7 +407,7 @@ Blocking attention requests (`approval_request`, `blocked_external_dependency`, 
 `collaborative` or higher involvement — `policy_gap` and `novel_strategic_fork`) move the operation
 to `NEEDS_HUMAN`. The operation resumes when the user answers via `operator answer op-id [att-id]`.
 Non-blocking attention requests (including `document_update_proposal`) do not affect operation
-state; they appear in `watch` and `dashboard` for user awareness.
+state; they appear in `watch` and the richer supervisory/detail surfaces for user awareness.
 
 ### Active turn control
 
@@ -570,14 +571,15 @@ contract.
    workspace, with a clear boundary between the workspace directory and the rest of the project
    file system.
 3. Write governance machinery exists: workspace writes are domain events (`workspace.document.written`,
-   `workspace.document.updated`), visible in `trace`, revertable via a `workspace revert` command,
-   and auditable in `dashboard` without having to read the files directly.
+   `workspace.document.updated`), visible in `debug trace`, revertable via a `workspace revert`
+   command, and auditable in the richer supervisory/detail surfaces without having to read the
+   files directly.
 4. The workspace directory is gitignored by default (like `.operator/`), with explicit opt-in for
    committing workspace documents to version control.
 
 Until all four criteria are met, the read-only invariant holds. The workspace concept is not a
 shortcut around the review step; it is a promotion of the brain from proposer to author, which
-requires explicit governance infrastructure before it is safe to enable. Artifacts are user-facing deliverables — files, diffs, reports, or structured data returned as the concrete output of completed task work. They are distinct from `MemoryEntry` objects, which are operator-internal context used for planning and are not exposed as deliverables. The operator does not produce artifacts; only agent sessions do. Artifacts are accessible via `artifacts op-id` (Tier 3) and may be referenced in task output summaries shown by `inspect`.
+requires explicit governance infrastructure before it is safe to enable. Artifacts are user-facing deliverables — files, diffs, reports, or structured data returned as the concrete output of completed task work. They are distinct from `MemoryEntry` objects, which are operator-internal context used for planning and are not exposed as deliverables. The operator does not produce artifacts; only agent sessions do. Artifacts are accessible via `artifacts op-id` (Tier 2) and may be referenced in task output summaries shown by `report` or other retained detail surfaces.
 
 ## Agent Adapter Contract
 
@@ -646,7 +648,7 @@ The CLI is a thin surface over the same application layer used by Python callers
 - answering attention requests and injecting context messages inline,
 - inspecting progress, task graph, and decision history on demand,
 - drilling down to raw agent transcripts when debugging,
-- supervising many operations from a cross-operation agenda,
+- supervising many operations from a cross-operation fleet snapshot or workbench,
 - non-interactive automation with machine-readable output,
 - and preserving transparent logs and artifacts.
 
@@ -688,11 +690,18 @@ The CLI UX is governed by these requirements:
   CLI commands should remain intentful, but the product should be explainable by `scope × role`
   rather than as a flat bag of unrelated commands.
 
+RFC 0014 is the output-contract companion for this CLI vision:
+
+- it governs the textual output grammar for command families
+- it separates textual CLI output from interactive TUI layout ownership
+- it provides the normative example corpus for default human-readable output, `--brief`, `--json`,
+  and textual follow surfaces
+
 ### Principle: commands named by user intent, not system mechanism
 
 Every command should be named for what the user wants to accomplish, not for the internal mechanism
-it triggers. `resume` is better than `tick`. `agenda` is better than `list-scheduled-wakeups`.
-Commands that expose implementation details belong in the forensic tier, not the everyday tier.
+it triggers. `resume` is better than `tick`. Commands that expose implementation details belong in
+the forensic tier, not the everyday tier.
 
 ### Scope × role model
 
@@ -722,6 +731,10 @@ Examples:
 This model is intended to keep CLI and TUI conceptually aligned without forcing identical surface
 forms. It also makes missing surfaces visible: if the public CLI has no meaningful `session`-scope
 surface, that is a product gap rather than merely an implementation detail.
+
+RFC 0014 owns the textual output grammar for these scope × role combinations. When `operator` or
+`operator fleet` opens the interactive fleet workbench in a TTY, the TUI owns that layout rather
+than this document's textual example layer.
 
 At the code/package level, this shared model does not imply that TUI should permanently remain
 nested inside the CLI package. The current `cli/tui` shape is acceptable as a transition, but the
@@ -767,15 +780,10 @@ policy needs adjustment.
 |---|---|
 | `watch op-id` | live surface — what is happening, is input needed |
 | `session op-id --task task-id` | session-scoped summary/live surface |
-| `inspect op-id` | progress snapshot — what has been done |
-| `dashboard op-id` | live L2 view: inspect with task board and command receipts |
 | `tasks op-id` | task graph with dependency status and agent assignment |
 | `memory op-id` | distilled memory entries |
 | `artifacts op-id` | durable outputs |
 | `attention op-id` | list open and answered attention requests |
-| `resume op-id` | continue after interruption or crash |
-| `unpause op-id` | remove a soft pause |
-| `involvement op-id` | change the autonomy level for a running operation (see below) |
 | `report op-id` | operation summary report |
 | `list` | list all persisted operations |
 | `policy ...` | policy management |
@@ -796,9 +804,9 @@ The `involvement` command sets the autonomy level for a running operation. Two p
 
 Under `unattended`, both policy gap types surface as attention requests but do not block non-affected tasks. Under `interactive`, both types block forward progress until answered.
 
-The active involvement level is inspectable via `context op-id` and is visible in `dashboard` and
-`watch`. It can be changed at any point while the operation is running; the change takes effect at
-the next brain decision point.
+The active involvement level is inspectable through the richer policy/context inspection surfaces
+and is visible in the supervisory views. It can be changed at any point while the operation is
+running; the change takes effect at the next brain decision point.
 
 #### Tier 3 — Forensic and Admin
 
@@ -807,7 +815,6 @@ Needed rarely. For debugging, setup, and one-off recovery operations. A **wakeup
 | Command | Purpose |
 |---|---|
 | `log op-id [--agent claude|codex|auto]` | raw agent session log |
-| `trace op-id` | forensic event log |
 | `debug daemon` | background wakeup daemon |
 | `debug tick op-id` | single scheduler cycle |
 | `debug recover op-id` | force recovery of a stuck agent turn |
@@ -979,6 +986,8 @@ Relationship to adjacent surfaces:
 - `watch` remains useful as a lightweight textual live follower and pipe-friendly supervision aid
 - `session` is the public session-scope summary/live surface
 - `log` remains the raw transcript surface
+- deeper forensic inspection remains under hidden `debug` surfaces rather than public top-level
+  commands
 
 ### Drill-down model
 
@@ -989,14 +998,15 @@ L1  watch op-id           live — "is input needed, what is happening"
       ↓
 L2  session op-id --task task-id
                           session-scoped summary/live view
-    inspect op-id         operation snapshot — progress, recent decisions, open attention
-    dashboard op-id       rich operation live/detail surface
+    status op-id          operation snapshot — progress, open attention, next action
       ↓
 L3  tasks op-id           task graph with dependency and assignment detail
-    trace op-id           forensic event log
     memory / artifacts    distilled state
+    attention / report    retained detail and retrospective surfaces
       ↓
 L4  log op-id             raw agent transcript
+    debug trace op-id     forensic event log
+    debug inspect op-id   full forensic dump
 ```
 
 Navigation invariant: moving from any level to the next requires only `operation_id` and optionally
@@ -1028,19 +1038,19 @@ The first meaningful version should demonstrate:
 2. **Deterministic run policies around that loop** — all six stop conditions (iteration limit, time limit, budget limit, explicit success, explicit failure, user cancellation) fire correctly and move the operation to `TERMINAL` in isolated tests, with no LLM call required to trigger any of them.
 3. **One clean headless adapter for Claude ACP** — the adapter implements all six required capabilities from the adapter contract, passes a conformance test suite that exercises each capability, and requires no changes to the operator core when added.
 4. **One ACP-backed adapter for Codex** — same conformance requirements as item 3; the operator core is unaware that the underlying transport is stdio.
-5. **A usable CLI with transparent event output** — `run`, `watch`, `inspect`, `trace`, and `cancel` work end-to-end; `watch` shows the current task, agent, and any open attention request within one second of state change; `trace` emits a complete JSONL event log for the operation.
+5. **A usable CLI with transparent event output** — `run`, `status`, `watch`, `debug trace`, and `cancel` work end-to-end; `watch` shows the current task, agent, and any open attention request within one second of state change; `debug trace` exposes the forensic event log for the operation.
 6. **An architecture that makes the third adapter easier than the first** — specifically, adding a third adapter must require no changes to the operator core or to any existing protocol definition.
 
 **Phase 2 milestones** (subsequent, after the first working version) add:
 
 7. **Explicit task graph with dependency tracking and short display IDs** — `tasks op-id` shows the five canonical states, dependency edges, and short IDs; cycle detection rejects invalid `add_dependency` calls; completion propagation unblocks dependent tasks without an LLM call.
 8. **Multi-session parallel coordination within a single operation** — at least two agent sessions run concurrently on independent tasks; the brain serializes planning decisions through the event queue; no race condition between sessions in the test harness.
-9. **User-facing operator messages (context injection) with transparency** — `message op-id "..."` injects context that appears in the brain's next planning prompt; `operator_message.dropped_from_context` is emitted when a message ages out; active messages are visible in `watch` and `dashboard`.
+9. **User-facing operator messages (context injection) with transparency** — `message op-id "..."` injects context that appears in the brain's next planning prompt; `operator_message.dropped_from_context` is emitted when a message ages out; active messages are visible in `watch` and richer supervisory/detail surfaces.
 10. **Operator read-only file tools for context building** — `read_file`, `list_dir`, and `search_text` are available to the brain; each read emits an `operator.context_read` event; no file write is possible through these tools.
 
 ## CLI Closure Wave
 
-The current CLI/workflow implementation wave is decomposed into:
+The current CLI/workflow design and closure wave is decomposed into:
 
 - [ADR 0093](./adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md)
 - [ADR 0094](./adr/0094-run-init-project-create-workflow-and-project-profile-lifecycle.md)
@@ -1048,7 +1058,25 @@ The current CLI/workflow implementation wave is decomposed into:
 - [ADR 0096](./adr/0096-one-operation-control-and-summary-surface.md)
 - [ADR 0097](./adr/0097-forensic-log-unification-and-debug-surface-relocation.md)
 - [ADR 0098](./adr/0098-history-ledger-and-history-command-contract.md)
+- [RFC 0014](./rfc/0014-cli-output-contract-and-example-corpus.md)
+- [ADR 0131](./adr/0131-cross-operation-supervisory-snapshot-surface.md)
+- [ADR 0132](./adr/0132-workspace-shell-and-lifecycle-commands.md)
+- [ADR 0133](./adr/0133-one-operation-summary-and-control-surface.md)
+- [ADR 0134](./adr/0134-one-operation-live-follow-surface.md)
+- [ADR 0135](./adr/0135-session-snapshot-and-live-follow-surface.md)
+- [ADR 0136](./adr/0136-transcript-retrospective-and-ledger-surfaces.md)
+- [ADR 0137](./adr/0137-operation-detail-and-inventory-surfaces.md)
+- [ADR 0138](./adr/0138-project-profile-inventory-and-inspection-surfaces.md)
+- [ADR 0139](./adr/0139-project-dashboard-and-entry-surface.md)
+- [ADR 0140](./adr/0140-policy-inventory-and-explainability-surfaces.md)
+- [ADR 0141](./adr/0141-policy-mutation-and-attention-promotion-workflow.md)
+- [ADR 0142](./adr/0142-hidden-debug-recovery-and-forensic-inspection-surfaces.md)
 
-These ADRs narrow the command taxonomy, project-entry workflow, addressing model, one-operation
-control surface, forensic/debug split, and history-ledger contract needed to make the CLI vision
-executable.
+These documents now cover:
+
+- command taxonomy and lifecycle shell behavior
+- addressing and one-operation summary/control semantics
+- live follow, session supervision, and transcript/ledger/report surfaces
+- project and policy subgroup families
+- hidden debug/recovery and forensic inspection
+- and the textual output contract for the public CLI

@@ -54,12 +54,15 @@ async def run_fleet_workbench(
 
     console = Console()
     await controller.refresh()
-    with raw_stdin(sys.stdin.fileno()), Live(
-        controller.render(),
-        console=console,
-        refresh_per_second=8,
-        screen=True,
-    ) as live:
+    with (
+        raw_stdin(sys.stdin.fileno()),
+        Live(
+            controller.render(),
+            console=console,
+            refresh_per_second=8,
+            screen=True,
+        ) as live,
+    ):
         while True:
             key = read_key(timeout_seconds=poll_interval)
             if key is None:

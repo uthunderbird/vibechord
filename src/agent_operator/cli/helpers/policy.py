@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from agent_operator.domain import InvolvementLevel, OperationState, PolicyEntry, RunMode
-from agent_operator.domain import describe_policy_applicability, policy_match_reasons, policy_mismatch_reasons
+from agent_operator.domain import (
+    InvolvementLevel,
+    OperationState,
+    PolicyEntry,
+    RunMode,
+    describe_policy_applicability,
+    policy_match_reasons,
+    policy_mismatch_reasons,
+)
 
 
 def policy_applicability_payload(
@@ -25,7 +32,9 @@ def policy_applicability_payload(
     return payload
 
 
-def policy_payload(policy: PolicyEntry, operation: OperationState | None = None) -> dict[str, object]:
+def policy_payload(
+    policy: PolicyEntry, operation: OperationState | None = None
+) -> dict[str, object]:
     payload = policy.model_dump(mode="json")
     payload["applicability_summary"] = describe_policy_applicability(policy)
     if operation is not None:

@@ -13,6 +13,10 @@ Implementation decomposition for this vision lives in:
 - [ADR 0097](./adr/0097-forensic-log-unification-and-debug-surface-relocation.md)
 - [ADR 0098](./adr/0098-history-ledger-and-history-command-contract.md)
 
+Output-contract authority and rendered examples for this vision live in:
+
+- [RFC 0014](./rfc/0014-cli-output-contract-and-example-corpus.md)
+
 The existing CLI is treated as input data, not as a constraint. Commands that should change are named explicitly with rationale.
 
 This is a design specification. Implementation details (Typer internals, shell completion mechanics) are noted but not adjudicated here.
@@ -74,6 +78,10 @@ Examples:
 
 This model is explanatory, not a mandate to replace intentful command names with level nouns.
 
+RFC 0014 governs the default textual output grammar for these scope × role combinations. When
+`operator` or `operator fleet` opens the interactive fleet workbench in a TTY, the TUI owns that
+interactive layout rather than this document's textual example layer.
+
 ---
 
 ## Command Structure
@@ -102,10 +110,10 @@ This yields the intended mental model:
 
 | Scope | Summary | Live | Detail | Control | Transcript |
 |---|---|---|---|---|---|
-| `fleet` | `operator` / `fleet --once` | `operator` / `fleet` | project/fleet detail stays secondary | `answer`, `pause`, `unpause`, `cancel` from selected op | — |
+| `fleet` | `operator` / `fleet --once` | `operator` in TTY opens the TUI fleet workbench | project/fleet detail stays secondary | `answer`, `pause`, `unpause`, `cancel` from selected op | — |
 | `operation` | `status` | `watch`, `dashboard` | `tasks`, `memory`, `artifacts`, `attention`, `report` | `answer`, `message`, `pause`, `unpause`, `interrupt`, `cancel` | — |
 | `session` | `session OP --task TASK --once` | `session OP --task TASK --follow` | `session OP --task TASK` | `interrupt --task TASK` is the scoped control entry | transcript escalation remains `log OP [--agent ...]` |
-| `forensic` | `inspect` | `trace` | `debug inspect`, `debug trace`, `debug context` | debug recovery commands | `log` |
+| `forensic` | `debug inspect` | `debug trace` | `debug inspect`, `debug trace`, `debug context` | debug recovery commands | `log` |
 
 Implications:
 
@@ -506,6 +514,9 @@ operator fleet [--project PROFILE] [--once] [--json] [--poll-interval SECS]
 TUI fleet workbench when TTY is attached. Single snapshot when non-TTY or `--once`. `--project`
 filters by profile name.
 
+RFC 0014 governs the textual snapshot shape for non-TTY and `--once` use. The interactive
+TTY-attached fleet workbench remains owned by the TUI design and ADR chain.
+
 The interactive fleet surface is a human-first master-detail view:
 
 - compact global header
@@ -601,6 +612,14 @@ Every command that accepts an operation ID also accepts:
 | Non-TTY (live commands) | auto-detected | Falls back to `--once` snapshot mode |
 
 All commands must produce human-readable output by default. Commands that currently output raw JSON in non-`--json` mode are bugs — specifically `project inspect` and `project resolve`.
+
+RFC 0014 is the canonical output-contract companion for this section:
+
+- it defines command-family textual grammar
+- it distinguishes supervisory, live-follow, retrospective, inventory, mutation, transcript, and
+  forensic/debug output classes
+- it governs examples for default human-readable output, `--brief`, `--json`, and textual
+  follow-surface behavior
 
 ---
 

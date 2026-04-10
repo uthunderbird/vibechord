@@ -2,24 +2,28 @@
 
 - Date: 2026-04-10
 
-## Status
+## Decision Status
 
 Accepted
 
-## Implementation status
+## Implementation Status
 
 Current repository truth on 2026-04-10:
 
-- `implemented`: `cli/workflows/` now exists as a real package with `control.py`, `views.py`,
-  `workspace.py`, and `__init__.py`
+- `implemented`: `cli/commands/` now exists as a real package and owns the command-family
+  implementation
+- `implemented`: `cli/rendering/` now exists as a real package and owns the rendering-family
+  implementation
 - `implemented`: `cli/tui/` now exists as a real package with `controller.py`, `io.py`,
   `models.py`, `rendering.py`, and `__init__.py`
-- `implemented`: compatibility shims remain at top-level `cli/tui_*.py` module paths
-- `partial`: `cli/commands/` and `cli/rendering/` package moves have not landed yet
-- `deferred`: `cli/helpers/` remains explicitly deferred pending a later cohesion review
+- `implemented`: `cli/workflows/` now exists as a real package with `control.py`, `views.py`,
+  `workspace.py`, and `__init__.py`
+- `implemented`: `cli/helpers/` now exists as a real package and owns the helper-family
+  implementation
+- `implemented`: top-level flat family modules (`commands_*.py`, `rendering*.py`, `tui_*.py`,
+  `helpers_*.py`, `workflows.py`) have been retired
 
-This ADR is therefore accepted as the package-shape direction, but only partially implemented in
-the current repository tranche.
+This ADR is implemented.
 
 ## Context
 
@@ -341,15 +345,17 @@ This ADR is fully implemented when:
    justifies it explicitly
 6. CLI behavior and import compatibility remain materially stable through the transition
 
-## Evidence for current partial status
+## Evidence for implemented status
 
-As of 2026-04-10, the repository satisfies this subset:
+As of 2026-04-10, the repository satisfies the full closure criteria:
 
-1. `cli/workflows/` exists as a package and owns the workflow-family implementation
-2. `cli/tui/` exists as a package and owns the TUI-family implementation
-3. compatibility imports still resolve through top-level CLI module paths
-4. `cli/commands/` and `cli/rendering/` do not yet exist as packages, so the full ADR remains
-   incomplete
+1. `cli/commands/`, `cli/rendering/`, `cli/tui/`, and `cli/workflows/` exist as real packages
+2. `cli/helpers/` also exists as a real package rather than remaining deferred
+3. top-level `cli/` is reduced to entry/facade files rather than family-prefixed implementation
+   modules
+4. command families are package-grouped without introducing `commands/operation/`
+5. top-level compatibility facades for the migrated families have been retired rather than
+   lingering as parallel truth
 
 ## Related
 

@@ -8,7 +8,9 @@ from pathlib import Path
 import anyio
 from typer.testing import CliRunner
 
-import agent_operator.cli.commands_operation_detail as commands_operation_detail
+import agent_operator.cli.commands as cli_commands_pkg
+import agent_operator.cli.commands.operation_detail as commands_operation_detail
+import agent_operator.cli.helpers as cli_helpers_pkg
 import agent_operator.cli.workflows as cli_workflows
 from agent_operator.cli.main import _format_live_snapshot, app
 from agent_operator.domain import (
@@ -73,6 +75,13 @@ def test_workflows_facade_reexports_package_entrypoints() -> None:
     assert "run_async" in cli_workflows.__all__
     assert "fleet_async" in cli_workflows.__all__
     assert "clear_async" in cli_workflows.__all__
+
+
+def test_cli_package_exports_command_and_helper_families() -> None:
+    assert "fleet" in cli_commands_pkg.__all__
+    assert "operation_detail" in cli_commands_pkg.__all__
+    assert "rendering" in cli_helpers_pkg.__all__
+    assert "services" in cli_helpers_pkg.__all__
 
 
 def state_settings(

@@ -194,16 +194,16 @@ class FleetWorkbenchController:
         if key in {"up", "k"}:
             items = self._attention_picker_items()
             if items:
-                self.state.attention_picker_index = (
-                    self.state.attention_picker_index - 1
-                ) % len(items)
+                self.state.attention_picker_index = (self.state.attention_picker_index - 1) % len(
+                    items
+                )
             return True
         if key in {"down", "j"}:
             items = self._attention_picker_items()
             if items:
-                self.state.attention_picker_index = (
-                    self.state.attention_picker_index + 1
-                ) % len(items)
+                self.state.attention_picker_index = (self.state.attention_picker_index + 1) % len(
+                    items
+                )
             return True
         if key == "enter":
             items = self._attention_picker_items()
@@ -248,9 +248,7 @@ class FleetWorkbenchController:
             self._apply_filter(selected_operation_id)
             await self._refresh_selected_fleet_state()
             self.state.last_message = (
-                f"Applied fleet filter: {committed}"
-                if committed
-                else "Cleared fleet filter."
+                f"Applied fleet filter: {committed}" if committed else "Cleared fleet filter."
             )
             return True
         if key in {"\x7f", "\b"}:
@@ -930,9 +928,7 @@ class FleetWorkbenchController:
             self.state.pending_session_filter_text = None
             self._apply_session_filter(selected_summary)
             self.state.last_message = (
-                f"Applied session filter: {committed}"
-                if committed
-                else "Cleared session filter."
+                f"Applied session filter: {committed}" if committed else "Cleared session filter."
             )
             return True
         if key in {"\x7f", "\b"}:
@@ -991,16 +987,14 @@ class FleetWorkbenchController:
             self.state.forensic_filter_query = committed
             self.state.pending_forensic_filter_text = None
             self.state.last_message = (
-                f"Applied forensic filter: {committed}"
-                if committed
-                else "Cleared forensic filter."
+                f"Applied forensic filter: {committed}" if committed else "Cleared forensic filter."
             )
             return True
         if key in {"\x7f", "\b"}:
             if self.state.pending_forensic_filter_text:
-                self.state.pending_forensic_filter_text = (
-                    self.state.pending_forensic_filter_text[:-1]
-                )
+                self.state.pending_forensic_filter_text = self.state.pending_forensic_filter_text[
+                    :-1
+                ]
             self.state.forensic_filter_query = self.state.pending_forensic_filter_text or ""
             return True
         if len(key) == 1 and key.isprintable():

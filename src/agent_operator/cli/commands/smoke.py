@@ -11,7 +11,7 @@ from agent_operator.smoke import (
     run_mixed_code_agent_selection_smoke,
 )
 
-from .app import smoke_app
+from ..app import smoke_app
 
 
 @smoke_app.command("alignment-post-research-plan")

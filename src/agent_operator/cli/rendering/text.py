@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from agent_operator.domain import AgentTurnBrief, AttentionRequest, InvolvementLevel, OperationState, RunEvent, SchedulerState
+from agent_operator.domain import (
+    AgentTurnBrief,
+    AttentionRequest,
+    InvolvementLevel,
+    OperationState,
+    RunEvent,
+    SchedulerState,
+)
 
 
 def render_operation_list_line(
@@ -189,7 +196,9 @@ def emit_context_lines(payload: dict[str, object], *, operation_id: str) -> list
             lines.append(f"- Resolved cwd: {resolved_profile.get('cwd') or '-'}")
             overrides = resolved_profile.get("overrides")
             if isinstance(overrides, list) and overrides:
-                lines.append("- CLI/profile overrides: " + ", ".join(str(item) for item in overrides))
+                lines.append(
+                    "- CLI/profile overrides: " + ", ".join(str(item) for item in overrides)
+                )
     else:
         lines.append("- none")
 
@@ -287,9 +296,7 @@ def render_inspect_summary(
     for turn in recent_agent_turn_briefs(brief):
         session_label = turn.session_display_name or turn.session_id
         turn_lines.append(f"- {turn.agent_key} ({session_label}) [{turn.status}]")
-        turn_lines.append(
-            f"  assignment: {shorten_paragraph_text(turn.assignment_brief) or '-'}"
-        )
+        turn_lines.append(f"  assignment: {shorten_paragraph_text(turn.assignment_brief) or '-'}")
         work = turn_work_summary(turn)
         if work:
             turn_lines.append(f"  work: {work}")
@@ -395,7 +402,9 @@ def format_live_event(
             rendered += f" | {summary}"
         return rendered
     if event.event_type == "command.applied":
-        return f"{prefix}command applied: {str(payload.get('command_type', '')).strip() or 'unknown'}"
+        return (
+            f"{prefix}command applied: {str(payload.get('command_type', '')).strip() or 'unknown'}"
+        )
     if event.event_type == "command.rejected":
         command_type = str(payload.get("command_type", "")).strip() or "unknown"
         reason = shorten_live_text(str(payload.get("rejection_reason", "")).strip())
@@ -404,15 +413,20 @@ def format_live_event(
             rendered += f" | {reason}"
         return rendered
     if event.event_type == "planning_trigger.enqueued":
-        return f"{prefix}planning trigger enqueued: {str(payload.get('reason', '')).strip() or 'unknown'}"
+        reason = str(payload.get("reason", "")).strip() or "unknown"
+        return f"{prefix}planning trigger enqueued: {reason}"
     if event.event_type == "planning_trigger.coalesced":
-        return f"{prefix}planning trigger coalesced: {str(payload.get('reason', '')).strip() or 'unknown'}"
+        reason = str(payload.get("reason", "")).strip() or "unknown"
+        return f"{prefix}planning trigger coalesced: {reason}"
     if event.event_type == "planning_trigger.applied":
-        return f"{prefix}planning trigger applied: {str(payload.get('reason', '')).strip() or 'unknown'}"
+        reason = str(payload.get("reason", "")).strip() or "unknown"
+        return f"{prefix}planning trigger applied: {reason}"
     if event.event_type == "background_wakeup.reconciled":
-        return f"{prefix}background wakeup reconciled: run={str(payload.get('run_id', '')).strip() or 'unknown'}"
+        run_id = str(payload.get("run_id", "")).strip() or "unknown"
+        return f"{prefix}background wakeup reconciled: run={run_id}"
     if event.event_type == "background_run.stale_detected":
-        return f"{prefix}stale background run detected: run={str(payload.get('run_id', '')).strip() or 'unknown'}"
+        run_id = str(payload.get("run_id", "")).strip() or "unknown"
+        return f"{prefix}stale background run detected: run={run_id}"
     if event.event_type == "operation.cycle_finished":
         return None
     return f"{prefix}{event.event_type}"
