@@ -2291,6 +2291,19 @@ def test_status_shows_action_line_when_attention_is_open(tmp_path: Path, monkeyp
     )
 
 
+def test_status_open_attention_section_uses_positional_answer_syntax(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["status", operation_id])
+
+    assert result.exit_code == 0
+    assert f"  → operator answer {operation_id} {attention_id} --text '...'" in result.stdout
+    assert "--attention" not in result.stdout
+
+
 def test_cancel_requires_confirmation_by_default(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))

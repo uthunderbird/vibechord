@@ -8,7 +8,20 @@ Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Skim-safe current truth on 2026-04-10:
+
+- `implemented`: `status` remains the canonical one-operation shell summary surface and still ends
+  with an explicit action line when blocking attention is open
+- `implemented`: `status` attention guidance now uses the public positional `operator answer OP ATT
+  --text '...'` syntax consistently in both the action line and the open-attention section
+- `implemented`: `answer`, `message`, `pause`, `unpause`, `interrupt`, and `cancel` remain the
+  user-facing operation control family rather than exposing raw command-envelope internals
+- `verified`: focused CLI coverage now checks the status action line plus the open-attention
+  section guidance syntax in `tests/test_cli.py`
+- `partial`: the broader one-operation shell-summary grammar and full family-level closure remain
+  open beyond this syntax-alignment slice
 
 ## Commands Covered
 

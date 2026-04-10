@@ -376,7 +376,7 @@ def render_inspect_summary(
             attention_lines.append(f"  {shorten_paragraph_text(attention.question) or ''}".rstrip())
         attention_lines.append(
             f"  → operator answer {operation.operation_id} "
-            f"--attention {attention.attention_id} --text '...'"
+            f"{attention.attention_id} --text '...'"
         )
 
     lines = [f"Operation {operation.operation_id}", ""]
