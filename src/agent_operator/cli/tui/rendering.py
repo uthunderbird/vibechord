@@ -88,7 +88,10 @@ def rendered_header_lines(state: FleetWorkbenchState) -> list[str]:
     if state.view_level == "session":
         lines[1] = session_identity_text(state.selected_operation_payload, state.selected_task)
         brief = session_brief(state.selected_operation_payload, state.selected_task)
-        summary = f"Now: {brief['now']}  Wait: {brief['wait']}  Attention: {brief['attention']}"
+        summary = (
+            f"Now: {brief['now']}  Wait: {brief['wait']}  Attention: {brief['attention']}"
+            f"  Latest: {brief['latest_output']}"
+        )
         if state.session_filter_query:
             summary += f"  Filter: {state.session_filter_query}"
         lines.append(summary)

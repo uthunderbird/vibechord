@@ -68,7 +68,9 @@ screen with `Now`, `Wait`, `Attention`, `Latest output`, and selected-event deta
 session level as a direct shortcut into the forensic/raw-transcript drill-down, and use `a` from
 fleet, operation, or session to answer the oldest
 blocking attention in scope, chaining directly to the next oldest blocking attention in the same
-scope when one remains. The session timeline now renders newest-first. Fleet view also supports
+scope when one remains. The session header summary now also echoes the latest output cue so the
+current task state is visible before you read the right-hand detail panel. The session timeline now
+renders newest-first. Fleet view also supports
 `/` for a live filter over operation id,
 objective, status, agent cue, project, and attention text, and operation view supports `/` for a
 live task filter over task id, title, status, agent, goal, and notes. Session view also supports

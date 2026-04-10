@@ -36,7 +36,7 @@ beneath it:
 
 - `fleet`: scope plus the shared fleet counts (`Operations / Running / Needs human / Paused`) and a short `Selected / Now / Wait` summary for the current row
 - `operation`: scope plus compact task counts (`Tasks / Running / Blocked`) and a `Now / Wait / Attention` summary for the current operation
-- `session`: scope plus a compact `Now / Wait / Attention` summary for the current task session
+- `session`: scope plus a compact `Now / Wait / Attention / Latest` summary for the current task session
 - `forensic`: scope plus the currently focused event summary
 
 The footer is the action band for the current state. It shows either:
@@ -150,7 +150,8 @@ screen:
 - a selected-event detail block for the currently highlighted timeline item
 
 The session header also carries a compact live summary line so you can orient before reading the
-right pane in detail. The session footer stays human-first, but it now includes the direct
+right pane in detail, including the latest output cue from the current task session. The session
+footer stays human-first, but it now includes the direct
 intervention controls as well: `interrupt`, `pause`, `resume`, and `cancel` remain visible without
 reverting to the older raw key-dump style.
 
