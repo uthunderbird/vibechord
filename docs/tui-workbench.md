@@ -98,7 +98,8 @@ switches between task-focused detail modes for the selected task. The task board
 status lanes in this order: `RUNNING`, `READY`, `BLOCKED`, `COMPLETED`, `FAILED`, `CANCELLED`.
 `BLOCKED` is a display alias for `pending` tasks that still have unresolved dependencies.
 Blocked tasks show a compact dependency continuation line, and tasks with linked session runtime
-state can show a compact session continuation line under the task row.
+state can show a compact session continuation line under the task row, including the adapter,
+session id, status, and waiting reason when available.
 Task rows now include a compact status glyph before the task short id.
 The operation footer uses a short action strip: `Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Quit q`.
 

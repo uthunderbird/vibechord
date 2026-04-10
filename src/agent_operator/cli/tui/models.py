@@ -636,11 +636,12 @@ def task_session_summary(payload: dict[str, object], task: OperationTaskItem) ->
         if optional_text(session.get("session_id")) != task.linked_session_id:
             continue
         adapter = optional_text(session.get("adapter_key")) or "-"
+        session_id = optional_text(session.get("session_id")) or task.linked_session_id or "-"
         status = optional_text(session.get("status")) or "-"
         waiting = optional_text(session.get("waiting_reason"))
-        summary = f"{adapter} [{status}]"
+        summary = f"{adapter} · {session_id} · Status: {status}"
         if waiting is not None:
-            summary += f" waiting={waiting}"
+            summary += f" · {waiting}"
         return summary
     return None
 

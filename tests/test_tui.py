@@ -928,7 +928,7 @@ def test_operation_task_board_shows_compact_session_cue_lines() -> None:
     rendered = console.export_text(styles=False)
 
     assert "session" in rendered
-    assert "codex_acp [running] waiting=Waiting on operator reply." in rendered
+    assert "codex_acp · session-1 · Status: running · Waiting on operator reply." in rendered
 
 
 async def test_operation_view_navigation_follows_lane_order() -> None:
