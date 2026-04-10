@@ -1473,9 +1473,15 @@ def test_debug_help_lists_hidden_runtime_commands(tmp_path: Path, monkeypatch) -
     assert result.exit_code == 0
     assert "resume" in result.stdout
     assert "tick" in result.stdout
+    assert "daemon" in result.stdout
     assert "recover" in result.stdout
+    assert "wakeups" in result.stdout
+    assert "sessions" in result.stdout
+    assert "command" in result.stdout
+    assert "context" in result.stdout
     assert "trace" in result.stdout
     assert "inspect" in result.stdout
+    assert "log" not in result.stdout
 
 
 def test_help_all_reveals_hidden_debug_commands(tmp_path: Path, monkeypatch) -> None:
@@ -2206,6 +2212,30 @@ def test_sessions_json_shows_sessions_and_background_runs(tmp_path: Path, monkey
     assert '"sessions"' in result.stdout
     assert '"background_runs"' in result.stdout
     assert '"run-1"' in result.stdout
+
+
+def test_debug_namespace_surfaces_recovery_runtime_and_forensic_commands(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    wakeups_result = runner.invoke(app, ["debug", "wakeups", operation_id])
+    sessions_result = runner.invoke(app, ["debug", "sessions", operation_id, "--json"])
+    trace_result = runner.invoke(app, ["debug", "trace", operation_id, "--json"])
+
+    assert wakeups_result.exit_code == 0
+    assert "Pending wakeups:" in wakeups_result.stdout
+
+    assert sessions_result.exit_code == 0
+    assert '"sessions"' in sessions_result.stdout
+    assert '"background_runs"' in sessions_result.stdout
+
+    assert trace_result.exit_code == 0
+    assert '"trace_records"' in trace_result.stdout
+    assert '"decision_memos"' in trace_result.stdout
+    assert '"events"' in trace_result.stdout
 
 
 def test_pause_command_enqueues_pause_operator(tmp_path: Path, monkeypatch) -> None:
