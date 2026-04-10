@@ -280,6 +280,7 @@ def test_build_fleet_workbench_payload_normalizes_rows_and_header() -> None:
     assert brief["goal"] == "Answer a policy question"
     assert isinstance(brief["progress"], dict)
     assert brief["progress"]["done"] is None
+    assert brief["operator_state"] is None
     assert "status_counts" in payload["mix"]
     assert payload["mix"]["bucket_counts"]["needs_attention"] == 1
     assert payload["mix"]["bucket_counts"]["active"] == 1
@@ -333,6 +334,8 @@ def test_build_dashboard_payload_emits_normalized_session_views() -> None:
     assert session_view["task_id"] == "task-1"
     assert session_view["session"]["session_id"] == "session-1"
     assert session_view["session_brief"]["wait"] == "Working"
+    assert session_view["session_brief"]["agent_activity"] == "codex_acp session"
+    assert session_view["session_brief"]["operator_state"] == "observing"
     assert session_view["transcript_hint"]["command"] == "operator log op-1 --agent codex"
     assert payload["report_text"] == "# Report\n\nRetrospective summary."
 

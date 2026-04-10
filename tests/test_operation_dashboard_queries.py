@@ -170,6 +170,8 @@ async def test_load_payload_builds_dashboard_payload() -> None:
     assert operation_brief["goal"] == "Ship dashboard"
     assert operation_brief["now"] == "Build the task board"
     assert operation_brief["wait"] == "needs policy confirmation"
+    assert operation_brief["agent_activity"] == "codex_acp active session"
+    assert operation_brief["operator_state"] is None
     progress = operation_brief["progress"]
     assert isinstance(progress, dict)
     assert progress["doing"] == "Running task-board migration"

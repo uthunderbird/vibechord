@@ -426,9 +426,18 @@ def session_brief(
                 "wait": optional_text(brief.get("wait")) or "-",
                 "attention": optional_text(brief.get("attention")) or "-",
                 "latest_output": optional_text(brief.get("latest_output")) or "-",
+                "agent_activity": optional_text(brief.get("agent_activity")) or "-",
+                "operator_state": optional_text(brief.get("operator_state")) or "-",
             }
     if not isinstance(payload, dict):
-        return {"now": "-", "wait": "-", "attention": "-", "latest_output": "-"}
+        return {
+            "now": "-",
+            "wait": "-",
+            "attention": "-",
+            "latest_output": "-",
+            "agent_activity": "-",
+            "operator_state": "-",
+        }
     session = selected_session(payload, task)
     attention_titles = task_attention_titles(payload, task) if task is not None else []
     wait = optional_text(session.get("waiting_reason")) if session is not None else None
@@ -440,6 +449,10 @@ def session_brief(
         "wait": wait or (status or "-"),
         "attention": "; ".join(attention_titles[:2]) if attention_titles else "-",
         "latest_output": latest_output,
+        "agent_activity": f"{optional_text(session.get('adapter_key')) or '-'} session"
+        if session is not None
+        else "-",
+        "operator_state": "observing" if wait else ("following" if status == "running" else "-"),
     }
 
 

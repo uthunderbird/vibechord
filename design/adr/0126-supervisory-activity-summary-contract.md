@@ -8,7 +8,23 @@ Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Skim-safe current truth on 2026-04-10:
+
+- `implemented`: the repository now has one shared supervisory activity summary contract in
+  `OperationProjectionService` rather than separate ad hoc fleet/operation/session brief dict
+  shapes
+- `implemented`: fleet workbench rows, one-operation dashboard payloads, and session views now all
+  emit the same normalized summary fields: `goal`, `now`, `wait`, `progress`, `attention`,
+  `recent`, plus optional `agent_activity` and `operator_state`
+- `implemented`: TUI fleet, operation, and session detail panes now consume those same shared
+  summary fields instead of inventing separate labels for agent/operator cues
+- `verified`: focused projection, dashboard-query, and TUI coverage exists in
+  `tests/test_operation_projections.py`, `tests/test_operation_dashboard_queries.py`, and
+  `tests/test_tui.py`
+- `planned`: stronger plurality cues and richer operator-state signals still need more runtime
+  evidence before they can be surfaced as stable product truth across all supervisory surfaces
 
 ## Context
 
@@ -18,7 +34,7 @@ The current supervisory CLI/TUI stack already has:
 - a stable zoom hierarchy from `fleet` to `operation` to `session` to `forensic`
 - richer recent implementation slices for filtering, help, and non-blocking attention
 
-What it does not yet have is a single explicit contract for richer live summaries of active work.
+What it did not yet have was a single explicit contract for richer live summaries of active work.
 
 Recent product exploration identified a recurring next-wave need:
 
@@ -119,7 +135,17 @@ Tradeoffs:
 
 ## Verification
 
-When implemented, the repository should preserve these conditions:
+Current evidence for the landed slice:
+
+- `verified`: fleet workbench payloads emit the shared summary contract, including optional
+  `agent_activity` / `operator_state` cues when repository truth is strong enough
+- `verified`: operation dashboard payloads and session views emit the same contract fields instead
+  of separate delivery-local summary shapes
+- `verified`: TUI fleet, operation, and session panes render the shared cues when present
+- `not yet verified`: broader CLI/TUI parity for every future supervisory surface that may consume
+  the contract
+
+The repository should preserve these conditions:
 
 - CLI and TUI consume the same supervisory activity summary fields
 - compact running/waiting/paused summaries are normalized rather than freeform

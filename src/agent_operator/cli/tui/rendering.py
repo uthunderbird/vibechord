@@ -257,6 +257,10 @@ def render_fleet_detail_table(state: FleetWorkbenchState) -> Table:
     table.add_row("Goal", _fleet_optional_text(brief.get("goal")))
     table.add_row("Now", _fleet_optional_text(brief.get("now")))
     table.add_row("Wait", _fleet_optional_text(brief.get("wait")))
+    if _fleet_optional_text(brief.get("agent_activity")) != "-":
+        table.add_row("Agent", _fleet_optional_text(brief.get("agent_activity")))
+    if _fleet_optional_text(brief.get("operator_state")) != "-":
+        table.add_row("Operator", _fleet_optional_text(brief.get("operator_state")))
     table.add_row("Progress", _fleet_progress_text(brief.get("progress")))
     table.add_row("Attention", _fleet_optional_text(brief.get("attention")))
     table.add_row("Recent", _fleet_optional_text(brief.get("recent")))
@@ -586,6 +590,10 @@ def render_operation_brief_table(state: FleetWorkbenchState) -> Table:
     table.add_row("Goal", _fleet_optional_text(payload_brief.get("goal")))
     table.add_row("Now", _fleet_optional_text(payload_brief.get("now")))
     table.add_row("Wait", _fleet_optional_text(payload_brief.get("wait")))
+    if _fleet_optional_text(payload_brief.get("agent_activity")) != "-":
+        table.add_row("Agent", _fleet_optional_text(payload_brief.get("agent_activity")))
+    if _fleet_optional_text(payload_brief.get("operator_state")) != "-":
+        table.add_row("Operator", _fleet_optional_text(payload_brief.get("operator_state")))
     table.add_row("Progress", _fleet_progress_text(payload_brief.get("progress")))
     table.add_row("Attention", _fleet_optional_text(payload_brief.get("attention")))
     table.add_row("Recent", _fleet_optional_text(payload_brief.get("recent")))
@@ -676,6 +684,10 @@ def render_session_brief_table(state: FleetWorkbenchState) -> Table:
         table.add_row("Session", f"{adapter} · {session_id}")
     table.add_row("Now", brief["now"])
     table.add_row("Wait", brief["wait"])
+    if brief["agent_activity"] != "-":
+        table.add_row("Agent", brief["agent_activity"])
+    if brief["operator_state"] != "-":
+        table.add_row("Operator", brief["operator_state"])
     table.add_row("Attention", brief["attention"])
     table.add_row("Latest output", brief["latest_output"])
     table.add_row("Escalate", "Enter/r transcript-log path; o retrospective report")

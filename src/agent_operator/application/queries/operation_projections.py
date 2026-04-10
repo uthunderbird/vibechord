@@ -51,28 +51,40 @@ class ProjectionAction:
 
 
 @dataclass(frozen=True, slots=True)
-class FleetWorkbenchBrief:
-    goal: str
+class SupervisoryProgressSummary:
+    done: str | None
+    doing: str | None
+    next: str | None
+
+    def to_payload(self) -> dict[str, str | None]:
+        return {
+            "done": self.done,
+            "doing": self.doing,
+            "next": self.next,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SupervisoryActivitySummary:
+    goal: str | None
     now: str | None
     wait: str | None
-    progress_done: str | None
-    progress_doing: str | None
-    progress_next: str | None
+    progress: SupervisoryProgressSummary
     attention: str | None
     recent: str | None
+    agent_activity: str | None = None
+    operator_state: str | None = None
 
     def to_payload(self) -> dict[str, object]:
         return {
             "goal": self.goal,
             "now": self.now,
             "wait": self.wait,
-            "progress": {
-                "done": self.progress_done,
-                "doing": self.progress_doing,
-                "next": self.progress_next,
-            },
+            "progress": self.progress.to_payload(),
             "attention": self.attention,
             "recent": self.recent,
+            "agent_activity": self.agent_activity,
+            "operator_state": self.operator_state,
         }
 
 
@@ -98,7 +110,7 @@ class FleetWorkbenchRow:
     open_nonblocking_attention_count: int
     attention_briefs: tuple[str, ...]
     attention_titles: tuple[str, ...]
-    brief: FleetWorkbenchBrief
+    brief: SupervisoryActivitySummary
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -199,9 +211,7 @@ class OperationProjectionService:
             return raw_mode.strip()
         return None
 
-    def resolve_invocation_background_runtime_mode(
-        self, operation: OperationState
-    ) -> str | None:
+    def resolve_invocation_background_runtime_mode(self, operation: OperationState) -> str | None:
         raw_mode = operation.runtime_hints.metadata.get("invocation_background_runtime_mode")
         if isinstance(raw_mode, str) and raw_mode.strip():
             return raw_mode.strip()
@@ -433,25 +443,40 @@ class OperationProjectionService:
             return "cancelled"
         return "running"
 
-    def _fleet_workbench_brief(self, item: AgendaItem) -> FleetWorkbenchBrief:
-        return FleetWorkbenchBrief(
+    def _fleet_workbench_brief(self, item: AgendaItem) -> SupervisoryActivitySummary:
+        return SupervisoryActivitySummary(
             goal=self._shorten_text(item.objective_brief, limit=120) or item.objective_brief,
             now=self._shorten_text(item.focus_brief, limit=120),
             wait=self._shorten_text(
                 item.runtime_alert if item.runtime_alert is not None else item.latest_outcome_brief,
                 limit=120,
             ),
-            progress_done=self._shorten_text(
-                item.blocker_brief if item.status is OperationStatus.COMPLETED else None, limit=120
-            ),
-            progress_doing=self._shorten_text(item.latest_outcome_brief, limit=120),
-            progress_next=self._shorten_text(
-                item.blocker_brief or (item.attention_titles[0] if item.attention_titles else None),
-                limit=120,
+            progress=SupervisoryProgressSummary(
+                done=self._shorten_text(
+                    item.blocker_brief if item.status is OperationStatus.COMPLETED else None,
+                    limit=120,
+                ),
+                doing=self._shorten_text(item.latest_outcome_brief, limit=120),
+                next=self._shorten_text(
+                    item.blocker_brief
+                    or (item.attention_titles[0] if item.attention_titles else None),
+                    limit=120,
+                ),
             ),
             attention=self._shorten_text("; ".join(item.attention_titles), limit=120),
             recent=self._shorten_text(item.latest_outcome_brief, limit=120),
+            agent_activity=self._fleet_workbench_agent_activity(item),
+            operator_state=self._scheduler_operator_state(item.scheduler_state),
         )
+
+    def _fleet_workbench_agent_activity(self, item: AgendaItem) -> str | None:
+        if item.status is not OperationStatus.RUNNING:
+            return None
+        if item.reusable_session_count > 1:
+            return f"{item.reusable_session_count} reusable sessions"
+        if item.reusable_session_count == 1:
+            return "1 reusable session"
+        return None
 
     def _fleet_workbench_control_hints(self, snapshot: AgendaSnapshot) -> list[str]:
         hints: list[str] = []
@@ -600,33 +625,36 @@ class OperationProjectionService:
             elif open_attention:
                 wait = self._shorten_text("; ".join(open_attention[:2]), limit=120)
 
-        return {
-            "goal": self._shorten_text(
+        summary = SupervisoryActivitySummary(
+            goal=self._shorten_text(
                 operation_brief.objective_brief
                 if operation_brief is not None
                 else operation.objective_state.objective,
                 limit=120,
             ),
-            "now": self._shorten_text(
+            now=self._shorten_text(
                 operation_brief.focus_brief if operation_brief is not None else None,
                 limit=120,
             )
             or self._shorten_text(operation.final_summary, limit=120)
             or self._shorten_text(operation.objective_state.objective, limit=120),
-            "wait": self._shorten_text(wait, limit=120),
-            "progress": {
-                "done": progress_done,
-                "doing": progress_doing,
-                "next": progress_next,
-            },
-            "attention": (self._shorten_text("; ".join(open_attention), limit=220) or ""),
-            "recent": self._shorten_text(
+            wait=self._shorten_text(wait, limit=120),
+            progress=SupervisoryProgressSummary(
+                done=progress_done,
+                doing=progress_doing,
+                next=progress_next,
+            ),
+            attention=(self._shorten_text("; ".join(open_attention), limit=220) or ""),
+            recent=self._shorten_text(
                 self._turn_work_summary(latest_turn)
                 or (operation_brief.latest_outcome_brief if operation_brief is not None else None)
                 or self._shorten_text(operation.final_summary, limit=120),
                 limit=120,
             ),
-        }
+            agent_activity=self._operation_agent_activity(operation),
+            operator_state=self._scheduler_operator_state(operation.scheduler_state),
+        )
+        return summary.to_payload()
 
     def build_session_brief_payload(
         self,
@@ -634,7 +662,7 @@ class OperationProjectionService:
         session: SessionRecord,
         timeline: list[dict[str, object]],
         attention_titles: list[str],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         wait = self._shorten_text(session.waiting_reason, limit=120)
         latest_output = "-"
         for event in reversed(timeline):
@@ -644,21 +672,21 @@ class OperationProjectionService:
                 break
         if wait is not None:
             lowered = wait.lower()
-            now = (
-                wait
-                if "working" in lowered or "running" in lowered
-                else session.status.value
-            )
+            now = wait if "working" in lowered or "running" in lowered else session.status.value
         elif session.status.value == "running":
             now = "Agent turn running"
         else:
             now = session.status.value
-        return {
-            "now": now,
-            "wait": wait or session.status.value,
-            "attention": "; ".join(attention_titles[:2]) if attention_titles else "-",
-            "latest_output": latest_output,
-        }
+        return SupervisoryActivitySummary(
+            goal=None,
+            now=now,
+            wait=wait or session.status.value,
+            progress=SupervisoryProgressSummary(done=None, doing=latest_output, next=None),
+            attention="; ".join(attention_titles[:2]) if attention_titles else "-",
+            recent=latest_output,
+            agent_activity=f"{session.adapter_key} session",
+            operator_state=self._session_operator_state(session),
+        ).to_payload() | {"latest_output": latest_output}
 
     def build_session_view_payload(
         self,
@@ -736,6 +764,30 @@ class OperationProjectionService:
             "latest_turn": latest_turn.model_dump(mode="json") if latest_turn is not None else None,
             "runtime_alert": runtime_alert,
         }
+
+    def _operation_agent_activity(self, operation: OperationState) -> str | None:
+        running_sessions = [item for item in operation.sessions if item.status.value == "running"]
+        if len(running_sessions) > 1:
+            return f"{len(running_sessions)} active sessions"
+        if len(running_sessions) == 1:
+            return f"{running_sessions[0].adapter_key} active session"
+        return None
+
+    def _scheduler_operator_state(self, scheduler_state: SchedulerState) -> str | None:
+        if scheduler_state is SchedulerState.PAUSED:
+            return "paused"
+        if scheduler_state is SchedulerState.PAUSE_REQUESTED:
+            return "pause requested"
+        if scheduler_state is SchedulerState.DRAINING:
+            return "draining"
+        return None
+
+    def _session_operator_state(self, session: SessionRecord) -> str | None:
+        if session.waiting_reason:
+            return "observing"
+        if session.status.value == "running":
+            return "following"
+        return None
 
     def build_inspect_summary_payload(
         self,
