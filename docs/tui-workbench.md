@@ -49,7 +49,7 @@ The footer is the action band for the current state. It shows either:
 Representative footer copy:
 
 - `fleet`: `Selected op-1. Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q`
-- `session`: `Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q`
+- `session`: `Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q`
 
 At fleet level, each selected operation row is rendered as a compact multi-line summary:
 
@@ -103,7 +103,7 @@ session id, status, and waiting reason when available.
 Task rows now include a compact status glyph before the task short id.
 The selected task detail also includes a compact `Next step` row when a linked session is present,
 rendered as `Open session Enter · Transcript/log l · Report o · Back Esc · Help ?`.
-The operation footer uses a short action strip: `Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Quit q`.
+The operation footer uses a short action strip: `Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q`.
 
 Available keys:
 
@@ -151,7 +151,7 @@ screen:
 
 The session header also carries a compact live summary line so you can orient before reading the
 right pane in detail, including the latest output cue from the current task session. The session
-footer stays human-first, but it now includes the direct
+footer stays human-first, keeps `Help ?` visible for discovery, and still includes the direct
 intervention controls as well: `interrupt`, `pause`, `resume`, and `cancel` remain visible without
 reverting to the older raw key-dump style.
 

@@ -892,13 +892,14 @@ def human_footer_text(state: FleetWorkbenchState) -> Text:
     if state.view_level == "session":
         return Text(
             "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-            "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
+            "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u"
+            "  Cancel c  Help ?  Quit q"
         )
     if state.view_level == "operation":
         return Text(
             "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A"
             "  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o"
-            "  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Quit q"
+            "  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
         )
     footer = Text(
         "Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab"

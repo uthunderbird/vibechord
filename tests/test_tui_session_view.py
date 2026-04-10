@@ -48,7 +48,7 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     assert "Open forensic Enter/r" in rendered
     assert (
         "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
     ) in rendered
 
 

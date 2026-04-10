@@ -1760,7 +1760,7 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     assert "Open forensic Enter/r" in rendered
     assert (
         "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
     ) in rendered
 
 
@@ -2272,7 +2272,7 @@ async def test_session_header_and_footer_use_human_action_language() -> None:
     assert (
         human_footer_text(controller.state).plain
         == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
     )
 
 
@@ -2295,7 +2295,7 @@ async def test_session_footer_uses_short_human_first_actions() -> None:
     assert (
         human_footer_text(controller.state).plain
         == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
     )
 
 
@@ -2318,7 +2318,7 @@ async def test_operation_footer_uses_short_human_first_actions() -> None:
         human_footer_text(controller.state).plain
         == "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  "
         "Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  "
-        "Resume u  Interrupt s  Cancel c  Refresh r  Quit q"
+        "Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
     )
 
 

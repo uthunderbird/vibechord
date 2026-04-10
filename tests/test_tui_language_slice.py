@@ -72,5 +72,7 @@ def test_human_footer_text_uses_current_human_first_session_actions() -> None:
 
     assert (
         human_footer_text(state).plain
-        == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
+        == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u"
+        "  Cancel c  Help ?  Quit q"
     )
