@@ -33,9 +33,17 @@ The workbench keeps a left pane for selection and a right pane for detail:
 The header shows the current breadcrumb and operation count. The footer shows either the active key
 help, the latest action result, or a cancel confirmation prompt.
 
+At fleet level, each selected operation row is rendered as a compact multi-line summary:
+
+- line 1: attention badge plus display label
+- line 2: state, agent cue, and recency brief
+- line 3: normalized row hint such as `now: ...` or `waiting: ...`
+
 ## Fleet Level
 
 `fleet` is the default entry view. It lists actionable operations across the current project scope.
+The left pane uses the normalized fleet workbench row projection instead of a flat one-line table,
+so the selected operation stays scannable without opening the right pane.
 
 Available keys:
 

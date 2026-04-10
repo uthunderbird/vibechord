@@ -288,6 +288,43 @@ def test_filtered_empty_fleet_shows_filter_specific_message() -> None:
     assert "No operations match the current filter." in console.export_text(styles=False)
 
 
+def test_fleet_list_renders_normalized_multiline_rows() -> None:
+    state = FleetWorkbenchState()
+    state.items = [
+        tui_models_pkg.FleetItem(
+            operation_id="op-alert",
+            attention_badge="[!!2]",
+            display_name="Resolve alert",
+            state_label="NEEDS_HUMAN",
+            agent_cue="codex_acp",
+            recency_brief="21s ago",
+            row_hint="waiting: answer needed",
+            status="needs_human",
+            scheduler_state="active",
+            objective_brief="Resolve alert",
+            focus_brief=None,
+            latest_outcome_brief=None,
+            blocker_brief=None,
+            runtime_alert=None,
+            open_attention_count=2,
+            open_blocking_attention_count=2,
+            open_nonblocking_attention_count=0,
+            attention_briefs=(),
+            project_profile_name=None,
+            brief=None,
+            bucket="needs_attention",
+        )
+    ]
+    table = render_list_table(state)
+    console = Console(record=True, width=120, markup=False)
+    console.print(table)
+    rendered = console.export_text(styles=False)
+
+    assert "Resolve alert" in rendered
+    assert "NEEDS_HUMAN · codex_acp · 21s ago" in rendered
+    assert "waiting: answer needed" in rendered
+
+
 async def test_fleet_workbench_cancel_requires_confirmation() -> None:
     calls: list[str] = []
 

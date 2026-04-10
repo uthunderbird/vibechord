@@ -80,6 +80,9 @@ current-scope attention picker so you can choose a specific attention item befor
 Operation view now renders the task board in grouped status lanes, including a `BLOCKED` display
 lane for dependency-blocked pending tasks, plus compact dependency and linked-session cue lines
 under task rows when that context is available, with a status glyph on each task row.
+Fleet view now uses a compact multi-line row layout in the left pane so each operation shows its
+attention badge, display label, state/agent/recency line, and normalized hint without requiring a
+drill-down.
 `Enter` still drills into forensic even when a session has no raw transcript payload, falling back
 to event context plus an explicit empty-state message, and forensic `q` now behaves like back-navigation
 to session level instead of quitting the whole workbench. The forensic context pane now also shows

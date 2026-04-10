@@ -22,7 +22,6 @@ from .models import (
     session_event_glyph,
     session_event_label,
     session_identity_text,
-    signal_text,
     status_text,
     task_attention_titles,
     task_lane,
@@ -151,18 +150,12 @@ def render_right_pane(state: FleetWorkbenchState) -> Group | Table | Text:
 
 
 def render_list_table(state: FleetWorkbenchState) -> Table:
-    table = Table(expand=True, box=None, show_header=True)
-    table.add_column("", no_wrap=True)
-    table.add_column("Op", no_wrap=True)
-    table.add_column("State", no_wrap=True)
-    table.add_column("Signal", no_wrap=True)
-    table.add_column("Objective")
+    table = Table(expand=True, box=None, show_header=False)
+    table.add_column("", width=2, no_wrap=True)
+    table.add_column("Operation")
     if not state.items:
         table.add_row(
             "",
-            "-",
-            "-",
-            "-",
             Text(
                 "No operations match the current filter."
                 if state.filter_query
@@ -171,13 +164,22 @@ def render_list_table(state: FleetWorkbenchState) -> Table:
         )
         return table
     for index, item in enumerate(state.items):
+        badge = item.attention_badge if item.attention_badge.strip() else "[ ]"
+        meta_parts = [item.state_label]
+        if item.agent_cue.strip() and item.agent_cue != "-":
+            meta_parts.append(item.agent_cue)
+        if item.recency_brief.strip():
+            meta_parts.append(item.recency_brief)
+        row_hint = item.row_hint.strip() if item.row_hint.strip() and item.row_hint != "-" else None
         table.add_row(
             ">" if index == state.selected_index else " ",
-            item.operation_id,
-            status_text(item),
-            signal_text(item),
-            item.objective_brief,
+            Text.assemble((f"{badge} ", "bold"), item.display_name),
         )
+        table.add_row("", " · ".join(meta_parts))
+        if row_hint is not None:
+            table.add_row("", row_hint)
+        if index != len(state.items) - 1:
+            table.add_row("", "")
     return table
 
 
