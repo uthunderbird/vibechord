@@ -293,24 +293,29 @@ def artifacts(
 
 @app.command()
 def report(
-    operation_id: str,
+    operation_ref: str,
     json_mode: bool = typer.Option(False, "--json", help="Emit a machine-readable report payload."),
 ) -> None:
+    resolved_operation_id = resolve_operation_id(operation_ref)
     settings = load_settings()
     trace_store = build_trace_store(settings)
     status_queries = build_status_query_service(settings)
 
     async def _report() -> None:
         try:
-            operation, outcome, brief, _ = await status_queries.build_status_payload(operation_id)
+            operation, outcome, brief, _ = await status_queries.build_status_payload(
+                resolved_operation_id
+            )
         except RuntimeError as exc:
-            raise typer.BadParameter(f"Report for {operation_id!r} was not found.") from exc
-        report_text = await trace_store.load_report(operation_id)
+            raise typer.BadParameter(
+                f"Report for {resolved_operation_id!r} was not found."
+            ) from exc
+        report_text = await trace_store.load_report(resolved_operation_id)
         if operation is None or report_text is None:
-            raise typer.BadParameter(f"Report for {operation_id!r} was not found.")
+            raise typer.BadParameter(f"Report for {resolved_operation_id!r} was not found.")
         if json_mode:
             payload = {
-                "operation_id": operation_id,
+                "operation_id": resolved_operation_id,
                 "brief": brief.model_dump(mode="json") if brief is not None else None,
                 "outcome": outcome.model_dump(mode="json") if outcome is not None else None,
                 "report": report_text,
@@ -327,7 +332,7 @@ def report(
 
 @app.command()
 def dashboard(
-    operation_id: str,
+    operation_ref: str,
     once: bool = typer.Option(False, "--once", help="Render a single dashboard snapshot and exit."),
     json_mode: bool = typer.Option(
         False, "--json", help="Emit a machine-readable dashboard snapshot."
@@ -335,16 +340,23 @@ def dashboard(
     poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
     codex_home: Path = CODEX_HOME_OPTION,
 ) -> None:
-    anyio.run(dashboard_async, operation_id, once, json_mode, poll_interval, codex_home)
+    anyio.run(
+        dashboard_async,
+        resolve_operation_id(operation_ref),
+        once,
+        json_mode,
+        poll_interval,
+        codex_home,
+    )
 
 
 @app.command()
 def watch(
-    operation_id: str,
+    operation_ref: str,
     json_mode: bool = JSON_OPTION,
     poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
 ) -> None:
-    anyio.run(watch_async, operation_id, json_mode, poll_interval)
+    anyio.run(watch_async, resolve_operation_id(operation_ref), json_mode, poll_interval)
 
 
 @app.command()

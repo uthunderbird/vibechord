@@ -1653,6 +1653,16 @@ def test_report_prints_report_body(tmp_path: Path, monkeypatch) -> None:
     assert "## Artifacts" in result.stdout
 
 
+def test_report_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
+    _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["report", "last"])
+
+    assert result.exit_code == 0
+    assert "# Operation op-cli-1" in result.stdout
+
+
 def test_report_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -1757,6 +1767,22 @@ def test_dashboard_command_prints_human_readable_workbench(
     assert "Prepared the dashboard workbench plan." in result.stdout
     assert "Control Hints" in result.stdout
     assert f"operator interrupt {operation_id}" in result.stdout
+
+
+def test_dashboard_command_resolves_last_operation_reference(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id, codex_home = _seed_dashboard_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["dashboard", "last", "--once", "--codex-home", str(codex_home)],
+    )
+
+    assert result.exit_code == 0
+    assert f"Operation Dashboard: {operation_id}" in result.stdout
 
 
 def test_dashboard_command_json_emits_machine_readable_snapshot(
@@ -4149,6 +4175,48 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
     assert "Latest:" in result.stdout
     assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
     assert "completed: Live attached watch completed." in result.stdout
+
+
+def test_watch_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
+    operation_id = "op-watch-last"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    event_sink = JsonlEventSink(tmp_path, operation_id)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Inspect the repo"),
+            **state_settings(),
+            status=OperationStatus.COMPLETED,
+            final_summary="Watch target completed.",
+        )
+        await store.save_operation(state)
+        await event_sink.emit(
+            RunEvent(
+                event_type="operation.started",
+                operation_id=operation_id,
+                iteration=0,
+                payload={"objective": "Inspect the repo"},
+                category="trace",
+            )
+        )
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Watch target completed.",
+            )
+        )
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["watch", "last", "--poll-interval", "0.05"])
+
+    assert result.exit_code == 0
+    assert "Operation op-watch-last" in result.stdout
+    assert "completed: Watch target completed." in result.stdout
 
 
 def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:

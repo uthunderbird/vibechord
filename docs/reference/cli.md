@@ -101,6 +101,8 @@ Inspect the latest operation:
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 UV_CACHE_DIR=/tmp/uv-cache uv run operator report last
+UV_CACHE_DIR=/tmp/uv-cache uv run operator dashboard last --once
+UV_CACHE_DIR=/tmp/uv-cache uv run operator watch last
 ```
 
 Inspect transcript, ledger, and retrospective surfaces:
@@ -173,6 +175,9 @@ asks for confirmation by default; use `--yes` to skip the prompt.
   resolve operation references like `last`.
 - `report` is retrospective-first. It shows the synthesized operation report and, under `--json`,
   includes the report text plus brief/outcome and durable-truth payloads.
+
+Operation-scoped surfaces that take an operation argument accept the normal operation reference
+forms: full id, unique short prefix, and `last`.
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`
