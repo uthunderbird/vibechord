@@ -82,11 +82,24 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 UV_CACHE_DIR=/tmp/uv-cache uv run operator report last
 ```
 
+Inspect transcript, ledger, and retrospective surfaces:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator log last --limit 20
+UV_CACHE_DIR=/tmp/uv-cache uv run operator history last
+UV_CACHE_DIR=/tmp/uv-cache uv run operator report last --json
+```
+
 Inspect the session bound to a task:
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --once
+UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --follow --once
 ```
+
+`session` remains task-addressed rather than session-id-addressed. Default/`--once` output is the
+bounded investigation snapshot; `--follow` is the more compact live variant and keeps transcript
+escalation explicit via `operator log` rather than inlining transcript body.
 
 Inspect project defaults and effective resolved run settings:
 
@@ -130,6 +143,15 @@ inactive entries in that explanation.
 `policy record` remains the explicit durable policy-mutation path, including attention-linked
 promotion via `--attention`. `policy revoke` remains a destructive explicit mutation and therefore
 asks for confirmation by default; use `--yes` to skip the prompt.
+
+`log`, `history`, and `report` are adjacent but intentionally different:
+
+- `log` is transcript-first. It shows condensed agent transcript events and supports follow mode for
+  session-oriented inspection.
+- `history` is ledger-first. It shows committed durable run history for the current project and can
+  resolve operation references like `last`.
+- `report` is retrospective-first. It shows the synthesized operation report and, under `--json`,
+  includes the report text plus brief/outcome and durable-truth payloads.
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`
