@@ -88,12 +88,20 @@ Inspect project defaults and effective resolved run settings:
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator project list
+UV_CACHE_DIR=/tmp/uv-cache uv run operator project create femtobot --agent codex_acp
+UV_CACHE_DIR=/tmp/uv-cache uv run operator project dashboard femtobot --once
 UV_CACHE_DIR=/tmp/uv-cache uv run operator project inspect femtobot
 UV_CACHE_DIR=/tmp/uv-cache uv run operator project resolve femtobot
 ```
 
 `project list` is an inventory surface. By default it prints just profile names under a `Projects`
 header; use `--json` for machine-readable inventory metadata.
+
+`project create` is the explicit project-profile authoring/update surface. It writes profile
+defaults and confirms the written profile path; use `--json` for machine-readable mutation output.
+
+`project dashboard` is the project-scoped supervision surface. Use `--once` for a single snapshot
+or `--json` for a machine-readable dashboard payload.
 
 Inspect policy inventory, a stored policy entry, or current policy coverage:
 
@@ -114,6 +122,10 @@ project scope under a `Policy entries:` section; use `--all` to include inactive
 `policy explain` is the deterministic explainability surface. It evaluates one operation against
 the scoped policy set and separates matched entries from skipped entries; use `--all` to include
 inactive entries in that explanation.
+
+`policy record` remains the explicit durable policy-mutation path, including attention-linked
+promotion via `--attention`. `policy revoke` remains a destructive explicit mutation and therefore
+asks for confirmation by default; use `--yes` to skip the prompt.
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`

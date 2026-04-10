@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 from agent_operator.cli.main import app
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import InvolvementLevel, ProjectProfile, RunMode
-from agent_operator.runtime import write_project_profile
+from agent_operator.runtime import load_project_profile, write_project_profile
 
 runner = CliRunner()
 
@@ -176,4 +176,104 @@ def test_project_resolve_surfaces_effective_defaults(tmp_path: Path, monkeypatch
         "involvement_level": InvolvementLevel.AUTO.value,
         "message_window": 7,
         "overrides": [],
+    }
+
+
+def test_project_create_remains_explicit_profile_mutation(tmp_path: Path, monkeypatch) -> None:
+    settings = _settings(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(settings.data_dir))
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "alpha",
+            "--local",
+            "--cwd",
+            str(tmp_path / "workspace"),
+            "--agent",
+            "codex_acp",
+            "--objective",
+            "Ship the smallest verified slice",
+            "--harness",
+            "Stay within repo truth.",
+            "--success-criterion",
+            "add focused verification",
+            "--max-iterations",
+            "9",
+            "--involvement",
+            "approval_heavy",
+        ],
+    )
+
+    assert result.exit_code == 0
+    expected_path = settings.data_dir / "profiles" / "alpha.yaml"
+    assert result.stdout == f"Wrote project profile: {expected_path}\n"
+
+    stored = load_project_profile(settings, "alpha")
+    assert stored.name == "alpha"
+    assert stored.cwd == tmp_path / "workspace"
+    assert stored.default_agents == ["codex_acp"]
+    assert stored.default_objective == "Ship the smallest verified slice"
+    assert stored.default_harness_instructions == "Stay within repo truth."
+    assert stored.default_success_criteria == ["add focused verification"]
+    assert stored.default_max_iterations == 9
+    assert stored.default_involvement_level is InvolvementLevel.APPROVAL_HEAVY
+
+    json_result = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "beta",
+            "--json",
+        ],
+    )
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert payload["profile_scope"] == "committed"
+    assert payload["profile"]["name"] == "beta"
+    assert payload["profile_path"] == str(tmp_path / "operator-profiles" / "beta.yaml")
+
+
+def test_project_dashboard_is_project_scoped_entry_surface(tmp_path: Path, monkeypatch) -> None:
+    settings = _settings(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(settings.data_dir))
+    monkeypatch.chdir(tmp_path)
+    write_project_profile(
+        settings,
+        ProjectProfile(name="operator", cwd=tmp_path, default_agents=["codex_acp"]),
+        local=True,
+    )
+
+    captured: dict[str, object] = {}
+
+    async def _fake_dashboard_async(
+        name: str | None, once: bool, json_mode: bool, poll_interval: float
+    ) -> None:
+        captured["name"] = name
+        captured["once"] = once
+        captured["json_mode"] = json_mode
+        captured["poll_interval"] = poll_interval
+
+    monkeypatch.setattr(
+        "agent_operator.cli.commands.project.project_dashboard_async",
+        _fake_dashboard_async,
+    )
+
+    result = runner.invoke(
+        app,
+        ["project", "dashboard", "operator", "--once", "--json", "--poll-interval", "0.25"],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == ""
+    assert captured == {
+        "name": "operator",
+        "once": True,
+        "json_mode": True,
+        "poll_interval": 0.25,
     }
