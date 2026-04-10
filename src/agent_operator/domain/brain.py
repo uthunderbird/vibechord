@@ -21,6 +21,7 @@ class BrainDecision(BaseModel):
     session_id: str | None = None
     session_name: str | None = None
     one_shot: bool = False
+    workfront_key: str | None = None
     instruction: str | None = None
     rationale: str
     confidence: float | None = None
