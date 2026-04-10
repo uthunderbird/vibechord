@@ -95,16 +95,25 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator project resolve femtobot
 `project list` is an inventory surface. By default it prints just profile names under a `Projects`
 header; use `--json` for machine-readable inventory metadata.
 
-Inspect a stored policy entry or explain current policy coverage:
+Inspect policy inventory, a stored policy entry, or current policy coverage:
 
 ```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator policy list --project femtobot
 UV_CACHE_DIR=/tmp/uv-cache uv run operator policy projects
 UV_CACHE_DIR=/tmp/uv-cache uv run operator policy inspect policy-1
 UV_CACHE_DIR=/tmp/uv-cache uv run operator policy explain last
 ```
 
+`policy list` is the entry inventory surface. By default it prints active entries for the selected
+project scope under a `Policy entries:` section; use `--all` to include inactive entries and
+`--json` for machine-readable entry payloads.
+
 `policy projects` is a project index surface. By default it prints project names under a
 `Projects With Policies` header; use `--json` for counts, raw scopes, and categories.
+
+`policy explain` is the deterministic explainability surface. It evaluates one operation against
+the scoped policy set and separates matched entries from skipped entries; use `--all` to include
+inactive entries in that explanation.
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`
