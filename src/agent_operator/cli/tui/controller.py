@@ -309,12 +309,13 @@ class FleetWorkbenchController:
             self._clear_session_filter()
             self._restore_selected_timeline_event(None)
             return True
-        if key in {"i", "d", "t", "m"}:
+        if key in {"i", "d", "t", "m", "o"}:
             self.state.operation_panel_mode = {
                 "i": "detail",
                 "d": "decisions",
                 "t": "events",
                 "m": "memory",
+                "o": "report",
             }[key]
             return True
         selected = self.state.selected_item

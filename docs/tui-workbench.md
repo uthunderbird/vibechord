@@ -86,6 +86,7 @@ Available keys:
 - `d`: show decision memos for the selected task scope
 - `t`: show recent operation events
 - `m`: show memory entries for the selected task scope
+- `o`: show the operation retrospective report when one has been recorded
 - `Esc`: return to fleet
 - `p`: enqueue pause for the parent operation
 - `u`: enqueue unpause/resume for the parent operation
@@ -180,6 +181,7 @@ The forensic view currently shows:
 Current interactive actions implemented in the workbench:
 
 - inspect fleet, operation, session, and forensic views
+- show the retained operation retrospective report from operation level
 - show a compact keybinding help overlay for the current view without hiding the left pane
 - answer the oldest blocking attention in scope from fleet, operation, or session, then continue
   directly to the next oldest blocking attention in the same scope when one remains

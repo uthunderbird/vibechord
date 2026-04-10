@@ -451,8 +451,64 @@ async def test_operation_view_switches_modes_and_moves_task_selection() -> None:
     await controller.handle_key("m")
     assert controller.state.operation_panel_mode == "memory"
 
+    await controller.handle_key("o")
+    assert controller.state.operation_panel_mode == "report"
+    report_panel = controller.render()
+    assert report_panel is not None
+
     await controller.handle_key("i")
     assert controller.state.operation_panel_mode == "detail"
+
+
+async def test_operation_view_report_mode_shows_retrospective_report() -> None:
+    async def _load_operation_payload_with_report(operation_id: str) -> dict[str, object]:
+        payload = await _load_operation_payload(operation_id)
+        payload["report_text"] = "# Report\n\nRetrospective summary."
+        return payload
+
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload_with_report,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("o")
+
+    console = Console(record=True, width=140, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+
+    assert "Retrospective summary." in rendered
+
+
+async def test_help_overlay_lists_operation_report_mode() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("?")
+
+    console = Console(record=True, width=140, markup=False)
+    console.print(render_help_overlay(controller.state))
+    rendered = console.export_text(styles=False)
+
+    assert "i / d / t / m / o" in rendered
 
 
 async def test_operation_view_shows_operation_brief_sections() -> None:
@@ -1998,6 +2054,7 @@ async def _load_operation_payload(operation_id: str) -> dict[str, object]:
                 "freshness": "current",
             },
         ],
+        "report_text": None,
     }
 
 

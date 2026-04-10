@@ -5,9 +5,9 @@ from pathlib import Path
 
 from agent_operator.application import OperationProjectionService
 from agent_operator.domain import (
+    AgentSessionHandle,
     AgentTurnBrief,
     AgentTurnSummary,
-    AgentSessionHandle,
     AttentionRequest,
     AttentionStatus,
     AttentionType,
@@ -16,11 +16,11 @@ from agent_operator.domain import (
     MemoryEntry,
     MemoryFreshness,
     MemoryScope,
-    OperationSummary,
     OperationGoal,
     OperationPolicy,
     OperationState,
     OperationStatus,
+    OperationSummary,
     ProjectProfile,
     RuntimeHints,
     SchedulerState,
@@ -240,7 +240,12 @@ def test_build_fleet_workbench_payload_normalizes_rows_and_header() -> None:
         ),
     ]
     payload = OperationProjectionService().build_fleet_workbench_payload(
-        AgendaSnapshot(total_operations=2, needs_attention=[items[0]], active=[items[1]], recent=[]),
+        AgendaSnapshot(
+            total_operations=2,
+            needs_attention=[items[0]],
+            active=[items[1]],
+            recent=[],
+        ),
         project="operator",
     )
 
@@ -303,6 +308,7 @@ def test_build_dashboard_payload_emits_normalized_session_views() -> None:
         events=[],
         decision_memos=[],
         upstream_transcript=None,
+        report_text="# Report\n\nRetrospective summary.",
     )
 
     session_views = payload["session_views"]
@@ -313,6 +319,7 @@ def test_build_dashboard_payload_emits_normalized_session_views() -> None:
     assert session_view["session"]["session_id"] == "session-1"
     assert session_view["session_brief"]["wait"] == "Working"
     assert session_view["transcript_hint"]["command"] == "operator log op-1 --agent codex"
+    assert payload["report_text"] == "# Report\n\nRetrospective summary."
 
 
 def test_build_live_snapshot_and_format_live_snapshot() -> None:

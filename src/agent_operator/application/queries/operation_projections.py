@@ -742,6 +742,7 @@ class OperationProjectionService:
         events: list[RunEvent],
         decision_memos: list[DecisionMemo],
         upstream_transcript: dict[str, object] | None,
+        report_text: str | None,
     ) -> dict[str, object]:
         active_session = operation.active_session_record
         context_payload = self.build_operation_context_payload(operation)
@@ -928,6 +929,7 @@ class OperationProjectionService:
                 for command in sorted(commands, key=lambda item: item.submitted_at)[-6:]
             ],
             "upstream_transcript": upstream_transcript,
+            "report_text": report_text,
             "codex_log": (
                 list(upstream_transcript.get("events"))
                 if isinstance(upstream_transcript, dict)

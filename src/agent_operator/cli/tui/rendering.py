@@ -376,7 +376,7 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("a", "answer oldest blocking attention for selected task"),
             ("n", "answer oldest non-blocking attention for selected task"),
             ("A", "open attention picker for selected task"),
-            ("i / d / t / m", "switch right pane detail mode"),
+            ("i / d / t / m / o", "switch right pane detail mode"),
             ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
             *common,
         ]
@@ -537,6 +537,12 @@ def render_operation_panel(state: FleetWorkbenchState) -> Group | Table | Text:
             )
             or "No memory entries for the selected scope."
         )
+    if state.operation_panel_mode == "report":
+        payload = state.selected_operation_payload
+        report_text = payload.get("report_text") if isinstance(payload, dict) else None
+        if isinstance(report_text, str) and report_text.strip():
+            return Text(report_text.strip())
+        return Text("No retrospective report has been recorded for this operation.")
     return render_task_detail_table(state)
 
 
@@ -741,7 +747,7 @@ def render_footer_text(state: FleetWorkbenchState) -> Text:
         return Text(
             "j/k move  Enter session  / filter  a/n answer"
             "  A picker"
-            "  i detail  d decisions  t events  m memory"
+            "  i detail  d decisions  t events  m memory  o report"
             "  Esc back  p pause  u unpause  s interrupt task/session  c cancel  r refresh  q quit"
         )
     help_line = Text(
