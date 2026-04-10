@@ -102,8 +102,10 @@ def _policy_project_payload(entries: list[dict[str, object]]) -> list[dict[str, 
         bucket = grouped[scope]
         categories = bucket["categories"]
         assert isinstance(categories, set)
+        project_name = scope.partition(":")[2] if ":" in scope else scope
         payload.append(
             {
+                "project": project_name,
                 "project_scope": scope,
                 "policy_count": bucket["policy_count"],
                 "active_policy_count": bucket["active_policy_count"],
@@ -124,17 +126,12 @@ def policy_projects(json_mode: bool = typer.Option(False, "--json")) -> None:
         if json_mode:
             typer.echo(json.dumps({"policy_projects": payload}, indent=2, ensure_ascii=False))
             return
-        typer.echo("Policy-bearing projects:")
+        typer.echo("Projects With Policies")
         if not payload:
             typer.echo("- none")
             return
         for item in payload:
-            typer.echo(
-                f"- {item['project_scope']} "
-                f"({item['active_policy_count']} active / {item['policy_count']} total)"
-            )
-            categories = ", ".join(item["categories"]) if item["categories"] else "-"
-            typer.echo(f"  categories: {categories}")
+            typer.echo(f"- {item['project']}")
 
     anyio.run(_projects)
 

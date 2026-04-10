@@ -158,18 +158,12 @@ def project_list(json_mode: bool = typer.Option(False, "--json")) -> None:
     if json_mode:
         typer.echo(json.dumps({"project_profiles": payload}, indent=2, ensure_ascii=False))
         return
-    typer.echo("Project profiles:")
+    typer.echo("Projects")
     if not payload:
         typer.echo("- none")
         return
     for item in payload:
-        typer.echo(f"- {item['name']} [{item['scope']}]")
-        typer.echo(f"  path: {item['path']}")
-        typer.echo(f"  cwd: {item['cwd'] or '-'}")
-        agents = ", ".join(item["default_agents"]) if item["default_agents"] else "-"
-        typer.echo(f"  agents: {agents}")
-        typer.echo(f"  objective: {item['default_objective'] or '-'}")
-        typer.echo(f"  involvement: {item['default_involvement_level'] or '-'}")
+        typer.echo(f"- {item['name']}")
 
 
 @project_app.command("create")

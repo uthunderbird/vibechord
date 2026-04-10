@@ -92,6 +92,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator project inspect femtobot
 UV_CACHE_DIR=/tmp/uv-cache uv run operator project resolve femtobot
 ```
 
+`project list` is an inventory surface. By default it prints just profile names under a `Projects`
+header; use `--json` for machine-readable inventory metadata.
+
 Inspect a stored policy entry or explain current policy coverage:
 
 ```sh
@@ -99,6 +102,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator policy projects
 UV_CACHE_DIR=/tmp/uv-cache uv run operator policy inspect policy-1
 UV_CACHE_DIR=/tmp/uv-cache uv run operator policy explain last
 ```
+
+`policy projects` is a project index surface. By default it prints project names under a
+`Projects With Policies` header; use `--json` for counts, raw scopes, and categories.
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`

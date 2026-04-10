@@ -2733,10 +2733,7 @@ def test_project_list_is_inventory_shaped_by_default_and_supports_json(
     listed_json = runner.invoke(app, ["project", "list", "--json"])
 
     assert listed.exit_code == 0
-    assert "Project profiles:" in listed.stdout
-    assert "- femtobot [local]" in listed.stdout
-    assert "cwd: /tmp/femtobot" in listed.stdout
-    assert "agents: codex_acp" in listed.stdout
+    assert listed.stdout == "Projects\n- femtobot\n"
 
     assert listed_json.exit_code == 0
     payload = json.loads(listed_json.stdout)
@@ -3040,12 +3037,11 @@ def test_policy_projects_is_inventory_shaped_by_default_and_supports_json(
     projects_json = runner.invoke(app, ["policy", "projects", "--json"])
 
     assert projects.exit_code == 0
-    assert "Policy-bearing projects:" in projects.stdout
-    assert "- profile:femtobot (1 active / 2 total)" in projects.stdout
-    assert "categories: release, testing" in projects.stdout
+    assert projects.stdout == "Projects With Policies\n- femtobot\n"
 
     assert projects_json.exit_code == 0
     payload = json.loads(projects_json.stdout)
+    assert payload["policy_projects"][0]["project"] == "femtobot"
     assert payload["policy_projects"][0]["project_scope"] == "profile:femtobot"
     assert payload["policy_projects"][0]["active_policy_count"] == 1
     assert payload["policy_projects"][0]["policy_count"] == 2
