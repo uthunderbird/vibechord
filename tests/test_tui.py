@@ -688,6 +688,7 @@ async def test_help_overlay_lists_session_report_toggle() -> None:
     rendered = console.export_text(styles=False)
 
     assert "i / o" in rendered
+    assert "open forensic view" in rendered
 
 
 async def test_operation_view_shows_operation_brief_sections() -> None:
@@ -1742,6 +1743,8 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
         "Needs input",
         "Review",
         "Latest output",
+        "Timeline",
+        "Selected 1 of 2 events (newest first)",
         "codex_acp · session-1",
         "Selected Event",
         "agent started",
@@ -1750,9 +1753,12 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
         assert section in rendered
 
     assert "Fleet / op-run / session / task-1" in rendered
-    assert "Open" in rendered
-    assert "Enter event detail; r transcript/log; o retrospective report" in rendered
-    assert "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q" in rendered
+    assert "Next step" in rendered
+    assert "Enter/r forensic" in rendered
+    assert (
+        "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /"
+        "  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+    ) in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
@@ -2223,7 +2229,7 @@ async def test_session_header_and_footer_use_human_action_language() -> None:
     await controller.handle_key("\r")
 
     lines = human_header_lines(controller.state)
-    assert lines[0] == "Fleet > op-run > task-1 > session"
+    assert lines[0] == "Fleet / op-run / session / task-1"
     assert (
         lines[1] == "Session: codex_acp · session-1 · running · Working through the board layout."
     )
@@ -2232,7 +2238,7 @@ async def test_session_header_and_footer_use_human_action_language() -> None:
     assert "Attention: Need a layout decision" in lines[2]
     assert (
         human_footer_text(controller.state).plain
-        == "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+        == "Session: Open forensic Enter or r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
     )
 
 
@@ -2254,7 +2260,7 @@ async def test_session_footer_uses_short_human_first_actions() -> None:
 
     assert (
         human_footer_text(controller.state).plain
-        == "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+        == "Session: Open forensic Enter or r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
     )
 
 
@@ -2275,7 +2281,7 @@ async def test_operation_footer_uses_short_human_first_actions() -> None:
 
     assert (
         human_footer_text(controller.state).plain
-        == "Operation: Open session Enter  Open transcript l  Detail i  Decisions d  Events t  Memory m  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?"
+        == "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Quit q"
     )
 
 

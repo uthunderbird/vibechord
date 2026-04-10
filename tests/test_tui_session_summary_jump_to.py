@@ -6,7 +6,7 @@ from agent_operator.cli.tui.models import FleetWorkbenchState
 from agent_operator.cli.tui.rendering import render_session_brief_table
 
 
-def test_session_brief_table_uses_jump_to_summary_cue() -> None:
+def test_session_brief_table_uses_next_step_summary_cue() -> None:
     state = FleetWorkbenchState(
         view_level="session",
         selected_operation_payload={
@@ -41,5 +41,7 @@ def test_session_brief_table_uses_jump_to_summary_cue() -> None:
     console.print(render_session_brief_table(state))
     rendered = console.export_text(styles=False)
 
-    assert "Jump to" in rendered
-    assert "Forensic Enter/r; live detail i; retrospective report o" in rendered
+    assert "Timeline" in rendered
+    assert "No timeline events." in rendered
+    assert "Next step" in rendered
+    assert "Enter/r forensic  ·  i live detail  ·  o report" in rendered
