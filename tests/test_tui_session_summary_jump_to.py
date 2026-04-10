@@ -44,4 +44,7 @@ def test_session_brief_table_uses_next_step_summary_cue() -> None:
     assert "Timeline" in rendered
     assert "No timeline events." in rendered
     assert "Next step" in rendered
-    assert "Enter/r forensic  ·  i live detail  ·  o report" in rendered
+    assert (
+        "Open forensic Enter/r  ·  Live detail i  ·  Report o  ·  Back Esc  ·  Help ?"
+        in rendered
+    )

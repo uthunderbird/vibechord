@@ -43,11 +43,13 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     ):
         assert section in rendered
 
-    assert "Fleet > op-run > task-1 > session" in rendered
-    assert "Timeline: Selected 1 of 2 events (newest first)" in rendered
-    assert "Open" in rendered
-    assert "Enter event detail; r transcript/log; o retrospective report" in rendered
-    assert "Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?" in rendered
+    assert "Fleet / op-run / session / task-1" in rendered
+    assert "Timeline       Selected 1 of 2 events (newest first)" in rendered
+    assert "Open forensic Enter/r" in rendered
+    assert (
+        "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
+    ) in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:

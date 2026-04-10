@@ -736,8 +736,8 @@ def render_task_detail_table(state: FleetWorkbenchState) -> Table:
     if session_line is not None:
         table.add_row("Session detail", session_line)
         table.add_row(
-            "Escalate",
-            "Enter session detail; l transcript/log; o retrospective report",
+            "Next step",
+            "Open session Enter  ·  Transcript/log l  ·  Report o  ·  Back Esc  ·  Help ?",
         )
     attentions = task_attention_titles(payload, task)
     if attentions:
@@ -769,17 +769,20 @@ def render_session_brief_table(state: FleetWorkbenchState) -> Table:
         session_id = str(session.get("session_id") or "-")
         table.add_row("Session", f"{adapter} · {session_id}")
     table.add_row("Now", brief["now"])
-    table.add_row("Waiting on", brief["wait"])
+    table.add_row("Wait", brief["wait"])
     if brief["agent_activity"] != "-":
         table.add_row("Agent", brief["agent_activity"])
     if brief["operator_state"] != "-":
         table.add_row("Operator", brief["operator_state"])
-    table.add_row("Needs input", brief["attention"])
+    table.add_row("Attention", brief["attention"])
     if brief["review"] != "-":
         table.add_row("Review", brief["review"])
     table.add_row("Latest output", brief["latest_output"])
     table.add_row("Timeline", _session_timeline_summary(state))
-    table.add_row("Next step", "Enter/r forensic  ·  i live detail  ·  o report")
+    table.add_row(
+        "Next step",
+        "Open forensic Enter/r  ·  Live detail i  ·  Report o  ·  Back Esc  ·  Help ?",
+    )
     return table
 
 
@@ -820,14 +823,16 @@ def _session_timeline_summary(state: FleetWorkbenchState) -> str:
         state.selected_task,
         state.session_filter_query,
     )
-    if not filtered_events:
-        return "No timeline events."
     total_events = len(
         session_timeline_events(
             state.selected_operation_payload,
             state.selected_task,
         )
     )
+    if not filtered_events:
+        if state.session_filter_query and total_events:
+            return f"No timeline events match filter; {total_events} total before filter"
+        return "No timeline events."
     selected_position = min(state.selected_timeline_index, len(filtered_events) - 1) + 1
     summary = f"Selected {selected_position} of {len(filtered_events)} events (newest first)"
     if state.session_filter_query and total_events != len(filtered_events):

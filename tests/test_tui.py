@@ -212,7 +212,7 @@ async def test_help_overlay_opens_from_session_view() -> None:
     console.print(render_help_overlay(controller.state))
     rendered = console.export_text(styles=False)
     assert "filter session timeline" in rendered
-    assert "open forensic raw transcript" in rendered
+    assert "open selected event in forensic view" in rendered
 
 
 async def test_fleet_workbench_tab_skips_nonblocking_attention() -> None:
@@ -1643,8 +1643,11 @@ async def test_operation_view_renders_transcript_and_report_escalation_cues() ->
     console.print(controller.render())
     rendered = console.export_text(styles=False)
 
-    assert "Escalate" in rendered
-    assert "Enter session detail; l transcript/log; o retrospective report" in rendered
+    assert "Next step" in rendered
+    assert (
+        "Open session Enter  ·  Transcript/log l  ·  Report o  ·  Back Esc  ·  Help ?"
+        in rendered
+    )
 
 
 async def test_session_filter_matches_event_type_and_summary_fields() -> None:
@@ -1737,10 +1740,10 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     for section in (
         "codex_acp",
         "Now",
-        "Waiting on",
+        "Wait",
         "Agent",
         "Operator",
-        "Needs input",
+        "Attention",
         "Review",
         "Latest output",
         "Timeline",
@@ -1754,10 +1757,10 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
 
     assert "Fleet / op-run / session / task-1" in rendered
     assert "Next step" in rendered
-    assert "Enter/r forensic" in rendered
+    assert "Open forensic Enter/r" in rendered
     assert (
-        "Session: Open forensic Enter/r  Live detail i  Report o  Answer a/n  Pick A  Filter /"
-        "  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+        "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
     ) in rendered
 
 
@@ -2090,6 +2093,35 @@ def test_filtered_empty_session_timeline_shows_filter_specific_message() -> None
     )
 
 
+def test_session_timeline_summary_shows_filter_specific_empty_state() -> None:
+    state = FleetWorkbenchState(
+        view_level="session",
+        session_filter_query="nomatch",
+        selected_operation_payload={
+            "timeline_events": [
+                {
+                    "event_type": "agent.invocation.started",
+                    "iteration": 1,
+                    "task_id": "task-1",
+                    "session_id": "session-1",
+                    "summary": "agent started",
+                }
+            ]
+        },
+    )
+
+    assert (
+        tui_rendering_pkg._session_timeline_summary(state)
+        == "No timeline events match filter; 1 total before filter"
+    )
+
+
+def test_session_timeline_summary_keeps_plain_empty_state_without_filter() -> None:
+    state = FleetWorkbenchState(view_level="session", selected_operation_payload={})
+
+    assert tui_rendering_pkg._session_timeline_summary(state) == "No timeline events."
+
+
 def test_filtered_empty_forensic_transcript_shows_filter_specific_message() -> None:
     state = FleetWorkbenchState(
         view_level="forensic",
@@ -2174,7 +2206,8 @@ def test_fleet_header_keeps_filter_visible_with_human_counts() -> None:
 
     scope_line = human_header_lines(state)[1]
     assert scope_line == (
-        "Scope: all projects  Operations: 4  Running: 1  Needs human: 0  Paused: 0  Fleet filter: dashboard"
+        "Scope: all projects  Operations: 4  Running: 1  Needs human: 0  Paused: 0  "
+        "Fleet filter: dashboard"
     )
 
 
@@ -2238,7 +2271,8 @@ async def test_session_header_and_footer_use_human_action_language() -> None:
     assert "Attention: Need a layout decision" in lines[2]
     assert (
         human_footer_text(controller.state).plain
-        == "Session: Open forensic Enter or r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+        == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
     )
 
 
@@ -2260,7 +2294,8 @@ async def test_session_footer_uses_short_human_first_actions() -> None:
 
     assert (
         human_footer_text(controller.state).plain
-        == "Session: Open forensic Enter or r  Live detail i  Report o  Answer a/n  Pick A  Filter /  Interrupt s  Pause p  Resume u  Cancel c  Back Esc  Help ?  Quit q"
+        == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Quit q"
     )
 
 
@@ -2281,7 +2316,9 @@ async def test_operation_footer_uses_short_human_first_actions() -> None:
 
     assert (
         human_footer_text(controller.state).plain
-        == "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Quit q"
+        == "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  "
+        "Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  "
+        "Resume u  Interrupt s  Cancel c  Refresh r  Quit q"
     )
 
 

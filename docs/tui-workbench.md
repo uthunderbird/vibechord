@@ -101,6 +101,8 @@ Blocked tasks show a compact dependency continuation line, and tasks with linked
 state can show a compact session continuation line under the task row, including the adapter,
 session id, status, and waiting reason when available.
 Task rows now include a compact status glyph before the task short id.
+The selected task detail also includes a compact `Next step` row when a linked session is present,
+rendered as `Open session Enter · Transcript/log l · Report o · Back Esc · Help ?`.
 The operation footer uses a short action strip: `Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Quit q`.
 
 Available keys:
@@ -144,7 +146,7 @@ screen:
 
 - a compact session brief with explicit session identity plus `Now`, `Wait`, `Attention`, and `Latest output`
 - a compact `Timeline` summary that shows the current selection position and whether the list is newest-first
-- a compact `Next step` row, rendered as `Enter/r forensic · i live detail · o report`
+- a compact `Next step` row, rendered as `Open forensic Enter/r · Live detail i · Report o · Back Esc · Help ?`
 - a selected-event detail block for the currently highlighted timeline item
 
 The session header also carries a compact live summary line so you can orient before reading the
