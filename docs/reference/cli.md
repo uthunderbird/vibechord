@@ -123,7 +123,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --follow -
 
 `session` remains task-addressed rather than session-id-addressed. Default/`--once` output is the
 bounded investigation snapshot; `--follow` is the more compact live variant and keeps transcript
-escalation explicit via `operator log` rather than inlining transcript body.
+escalation explicit via `operator log` rather than inlining transcript body. In a real TTY,
+`session --follow` redraws the current Level 2 snapshot in place instead of appending duplicate
+snapshots.
 
 Inspect project defaults and effective resolved run settings:
 
