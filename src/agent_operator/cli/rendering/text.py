@@ -46,28 +46,64 @@ def format_live_snapshot(
     base_formatter: Callable[[dict[str, object]], str],
     shorten_live_text: Callable[[str | None], str | None],
 ) -> str:
-    parts = [base_formatter(snapshot)]
+    operation_id = snapshot.get("operation_id")
+    status = str(snapshot.get("status") or "unknown").upper()
+    lines = [
+        f"Operation {operation_id} [{status}]"
+        if isinstance(operation_id, str) and operation_id
+        else f"Operation [{status}]"
+    ]
+
+    focus = shorten_live_text(
+        str(snapshot.get("focus")) if snapshot.get("focus") is not None else None
+    )
+    summary_payload = snapshot.get("summary")
+    latest: str | None = None
+    next_step: str | None = None
+    if isinstance(summary_payload, dict):
+        latest = shorten_live_text(
+            str(summary_payload.get("work_summary"))
+            if summary_payload.get("work_summary") is not None
+            else None
+        )
+        next_step = shorten_live_text(
+            str(summary_payload.get("next_step"))
+            if summary_payload.get("next_step") is not None
+            else None
+        )
+        if focus is None:
+            focus = shorten_live_text(
+                str(summary_payload.get("objective"))
+                if summary_payload.get("objective") is not None
+                else None
+            )
+    elif summary_payload is not None:
+        latest = shorten_live_text(str(summary_payload))
+    if focus is not None:
+        lines.append(f"Now: {focus}")
+
     session_id = snapshot.get("session_id")
-    if isinstance(session_id, str) and session_id:
-        parts.append(f"session={session_id}")
     adapter_key = snapshot.get("adapter_key")
+    session_bits: list[str] = []
+    if isinstance(session_id, str) and session_id:
+        session_bits.append(session_id)
     if isinstance(adapter_key, str) and adapter_key:
-        parts.append(f"agent={adapter_key}")
-    session_status = snapshot.get("session_status")
-    if isinstance(session_status, str) and session_status and session_status != "idle":
-        parts.append(f"session_status={session_status}")
+        session_bits.append(adapter_key)
+    if session_bits:
+        lines.append(f"Session: {' via '.join(session_bits)}")
+
     waiting_reason_raw = snapshot.get("waiting_reason")
     waiting_reason = shorten_live_text(
         str(waiting_reason_raw) if waiting_reason_raw is not None else None
     )
     if waiting_reason is not None:
-        parts.append(f"waiting={waiting_reason}")
+        lines.append(f"Wait: {waiting_reason}")
     blocking_reason_raw = snapshot.get("blocking_reason")
     blocking_reason = shorten_live_text(
         str(blocking_reason_raw) if blocking_reason_raw is not None else None
     )
-    if blocking_reason is not None:
-        parts.append(f"blocked_by={blocking_reason}")
+    if blocking_reason is not None and waiting_reason is None:
+        lines.append(f"Wait: {blocking_reason}")
     attention_brief_raw = snapshot.get("attention_brief")
     attention_brief = shorten_live_text(
         str(attention_brief_raw) if attention_brief_raw is not None else None
@@ -80,12 +116,17 @@ def format_live_snapshot(
     if attention_brief is not None:
         count = snapshot.get("open_attention_count")
         if isinstance(count, int) and count > 0:
-            parts.append(f"attention={count}:{attention_brief}")
-    summary_raw = snapshot.get("summary")
-    summary = shorten_live_text(str(summary_raw) if summary_raw is not None else None)
-    if summary is not None:
-        parts.append(f"summary={summary}")
-    return " | ".join(parts)
+            lines.append(f"Attention: {count} open; {attention_brief}")
+    if latest is not None and latest != focus:
+        lines.append(f"Latest: {latest}")
+    if next_step is not None:
+        lines.append(f"Next: {next_step}")
+    runtime_alert = shorten_live_text(
+        str(snapshot.get("runtime_alert")) if snapshot.get("runtime_alert") is not None else None
+    )
+    if runtime_alert is not None:
+        lines.append(f"Alert: {runtime_alert}")
+    return "\n".join(lines)
 
 
 def render_status_brief(

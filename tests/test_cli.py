@@ -3938,15 +3938,17 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
     assert "[iter 1] agent started: codex_acp session=session-watch-1 name=repo-audit" in (
         result.stdout
     )
-    assert "state: running | scheduler=active" in result.stdout
-    assert "session=session-watch-1" in result.stdout
-    assert "agent=codex_acp" in result.stdout
+    assert "Operation op-watch-live [RUNNING]" in result.stdout
+    assert "Session: session-watch-1 via codex_acp" in result.stdout
+    assert "Wait: Inspecting the repository layout." in result.stdout
+    assert "Latest:" in result.stdout
     assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
     assert "completed: Live attached watch completed." in result.stdout
 
 
 def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:
     snapshot = {
+        "operation_id": "op-1",
         "status": "needs_human",
         "scheduler_state": "active",
         "open_attention_count": 1,
@@ -3956,7 +3958,8 @@ def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:
 
     formatted = _format_live_snapshot(snapshot)
 
-    assert "attention=1:[policy_gap] Testing policy is missing" in formatted
+    assert "Operation op-1 [NEEDS_HUMAN]" in formatted
+    assert "Attention: 1 open; [policy_gap] Testing policy is missing" in formatted
 
 
 def test_unpause_resumes_paused_attached_operation(tmp_path: Path, monkeypatch) -> None:
