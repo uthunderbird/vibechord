@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import anyio
 from typer.testing import CliRunner
@@ -2149,6 +2150,54 @@ def test_session_command_follow_once_prints_single_live_snapshot(
     assert "Selected event:" not in result.stdout
     assert "Transcript: operator log op-cli-1 --agent codex --follow" in result.stdout
     assert result.stdout.count("  - iter=") <= 2
+
+
+def test_session_command_follow_uses_live_redraw_in_tty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class _FakeLive:
+        def __init__(self, renderable, *, console, refresh_per_second) -> None:
+            captured["initial_renderable"] = renderable
+            captured["refresh_per_second"] = refresh_per_second
+            captured["console"] = console
+            captured["updates"] = []
+
+        def __enter__(self):
+            captured["entered"] = True
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            captured["exited"] = True
+
+        def update(self, renderable, *, refresh) -> None:
+            captured["updates"].append((renderable, refresh))
+
+    fake_tty = SimpleNamespace(isatty=lambda: True)
+    monkeypatch.setattr(
+        commands_operation_detail,
+        "sys",
+        SimpleNamespace(stdout=fake_tty, stdin=fake_tty),
+    )
+    monkeypatch.setattr(commands_operation_detail, "RichConsole", lambda: "console")
+    monkeypatch.setattr(commands_operation_detail, "Live", _FakeLive)
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--follow", "--once"])
+
+    assert result.exit_code == 0
+    assert result.stdout == ""
+    assert captured["entered"] is True
+    assert captured["exited"] is True
+    assert captured["refresh_per_second"] == 4
+    assert "Session scope for Primary objective" in str(captured["initial_renderable"])
+    assert "Transcript: operator log op-cli-1 --agent codex --follow" in str(
+        captured["initial_renderable"]
+    )
+    assert captured["updates"] == []
 
 
 def test_session_command_prints_selected_event_summary_when_present(

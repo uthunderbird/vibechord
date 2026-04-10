@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
 import anyio
 import typer
+from rich.console import Console as RichConsole
+from rich.live import Live
 
 from agent_operator.bootstrap import build_store, build_trace_store
 from agent_operator.domain import TaskState
@@ -94,6 +97,97 @@ def _selected_event_summary(event: object) -> str | None:
     if not stripped:
         return None
     return shorten_live_text(stripped, limit=160) or stripped
+
+
+async def _load_session_snapshot(
+    *,
+    queries,
+    operation_id: str,
+    task_record: TaskState,
+) -> dict[str, object]:
+    payload = await queries.load_payload(operation_id)
+    session_view = _resolve_task_session_view(payload, task_record.task_id)
+    session_payload_data = session_view.get("session", {})
+    session_brief = session_view.get("session_brief", {})
+    session_events = session_view.get("timeline", [])
+    latest_event = session_view.get("selected_event")
+    transcript_hint = session_view.get("transcript_hint", {})
+    session_snapshot = {
+        "operation_id": operation_id,
+        "task": task_record.model_dump(mode="json"),
+        "session_id": session_payload_data.get("session_id") or task_record.linked_session_id,
+        "session": session_payload_data,
+        "session_brief": session_brief,
+        "timeline_events": [event for event in session_events if isinstance(event, dict)],
+        "selected_event": latest_event if isinstance(latest_event, dict) else None,
+        "transcript_hint": transcript_hint if isinstance(transcript_hint, dict) else {},
+    }
+    return session_snapshot
+
+
+def _render_session_snapshot_text(
+    *,
+    operation,
+    task_record: TaskState,
+    operation_id: str,
+    session_snapshot: dict[str, object],
+    follow: bool,
+) -> str:
+    session_payload_data = session_snapshot.get("session", {})
+    session_brief = session_snapshot.get("session_brief", {})
+    session_events = session_snapshot.get("timeline_events", [])
+    latest_event = session_snapshot.get("selected_event")
+    transcript_hint = session_snapshot.get("transcript_hint", {})
+    lines: list[str] = []
+    task_line = format_task_line(operation, task_record.task_id)
+    if task_line is None:
+        task_line = task_record.task_id
+    adapter_key = str(session_payload_data.get("adapter_key") or "-")
+    session_status = str(session_payload_data.get("status") or "-")
+    bound_tasks = ", ".join(task_id for task_id in session_payload_data.get("bound_task_ids", []))
+    if not bound_tasks:
+        bound_tasks = "-"
+    session_display_id = session_payload_data.get("session_id") or task_record.linked_session_id
+    transcript_command = (
+        transcript_hint.get("command") if isinstance(transcript_hint, dict) else None
+    )
+    if not (isinstance(transcript_command, str) and transcript_command.strip()):
+        transcript_command = f"operator log {operation_id}"
+    if follow and " --follow" not in transcript_command:
+        transcript_command = f"{transcript_command} --follow"
+    lines.append(f"Session scope for {task_line}")
+    lines.append(f"Operation: {operation_id}")
+    lines.append(f"Session: {session_display_id} [{adapter_key}] state={session_status}")
+    lines.append(f"Bound tasks: {bound_tasks}")
+    lines.append(f"Now: {_shorten(session_brief.get('now'))}")
+    lines.append(f"Wait: {_shorten(session_brief.get('wait'))}")
+    lines.append(f"Attention: {_shorten(session_brief.get('attention'))}")
+    if _shorten(session_brief.get("review")) != "-":
+        lines.append(f"Review: {_shorten(session_brief.get('review'))}")
+    lines.append(f"Latest output: {_shorten(session_brief.get('latest_output'))}")
+    lines.append("Recent events:")
+    event_limit = 2 if follow else 4
+    if session_events:
+        for event in session_events[-event_limit:]:
+            event_line = f"  - iter={event.get('iteration', '-')}: {event.get('event_type', '-')}"
+            summary = event.get("summary")
+            if isinstance(summary, str) and summary:
+                event_line += f" {shorten_live_text(summary, limit=120)}"
+            lines.append(event_line)
+    else:
+        lines.append("  - none")
+    if not follow and latest_event is not None:
+        lines.append(f"Selected event: {latest_event.get('event_type', '-')}")
+        lines.append(f"  iteration: {latest_event.get('iteration', '-')}")
+        lines.append(f"  task: {latest_event.get('task_id', '-')}")
+        lines.append(f"  session: {latest_event.get('session_id', '-')}")
+        event_summary = _selected_event_summary(latest_event)
+        if event_summary is not None:
+            lines.append(f"  summary: {event_summary}")
+    elif not follow:
+        lines.append("Selected event: none")
+    lines.append(f"Transcript: {transcript_command}")
+    return "\n".join(lines)
 
 
 @app.command()
@@ -522,90 +616,48 @@ def session(
             codex_home=codex_home,
         )
 
-        async def _render_once() -> None:
-            payload = await queries.load_payload(resolved_operation_id)
-            session_view = _resolve_task_session_view(payload, task_record.task_id)
-            session_payload_data = session_view.get("session", {})
-            session_brief = session_view.get("session_brief", {})
-            session_events = session_view.get("timeline", [])
-            latest_event = session_view.get("selected_event")
-            transcript_hint = session_view.get("transcript_hint", {})
-            session_snapshot = {
-                "operation_id": resolved_operation_id,
-                "task": task_record.model_dump(mode="json"),
-                "session_id": session_payload_data.get("session_id")
-                or task_record.linked_session_id,
-                "session": session_payload_data,
-                "session_brief": session_brief,
-                "timeline_events": [event for event in session_events if isinstance(event, dict)],
-                "selected_event": latest_event if isinstance(latest_event, dict) else None,
-                "transcript_hint": transcript_hint if isinstance(transcript_hint, dict) else {},
-            }
+        async def _render_once(*, live_follow: bool) -> tuple[dict[str, object], str]:
+            session_snapshot = await _load_session_snapshot(
+                queries=queries,
+                operation_id=resolved_operation_id,
+                task_record=task_record,
+            )
             if json_mode:
-                typer.echo(json.dumps(session_snapshot, indent=2, ensure_ascii=False))
-                return
-            task_line = format_task_line(operation, task_record.task_id)
-            if task_line is None:
-                task_line = task_record.task_id
-            adapter_key = str(session_payload_data.get("adapter_key") or "-")
-            session_status = str(session_payload_data.get("status") or "-")
-            bound_tasks = ", ".join(
-                task_id for task_id in session_payload_data.get("bound_task_ids", [])
+                return session_snapshot, json.dumps(session_snapshot, indent=2, ensure_ascii=False)
+            return session_snapshot, _render_session_snapshot_text(
+                operation=operation,
+                task_record=task_record,
+                operation_id=resolved_operation_id,
+                session_snapshot=session_snapshot,
+                follow=live_follow,
             )
-            if not bound_tasks:
-                bound_tasks = "-"
-            session_display_id = (
-                session_payload_data.get("session_id") or task_record.linked_session_id
-            )
-            transcript_command = (
-                transcript_hint.get("command") if isinstance(transcript_hint, dict) else None
-            )
-            if not (isinstance(transcript_command, str) and transcript_command.strip()):
-                transcript_command = f"operator log {resolved_operation_id}"
-            if follow and " --follow" not in transcript_command:
-                transcript_command = f"{transcript_command} --follow"
-            typer.echo(f"Session scope for {task_line}")
-            typer.echo(f"Operation: {resolved_operation_id}")
-            typer.echo(f"Session: {session_display_id} [{adapter_key}] state={session_status}")
-            typer.echo(f"Bound tasks: {bound_tasks}")
-            typer.echo(f"Now: {_shorten(session_brief.get('now'))}")
-            typer.echo(f"Wait: {_shorten(session_brief.get('wait'))}")
-            typer.echo(f"Attention: {_shorten(session_brief.get('attention'))}")
-            if _shorten(session_brief.get("review")) != "-":
-                typer.echo(f"Review: {_shorten(session_brief.get('review'))}")
-            typer.echo(f"Latest output: {_shorten(session_brief.get('latest_output'))}")
-            typer.echo("Recent events:")
-            event_limit = 2 if follow else 4
-            if session_events:
-                for event in session_events[-event_limit:]:
-                    event_line = (
-                        f"  - iter={event.get('iteration', '-')}: {event.get('event_type', '-')}"
-                    )
-                    summary = event.get("summary")
-                    if isinstance(summary, str) and summary:
-                        event_line += f" {shorten_live_text(summary, limit=120)}"
-                    typer.echo(event_line)
-            else:
-                typer.echo("  - none")
-            if not follow and latest_event is not None:
-                typer.echo(f"Selected event: {latest_event.get('event_type', '-')}")
-                typer.echo(f"  iteration: {latest_event.get('iteration', '-')}")
-                typer.echo(f"  task: {latest_event.get('task_id', '-')}")
-                typer.echo(f"  session: {latest_event.get('session_id', '-')}")
-                event_summary = _selected_event_summary(latest_event)
-                if event_summary is not None:
-                    typer.echo(f"  summary: {event_summary}")
-            elif not follow:
-                typer.echo("Selected event: none")
-            typer.echo(f"Transcript: {transcript_command}")
 
         if follow:
+            use_live_tty = not json_mode and sys.stdout.isatty() and sys.stdin.isatty()
+            if use_live_tty:
+                _, initial_render = await _render_once(live_follow=True)
+                console = RichConsole()
+                with Live(initial_render, console=console, refresh_per_second=4) as live:
+                    if once:
+                        return
+                    last_render = initial_render
+                    while True:
+                        _, rendered = await _render_once(live_follow=True)
+                        if rendered != last_render:
+                            live.update(rendered, refresh=True)
+                            last_render = rendered
+                        await anyio.sleep(poll_interval)
+            last_render: str | None = None
             while True:
-                await _render_once()
+                _, rendered = await _render_once(live_follow=True)
+                if rendered != last_render:
+                    typer.echo(rendered)
+                    last_render = rendered
                 if once:
                     break
                 await anyio.sleep(poll_interval)
             return
-        await _render_once()
+        _, rendered = await _render_once(live_follow=False)
+        typer.echo(rendered)
 
     anyio.run(_session)
