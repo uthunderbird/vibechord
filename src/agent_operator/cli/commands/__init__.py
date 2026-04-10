@@ -1,6 +1,7 @@
 """CLI command family package."""
 
 __all__ = [
+    "agent",
     "debug",
     "fleet",
     "operation_control",

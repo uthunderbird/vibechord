@@ -29,6 +29,7 @@ Primary workflow surfaces:
 - `init` — set up operator in the current project
 - `clear` — wipe project-local operator runtime state while preserving profiles
 - `project ...` — manage project profiles
+- `agent ...` — inspect configured agent descriptors and adapter settings
 - `policy ...` — inspect and mutate project-local policy memory
 
 Situational and forensic surfaces:
@@ -142,6 +143,21 @@ defaults and confirms the written profile path; use `--json` for machine-readabl
 
 `project dashboard` is the project-scoped supervision surface. Use `--once` for a single snapshot
 or `--json` for a machine-readable dashboard payload.
+
+Inspect the configured agent roster and one agent's current configuration:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator agent list
+UV_CACHE_DIR=/tmp/uv-cache uv run operator agent show codex_acp
+```
+
+`agent list` is an inventory surface for the built-in agent registry. By default it prints stable
+agent keys with display names under an `Agents` header; use `--json` for machine-readable
+capability inventory payloads.
+
+`agent show` is the inspection surface for one configured agent. By default it prints descriptor
+capabilities plus the current resolved adapter settings; use `--json` for a machine-readable detail
+payload.
 
 Inspect policy inventory, a stored policy entry, or current policy coverage:
 
