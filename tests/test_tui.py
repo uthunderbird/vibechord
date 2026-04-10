@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 import agent_operator.cli.main as cli_main
 from agent_operator.cli.tui import build_fleet_workbench_controller
 from agent_operator.cli.tui import models as tui_models_pkg
+from agent_operator.cli.tui import rendering as tui_rendering_pkg
 from agent_operator.cli.tui.models import FleetWorkbenchState, dashboard_tasks, task_signal_text
 from agent_operator.cli.tui.rendering import (
     render_attention_picker,
@@ -27,6 +28,10 @@ pytestmark = pytest.mark.anyio
 
 def test_tui_package_models_exports_state() -> None:
     assert tui_models_pkg.FleetWorkbenchState is FleetWorkbenchState
+
+
+def test_tui_package_exports_rendering_module() -> None:
+    assert tui_rendering_pkg.render_help_overlay is render_help_overlay
 
 
 def _fleet_payload() -> dict[str, object]:

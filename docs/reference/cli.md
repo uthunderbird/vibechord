@@ -3,6 +3,10 @@
 `operator` exposes a fleet-first CLI organized around a few primary entry surfaces plus deeper
 inspection and forensic commands.
 
+Implementation families for this delivery surface live under
+`agent_operator.cli.commands`, `agent_operator.cli.rendering`, `agent_operator.cli.tui`,
+`agent_operator.cli.workflows`, and `agent_operator.cli.helpers`.
+
 Primary workflow surfaces:
 
 - `operator` — fleet view in a TTY, fleet snapshot otherwise
