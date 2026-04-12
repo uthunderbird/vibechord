@@ -75,15 +75,30 @@ class EventSourcedOperationBirthService:
             "involvement_level": state.involvement_level.value,
             "created_at": state.created_at.isoformat(),
         }
+        event_drafts = [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload=payload,
+            )
+        ]
+        event_drafts.extend(
+            OperationDomainEventDraft(
+                event_type="session.created",
+                payload=session.model_dump(mode="json"),
+            )
+            for session in state.sessions
+        )
+        if state.active_session is not None:
+            event_drafts.append(
+                OperationDomainEventDraft(
+                    event_type="operation.active_session_updated",
+                    payload={"session_id": state.active_session.session_id},
+                )
+            )
         stored_events = await self._event_store.append(
             state.operation_id,
             0,
-            [
-                OperationDomainEventDraft(
-                    event_type="operation.created",
-                    payload=payload,
-                )
-            ],
+            event_drafts,
         )
         checkpoint = self._projector.project(
             OperationCheckpoint.initial(state.operation_id, created_at=state.created_at),

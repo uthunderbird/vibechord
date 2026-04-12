@@ -4,7 +4,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from agent_operator.application import OperationCancellationService, OperationEntrypointService
+from agent_operator.application import (
+    LoadedOperation,
+    OperationCancellationService,
+    OperationEntrypointService,
+)
+from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
@@ -251,10 +256,13 @@ async def test_operation_entrypoint_service_replays_event_sourced_resume_state(t
         event_sourced_operation_birth_service=birth,
         event_sourced_replay_service=replay,
     )
+    session = AgentSessionHandle(adapter_key="claude_acp", session_id="session-1")
     state = OperationState(
         operation_id="op-es-2",
         goal=OperationGoal(objective="Recover me."),
     )
+    state.sessions.append(SessionState(handle=session))
+    state.active_session = session
     await birth.birth(state)
     await store.save_operation(state)
 
@@ -266,6 +274,53 @@ async def test_operation_entrypoint_service_replays_event_sourced_resume_state(t
 
     assert loaded.operation_id == "op-es-2"
     assert loaded.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
+    assert len(loaded.sessions) == 1
+    assert loaded.sessions[0].session_id == "session-1"
+    assert loaded.active_session is not None
+    assert loaded.active_session.session_id == "session-1"
+
+
+@pytest.mark.anyio
+async def test_prepare_run_replays_event_sourced_attached_initial_session(tmp_path) -> None:
+    store = MemoryStore()
+    event_store = FileOperationEventStore(tmp_path / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    service = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth,
+        event_sourced_replay_service=replay,
+    )
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionRuntimeRegistry({}))
+    attached_session = AgentSessionHandle(adapter_key="claude_acp", session_id="session-1")
+
+    state = await service.prepare_run(
+        goal=OperationGoal(objective="Inspect the repository."),
+        policy=OperationPolicy(allowed_agents=["claude_acp"]),
+        budget=ExecutionBudget(),
+        runtime_hints=RuntimeHints(),
+        options=RunOptions(),
+        operation_id="op-es-3",
+        attached_sessions=[attached_session],
+        merge_runtime_flags=lambda budget, _options: budget,
+        attach_initial_sessions=loaded_operation.attach_initial_sessions,
+    )
+
+    assert state.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
+    assert len(state.sessions) == 1
+    assert state.sessions[0].session_id == "session-1"
+    assert state.active_session is not None
+    assert state.active_session.session_id == "session-1"
 
 
 @pytest.mark.anyio

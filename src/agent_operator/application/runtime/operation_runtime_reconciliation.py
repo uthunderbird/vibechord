@@ -96,7 +96,6 @@ class OperationRuntimeReconciliationService:
                 target_id=active.task_id,
                 mode=FocusMode.ADVISORY,
             )
-        self.sync_legacy_active_session(state)
 
     async def reconcile_background_wakeups(self, state: OperationState) -> None:
         if self._wakeup_inbox is None or self._operation_runtime is None:
@@ -627,16 +626,3 @@ class OperationRuntimeReconciliationService:
                 task_id=task.task_id if task is not None else None,
                 session_id=record.handle.session_id,
             )
-
-    def sync_legacy_active_session(self, state: OperationState) -> None:
-        if state.active_session is None:
-            active = next(
-                (
-                    record.handle
-                    for record in state.sessions
-                    if record.status is SessionRecordStatus.RUNNING
-                ),
-                None,
-            )
-            if active is not None:
-                state.active_session = active
