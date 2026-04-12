@@ -65,7 +65,6 @@ class OperationRuntimeReconciliationService:
         return state.scheduler_state is SchedulerState.PAUSED
 
     def reconcile_state(self, state: OperationState) -> None:
-        state.objective_state.status = state.status
         if state.final_summary:
             state.objective_state.summary = state.final_summary
         task_map = {task.task_id: task for task in state.tasks}

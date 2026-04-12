@@ -29,7 +29,6 @@ from agent_operator.domain.enums import (
     ResumePolicy,
     RunMode,
     SchedulerState,
-    SessionDesiredState,
     SessionObservedState,
     SessionPolicy,
     SessionStatus,
@@ -100,7 +99,6 @@ class ObjectiveState(BaseModel):
     harness_instructions: str | None = None
     success_criteria: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    status: OperationStatus = OperationStatus.RUNNING
     summary: str | None = None
     root_task_id: str | None = None
 
@@ -182,7 +180,6 @@ class TaskState(BaseModel):
 
 class SessionState(BaseModel):
     handle: AgentSessionHandle
-    desired_state: SessionDesiredState = SessionDesiredState.ACTIVE
     observed_state: SessionObservedState = SessionObservedState.IDLE
     terminal_state: SessionTerminalState | None = None
     current_execution_id: str | None = None
@@ -274,8 +271,6 @@ class SessionState(BaseModel):
             SessionStatus.FAILED: SessionTerminalState.FAILED,
             SessionStatus.CANCELLED: SessionTerminalState.CANCELLED,
         }[value]
-        if value is SessionStatus.CANCELLED:
-            self.desired_state = SessionDesiredState.STOPPED
 
 
 class ArtifactRecord(BaseModel):
@@ -532,11 +527,9 @@ class OperationState(BaseModel):
                 harness_instructions=self.goal.harness_text,
                 success_criteria=list(self.goal.success_criteria),
                 metadata=dict(self.goal.metadata),
-                status=self.status,
                 summary=self.final_summary,
             )
         else:
-            self.objective.status = self.status
             if self.final_summary and not self.objective.summary:
                 self.objective.summary = self.final_summary
         if self.involvement_level is InvolvementLevel.AUTO:

@@ -24,6 +24,7 @@ from agent_operator.domain import (
     CommandTargetScope,
     DecisionMemo,
     EventFileRecord,
+    FeatureStatus,
     IterationBrief,
     OperationBrief,
     OperationCommand,
@@ -42,6 +43,8 @@ from agent_operator.domain import (
     ProjectProfileMcpServer,
     RunEvent,
     SessionReusePolicy,
+    SessionState,
+    SessionStatus,
     TraceRecord,
     TypedRefs,
 )
@@ -178,6 +181,26 @@ def test_operation_state_uses_objective_only_for_root_task_goal() -> None:
     assert state.objective_state.objective == "Ship the feature"
     assert state.objective_state.harness_instructions == "Use swarm when unclear."
     assert state.tasks[0].goal == "Ship the feature"
+    assert "status" not in state.objective_state.model_dump()
+
+
+def test_legacy_session_status_upgrades_without_desired_state() -> None:
+    session = SessionState.model_validate(
+        {
+            "handle": {
+                "adapter_key": "codex_acp",
+                "session_id": "session-1",
+            },
+            "status": "cancelled",
+        }
+    )
+
+    assert session.status is SessionStatus.CANCELLED
+    assert "desired_state" not in session.model_dump()
+
+
+def test_feature_status_exposes_only_runtime_values() -> None:
+    assert {status.value for status in FeatureStatus} == {"in_progress", "accepted"}
 
 
 @pytest.mark.anyio

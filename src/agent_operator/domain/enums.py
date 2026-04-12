@@ -43,9 +43,7 @@ class CanonicalPersistenceMode(StrEnum):
 
 class FeatureStatus(StrEnum):
     IN_PROGRESS = "in_progress"
-    READY_FOR_REVIEW = "ready_for_review"
     ACCEPTED = "accepted"
-    NEEDS_REWORK = "needs_rework"
 
 
 class TaskStatus(StrEnum):
@@ -80,12 +78,6 @@ class BackgroundRunStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     DISCONNECTED = "disconnected"
-
-
-class SessionDesiredState(StrEnum):
-    ACTIVE = "active"
-    PAUSED = "paused"
-    STOPPED = "stopped"
 
 
 class SessionObservedState(StrEnum):

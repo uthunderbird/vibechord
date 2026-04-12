@@ -78,8 +78,10 @@ def test_operation_projector_projects_operation_and_task_slices() -> None:
 
     assert projected.objective is not None
     assert projected.objective.objective == "Ship the feature"
+    assert "status" not in projected.objective.model_dump()
     assert projected.status is OperationStatus.COMPLETED
     assert projected.final_summary == "done"
+    assert projected.objective.summary == "done"
     assert projected.tasks[0].status.value == "running"
     assert projected.tasks[0].assigned_agent == "codex_acp"
 

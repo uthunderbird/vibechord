@@ -115,10 +115,8 @@ class DefaultOperationProjector:
         elif event.event_type == "operation.status.changed":
             checkpoint.status = OperationStatus(event.payload["status"])
             checkpoint.final_summary = self._payload_optional_string(event.payload, "final_summary")
-            if checkpoint.objective is not None:
-                checkpoint.objective.status = checkpoint.status
-                if checkpoint.final_summary:
-                    checkpoint.objective.summary = checkpoint.final_summary
+            if checkpoint.objective is not None and checkpoint.final_summary:
+                checkpoint.objective.summary = checkpoint.final_summary
         elif event.event_type == "objective.updated":
             checkpoint.objective = self._payload_model(event.payload, ObjectiveState)
         elif event.event_type == "operation.allowed_agents.updated":

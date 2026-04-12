@@ -56,31 +56,26 @@ class OperationLifecycleCoordinator:
     def mark_running(self, state: OperationState) -> None:
         state.status = OperationStatus.RUNNING
         state.final_summary = None
-        state.objective_state.status = OperationStatus.RUNNING
         state.objective_state.summary = None
 
     def mark_completed(self, state: OperationState, *, summary: str) -> None:
         state.status = OperationStatus.COMPLETED
         state.final_summary = summary
-        state.objective_state.status = OperationStatus.COMPLETED
         state.objective_state.summary = summary
 
     def mark_failed(self, state: OperationState, *, summary: str) -> None:
         state.status = OperationStatus.FAILED
         state.final_summary = summary
-        state.objective_state.status = OperationStatus.FAILED
         state.objective_state.summary = summary
 
     def mark_cancelled(self, state: OperationState, *, summary: str) -> None:
         state.status = OperationStatus.CANCELLED
         state.final_summary = summary
-        state.objective_state.status = OperationStatus.CANCELLED
         state.objective_state.summary = summary
 
     def mark_needs_human(self, state: OperationState, *, summary: str) -> None:
         state.status = OperationStatus.NEEDS_HUMAN
         state.final_summary = summary
-        state.objective_state.status = OperationStatus.NEEDS_HUMAN
         state.objective_state.summary = summary
 
     async def finalize_outcome(
@@ -100,7 +95,6 @@ class OperationLifecycleCoordinator:
         if summary is not None:
             state.final_summary = summary
             state.objective_state.summary = summary
-        state.objective_state.status = state.status
         outcome_summary = state.final_summary or ""
         outcome = OperationOutcome(
             operation_id=state.operation_id,
