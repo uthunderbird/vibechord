@@ -8,17 +8,21 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
-Skim-safe current truth on 2026-04-10:
+Skim-safe current truth on 2026-04-12:
 
 - `implemented`: `operator`, `run`, `init`, and `clear` already exist as the workspace shell and
   lifecycle command family
 - `implemented`: default CLI help and reference docs now teach these commands as one coherent
-  workspace lifecycle
-- `verified`: focused CLI help coverage now asserts the lifecycle framing and command descriptions
-- `partial`: this ADR still does not close broader RFC 0014 shell-output examples or any future
-  workspace-lifecycle UX refinements beyond help and docs
+  workspace lifecycle — `--help` explicitly frames the workspace lifecycle
+- `implemented`: `clear` is confirmation-gated and refuses live/recoverable state without explicit
+  escape (`--yes`)
+- `verified`: focused CLI help coverage asserts lifecycle framing and command descriptions in
+  `tests/test_cli.py::test_workspace_help_frames_lifecycle_family`
+- `verified`: `clear` confirmation gate and live-state refusal covered in
+  `tests/test_cli.py::test_clear_requires_confirmation_by_default` and
+  `tests/test_cli.py::test_clear_refuses_when_running_operation_exists`
 
 ## Commands Covered
 

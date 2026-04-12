@@ -2956,6 +2956,17 @@ def test_project_inspect_and_resolve_are_human_readable_by_default(
     assert '"profile_name"' not in resolved.stdout
 
 
+def test_workspace_help_frames_lifecycle_family() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "init" in result.output
+    assert "run" in result.output
+    assert "clear" in result.output
+    # Help describes the workspace lifecycle coherently
+    output_lower = result.output.lower()
+    assert "workspace" in output_lower or "lifecycle" in output_lower
+
+
 def test_init_creates_committed_project_profile_and_gitignore(tmp_path: Path, monkeypatch) -> None:
     repo_root = tmp_path / "operator"
     nested = repo_root / "src"

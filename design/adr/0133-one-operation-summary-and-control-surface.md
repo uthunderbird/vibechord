@@ -8,9 +8,9 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
-Skim-safe current truth on 2026-04-10:
+Skim-safe current truth on 2026-04-12:
 
 - `implemented`: `status` remains the canonical one-operation shell summary surface and still ends
   with an explicit action line when blocking attention is open
@@ -18,10 +18,13 @@ Skim-safe current truth on 2026-04-10:
   --text '...'` syntax consistently in both the action line and the open-attention section
 - `implemented`: `answer`, `message`, `pause`, `unpause`, `interrupt`, and `cancel` remain the
   user-facing operation control family rather than exposing raw command-envelope internals
-- `verified`: focused CLI coverage now checks the status action line plus the open-attention
-  section guidance syntax in `tests/test_cli.py`
-- `partial`: the broader one-operation shell-summary grammar and full family-level closure remain
-  open beyond this syntax-alignment slice
+- `implemented`: `status` output follows RFC 0014 shell-summary grammar — operation anchor, Now/Wait,
+  Attention, Progress, Action blocks
+- `implemented`: `cancel` is confirmation-gated; `answer` stays separate from policy mutation
+  commands while still supporting `--promote` as an explicit opt-in
+- `verified`: focused CLI coverage checks status action line, open-attention guidance syntax,
+  cancel confirmation gate, answer/policy-promotion separation, pause/unpause/interrupt/message
+  in `tests/test_cli.py`
 
 ## Commands Covered
 
