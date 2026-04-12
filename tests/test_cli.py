@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import anyio
 from typer.testing import CliRunner
@@ -12,6 +13,7 @@ import agent_operator.cli.commands as cli_commands_pkg
 import agent_operator.cli.commands.operation_detail as commands_operation_detail
 import agent_operator.cli.helpers as cli_helpers_pkg
 import agent_operator.cli.workflows as cli_workflows
+from agent_operator.cli.helpers.rendering import render_watch_snapshot
 from agent_operator.cli.main import _format_live_snapshot, app
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -1652,6 +1654,16 @@ def test_report_prints_report_body(tmp_path: Path, monkeypatch) -> None:
     assert "## Artifacts" in result.stdout
 
 
+def test_report_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
+    _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["report", "last"])
+
+    assert result.exit_code == 0
+    assert "# Operation op-cli-1" in result.stdout
+
+
 def test_report_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -1756,6 +1768,22 @@ def test_dashboard_command_prints_human_readable_workbench(
     assert "Prepared the dashboard workbench plan." in result.stdout
     assert "Control Hints" in result.stdout
     assert f"operator interrupt {operation_id}" in result.stdout
+
+
+def test_dashboard_command_resolves_last_operation_reference(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    operation_id, codex_home = _seed_dashboard_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["dashboard", "last", "--once", "--codex-home", str(codex_home)],
+    )
+
+    assert result.exit_code == 0
+    assert f"Operation Dashboard: {operation_id}" in result.stdout
 
 
 def test_dashboard_command_json_emits_machine_readable_snapshot(
@@ -2122,6 +2150,54 @@ def test_session_command_follow_once_prints_single_live_snapshot(
     assert "Selected event:" not in result.stdout
     assert "Transcript: operator log op-cli-1 --agent codex --follow" in result.stdout
     assert result.stdout.count("  - iter=") <= 2
+
+
+def test_session_command_follow_uses_live_redraw_in_tty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class _FakeLive:
+        def __init__(self, renderable, *, console, refresh_per_second) -> None:
+            captured["initial_renderable"] = renderable
+            captured["refresh_per_second"] = refresh_per_second
+            captured["console"] = console
+            captured["updates"] = []
+
+        def __enter__(self):
+            captured["entered"] = True
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            captured["exited"] = True
+
+        def update(self, renderable, *, refresh) -> None:
+            captured["updates"].append((renderable, refresh))
+
+    fake_tty = SimpleNamespace(isatty=lambda: True)
+    monkeypatch.setattr(
+        commands_operation_detail,
+        "sys",
+        SimpleNamespace(stdout=fake_tty, stdin=fake_tty),
+    )
+    monkeypatch.setattr(commands_operation_detail, "RichConsole", lambda: "console")
+    monkeypatch.setattr(commands_operation_detail, "Live", _FakeLive)
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--follow", "--once"])
+
+    assert result.exit_code == 0
+    assert result.stdout == ""
+    assert captured["entered"] is True
+    assert captured["exited"] is True
+    assert captured["refresh_per_second"] == 4
+    assert "Session scope for Primary objective" in str(captured["initial_renderable"])
+    assert "Transcript: operator log op-cli-1 --agent codex --follow" in str(
+        captured["initial_renderable"]
+    )
+    assert captured["updates"] == []
 
 
 def test_session_command_prints_selected_event_summary_when_present(
@@ -4150,6 +4226,48 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
     assert "completed: Live attached watch completed." in result.stdout
 
 
+def test_watch_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
+    operation_id = "op-watch-last"
+    runs_dir = tmp_path / "runs"
+    store = FileOperationStore(runs_dir)
+    event_sink = JsonlEventSink(tmp_path, operation_id)
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Inspect the repo"),
+            **state_settings(),
+            status=OperationStatus.COMPLETED,
+            final_summary="Watch target completed.",
+        )
+        await store.save_operation(state)
+        await event_sink.emit(
+            RunEvent(
+                event_type="operation.started",
+                operation_id=operation_id,
+                iteration=0,
+                payload={"objective": "Inspect the repo"},
+                category="trace",
+            )
+        )
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Watch target completed.",
+            )
+        )
+
+    anyio.run(_seed)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["watch", "last", "--poll-interval", "0.05"])
+
+    assert result.exit_code == 0
+    assert "Operation op-watch-last" in result.stdout
+    assert "completed: Watch target completed." in result.stdout
+
+
 def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:
     snapshot = {
         "operation_id": "op-1",
@@ -4181,6 +4299,49 @@ def test_format_live_snapshot_surfaces_attention_absence_explicitly() -> None:
 
     assert "Operation op-2 [RUNNING]" in formatted
     assert "Attention: none" in formatted
+
+
+def test_render_watch_snapshot_keeps_compact_live_summary() -> None:
+    snapshot = {
+        "operation_id": "op-watch-1",
+        "status": "running",
+        "focus": "Implement the operation watch live surface.",
+        "session_id": "session-1",
+        "adapter_key": "codex_acp",
+        "waiting_reason": "Waiting for the current agent turn to finish.",
+        "open_attention_count": 0,
+        "summary": {
+            "work_summary": "Updated the watch output contract and focused tests.",
+        },
+    }
+
+    rendered = render_watch_snapshot(
+        snapshot,
+        latest_update="[iter 4] agent completed: success | Updated watch rendering.",
+    )
+
+    assert "Operation op-watch-1 [RUNNING]" in rendered
+    assert "Session: session-1 via codex_acp" in rendered
+    assert "Attention: none" in rendered
+    assert "Recent: [iter 4] agent completed: success | Updated watch rendering." in rendered
+    assert "scheduler=" not in rendered
+
+
+def test_render_watch_snapshot_omits_recent_line_without_update() -> None:
+    snapshot = {
+        "operation_id": "op-watch-2",
+        "status": "needs_human",
+        "attention_brief": "[approval_request] Approve deploy",
+        "open_attention_count": 1,
+        "action_hint": "operator answer op-watch-2 attention-1 --text 'Approved.'",
+        "summary": "Blocked on approval request.",
+    }
+
+    rendered = render_watch_snapshot(snapshot, latest_update=None)
+
+    assert "Attention: 1 open; [approval_request] Approve deploy" in rendered
+    assert "Action: operator answer op-watch-2 attention-1 --text 'Approved.'" in rendered
+    assert "Recent:" not in rendered
 
 
 def test_unpause_resumes_paused_attached_operation(tmp_path: Path, monkeypatch) -> None:

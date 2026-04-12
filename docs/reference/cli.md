@@ -29,6 +29,7 @@ Primary workflow surfaces:
 - `init` — set up operator in the current project
 - `clear` — wipe project-local operator runtime state while preserving profiles
 - `project ...` — manage project profiles
+- `agent ...` — inspect configured agent descriptors and adapter settings
 - `policy ...` — inspect and mutate project-local policy memory
 
 Situational and forensic surfaces:
@@ -61,6 +62,8 @@ In the current product model:
 - `watch` remains a lighter textual live follower rather than the flagship interactive surface
 - `watch` should stay compact and explicitly tell you whether attention is present, plus the next
   response command when intervention is required
+- in a real TTY, `watch` now redraws the current live snapshot in place instead of appending an
+  ever-growing event stream; `--json` continues to stream structured events/snapshots/outcomes
 
 ## Workspace lifecycle
 
@@ -99,6 +102,8 @@ Inspect the latest operation:
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 UV_CACHE_DIR=/tmp/uv-cache uv run operator report last
+UV_CACHE_DIR=/tmp/uv-cache uv run operator dashboard last --once
+UV_CACHE_DIR=/tmp/uv-cache uv run operator watch last
 ```
 
 Inspect transcript, ledger, and retrospective surfaces:
@@ -118,7 +123,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --follow -
 
 `session` remains task-addressed rather than session-id-addressed. Default/`--once` output is the
 bounded investigation snapshot; `--follow` is the more compact live variant and keeps transcript
-escalation explicit via `operator log` rather than inlining transcript body.
+escalation explicit via `operator log` rather than inlining transcript body. In a real TTY,
+`session --follow` redraws the current Level 2 snapshot in place instead of appending duplicate
+snapshots.
 
 Inspect project defaults and effective resolved run settings:
 
@@ -138,6 +145,21 @@ defaults and confirms the written profile path; use `--json` for machine-readabl
 
 `project dashboard` is the project-scoped supervision surface. Use `--once` for a single snapshot
 or `--json` for a machine-readable dashboard payload.
+
+Inspect the configured agent roster and one agent's current configuration:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator agent list
+UV_CACHE_DIR=/tmp/uv-cache uv run operator agent show codex_acp
+```
+
+`agent list` is an inventory surface for the built-in agent registry. By default it prints stable
+agent keys with display names under an `Agents` header; use `--json` for machine-readable
+capability inventory payloads.
+
+`agent show` is the inspection surface for one configured agent. By default it prints descriptor
+capabilities plus the current resolved adapter settings; use `--json` for a machine-readable detail
+payload.
 
 Inspect policy inventory, a stored policy entry, or current policy coverage:
 
@@ -171,6 +193,9 @@ asks for confirmation by default; use `--yes` to skip the prompt.
   resolve operation references like `last`.
 - `report` is retrospective-first. It shows the synthesized operation report and, under `--json`,
   includes the report text plus brief/outcome and durable-truth payloads.
+
+Operation-scoped surfaces that take an operation argument accept the normal operation reference
+forms: full id, unique short prefix, and `last`.
 
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`

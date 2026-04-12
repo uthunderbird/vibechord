@@ -19,11 +19,13 @@ smoke_app = typer.Typer(no_args_is_help=True)
 debug_app = typer.Typer(no_args_is_help=False)
 project_app = typer.Typer(no_args_is_help=True)
 policy_app = typer.Typer(no_args_is_help=True)
+agent_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(smoke_app, name="smoke")
 app.add_typer(debug_app, name="debug")
 app.add_typer(project_app, name="project")
 app.add_typer(policy_app, name="policy")
+app.add_typer(agent_app, name="agent")
 
 
 @debug_app.callback(invoke_without_command=True)
@@ -101,6 +103,7 @@ def main(
     raise typer.Exit()
 
 
+from .commands import agent as _commands_agent  # noqa: E402,F401
 from .commands import debug as _commands_debug  # noqa: E402,F401
 from .commands import fleet as _commands_fleet  # noqa: E402,F401
 from .commands import operation_control as _commands_operation_control  # noqa: E402,F401

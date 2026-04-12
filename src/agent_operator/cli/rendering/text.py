@@ -136,6 +136,24 @@ def format_live_snapshot(
     return "\n".join(lines)
 
 
+def render_watch_snapshot(
+    snapshot: dict[str, object],
+    *,
+    base_formatter: Callable[[dict[str, object]], str],
+    shorten_live_text: Callable[[str | None], str | None],
+    latest_update: str | None = None,
+) -> str:
+    lines = format_live_snapshot(
+        snapshot,
+        base_formatter=base_formatter,
+        shorten_live_text=shorten_live_text,
+    ).splitlines()
+    recent = shorten_live_text(latest_update)
+    if recent is not None:
+        lines.append(f"Recent: {recent}")
+    return "\n".join(lines)
+
+
 def render_status_brief(
     operation: OperationState,
     *,
