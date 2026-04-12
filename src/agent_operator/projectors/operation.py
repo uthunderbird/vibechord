@@ -64,6 +64,7 @@ class DefaultOperationProjector:
         updated = self._apply_scheduler_slice(updated, event)
         updated = self._apply_operator_message_slice(updated, event)
         updated = self._apply_policy_slice(updated, event)
+        updated = self._apply_active_session_slice(updated, event)
         updated.updated_at = event.timestamp
         return updated
 
@@ -178,6 +179,23 @@ class DefaultOperationProjector:
                     "updated_at",
                     event.timestamp,
                 )
+        elif event.event_type == "session.cooldown_cleared":
+            session = self._find_by_attr(
+                checkpoint.sessions,
+                "session_id",
+                event.payload["session_id"],
+            )
+            if session is not None:
+                session.cooldown_until = None
+                session.cooldown_reason = None
+                session.waiting_reason = None
+                if session.observed_state is SessionObservedState.WAITING:
+                    session.observed_state = SessionObservedState.IDLE
+                session.updated_at = self._payload_datetime(
+                    event.payload,
+                    "updated_at",
+                    event.timestamp,
+                )
         return checkpoint
 
     def _apply_execution_slice(
@@ -187,6 +205,13 @@ class DefaultOperationProjector:
     ) -> OperationCheckpoint:
         if event.event_type == "execution.registered":
             checkpoint.executions.append(self._payload_model(event.payload, ExecutionState))
+        elif event.event_type == "execution.session_linked":
+            execution_id = event.payload.get("execution_id")
+            session_id = event.payload.get("session_id")
+            if execution_id is not None and session_id is not None:
+                execution = self._find_by_attr(checkpoint.executions, "execution_id", execution_id)
+                if execution is not None:
+                    execution.session_id = session_id
         elif event.event_type == "execution.observed_state.changed":
             execution = self._find_by_attr(
                 checkpoint.executions,
@@ -302,6 +327,21 @@ class DefaultOperationProjector:
             checkpoint.active_policies = [
                 PolicyEntry.model_validate(item) for item in event.payload["active_policies"]
             ]
+        return checkpoint
+
+    def _apply_active_session_slice(
+        self,
+        checkpoint: OperationCheckpoint,
+        event: StoredOperationDomainEvent,
+    ) -> OperationCheckpoint:
+        if event.event_type == "operation.active_session_updated":
+            session_id = event.payload.get("session_id")
+            if session_id is None:
+                checkpoint.active_session = None
+            else:
+                session = self._find_by_attr(checkpoint.sessions, "session_id", session_id)
+                if session is not None:
+                    checkpoint.active_session = session.handle.model_copy()
         return checkpoint
 
     def _payload_model(self, payload: dict[str, Any], model_type: type[BaseModel]) -> Any:

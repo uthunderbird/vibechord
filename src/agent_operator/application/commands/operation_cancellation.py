@@ -143,4 +143,19 @@ class OperationCancellationService:
                     kind=RunEventKind.WAKEUP,
                 )
             ),
+            emit_session_cancelled=(
+                None
+                if record is None
+                else lambda: emit(
+                    "session.observed_state.changed",
+                    state,
+                    record.latest_iteration or len(state.iterations),
+                    {
+                        "session_id": record.session_id,
+                        "observed_state": "TERMINAL",
+                        "terminal_state": "CANCELLED",
+                    },
+                    session_id=record.session_id,
+                )
+            ),
         )

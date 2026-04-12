@@ -1126,6 +1126,43 @@ The following named items are known tech debt — a contributor encountering the
 
 - **`operation.cycle_finished`** should be renamed `operation.process_run_ended`. The current name implies a planning-cycle boundary; it actually records the end of a single process run within a potentially multi-run operation. Deferred until external event log consumers exist.
 - **`RunEvent(kind=WAKEUP)`** should become a separate `WakeupSignal` type with its own storage path, removing wakeup artifacts from the domain event log entirely. Deferred for the same reason.
+- **Dual-write inconsistency in `OperationDriveService`.** The main drive loop makes direct
+  mutations to `OperationState` and persists them via `save_operation()` (snapshot store). These
+  writes bypass the event log and are therefore not reflected in the checkpoint. On resume from
+  event-sourced replay, `_load_event_sourced()` performs a manual field-by-field merge from both
+  sources. Any field mutated by the drive loop but missing from the merge list reverts to its
+  checkpoint value after resume, which may be stale. Two confirmed failure modes: (1)
+  `ExecutionState.session_id` is set via direct mutation and lost on resume — reconcile
+  misclassifies the run as stale; (2) `SessionState.cooldown_until` cleared via direct mutation is
+  restored on resume — session appears still in cooldown. The fix path is in ADR 0144: emit events
+  for these mutations so checkpoint reconstruction is complete.
+- **`SessionState` tracks too much operator-side agent-session state.** `SessionState` has 12+
+  fields including `desired_state`, `observed_state`, `recovery_count`, and `cooldown_until` that
+  represent the operator's attempt to mirror agent-side session state without a consistency
+  guarantee. `recovery_count` is incremented but never used for any decision. The minimum
+  operator-owned surface needed for correct resume is `session_id` (to continue the right ACP
+  session) and `cooldown_until` (to avoid premature restart). A `SessionState` simplification
+  pass, reducing it toward `{session_id, adapter_key, failed_at}`, is the correct long-term
+  direction. This is tracked in ADR 0144 migration direction.
+- **`active_session` pointer is dual-write debt.** `OperationState.active_session` is the
+  "currently preferred session" pointer. It is set via direct mutation in 8 places and persisted
+  via `save_operation()`, but is not emitted as an event and is absent from the checkpoint. On
+  resume from event-sourced replay it is `None`, requiring a recovery step in reconciliation that
+  derives it from the `sessions` list. If the sessions list is itself stale (see Failure 1 above),
+  the recovery produces incorrect results. Fix path: either emit `ActiveSessionUpdated` events, or
+  remove `active_session` from persisted state and always derive it on demand once the sessions
+  list is event-sourced. Tracked in ADR 0144.
+- **`ObjectiveState.status` is a redundant synchronized copy of `OperationState.status`.**
+  `ObjectiveState` carries a `status: OperationStatus` field kept in sync via `sync_derived_state()`
+  and the checkpoint projector. This is the only status that should be read from `OperationState.status`
+  directly. `ObjectiveState` is otherwise a useful goal-config accessor (`objective`,
+  `harness_instructions`, `success_criteria`). The status field and its sync logic should be
+  removed. Tracked in ADR 0150.
+- **`SessionState.desired_state` is a dead field.** `desired_state: SessionDesiredState` has zero
+  usages outside the domain layer — it is aspirational Kubernetes-style desired/observed split
+  that was never wired to a reconciliation loop. Should be removed. Tracked in ADR 0150.
+- **`FeatureStatus.READY_FOR_REVIEW` and `NEEDS_REWORK` are dead enum values.** Never assigned or
+  checked anywhere in the codebase. Should be removed from `FeatureStatus`. Tracked in ADR 0150.
 
 ## Agent Adapters
 

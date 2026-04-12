@@ -334,7 +334,10 @@ async def test_operation_cancellation_service_cancels_targeted_run() -> None:
 
     assert outcome.summary == "Cancellation requested."
     assert supervisor.cancelled == ["run-1"]
-    assert emitted == [("background_run.cancelled", "session-1", RunEventKind.WAKEUP)]
+    assert emitted == [
+        ("background_run.cancelled", "session-1", RunEventKind.WAKEUP),
+        ("session.observed_state.changed", "session-1", RunEventKind.TRACE),
+    ]
 
 
 @pytest.mark.anyio

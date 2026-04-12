@@ -147,6 +147,16 @@ class OperationDriveService:
         self._decision_executor = decision_executor
         self._lifecycle_coordinator = lifecycle_coordinator
 
+    async def _advance_checkpoint(self, state: OperationState) -> None:
+        """Persist a durable snapshot of event-sourced state for fast resume.
+
+        This is a read-path checkpoint helper. It does not mutate state and is
+        not the canonical write path — the event log is. Callers must not add
+        new mutation logic immediately before this call; mutations must go
+        through event emission first.
+        """
+        await self._store.save_operation(state)
+
     async def drive(
         self,
         state: OperationState,
@@ -195,7 +205,7 @@ class OperationDriveService:
         await self._runtime._reconcile_stale_background_runs(state)
         await self._runtime._reconcile_background_wakeups(state)
         await self._trace._sync_traceability_artifacts(state)
-        await self._store.save_operation(state)
+        await self._advance_checkpoint(state)
         await self._control._drain_commands(state)
 
         while (
@@ -228,7 +238,7 @@ class OperationDriveService:
                 options.run_mode is RunMode.ATTACHED
                 and self._runtime._is_blocked_on_background_wait(state)
             ):
-                await self._store.save_operation(state)
+                await self._advance_checkpoint(state)
                 await anyio.sleep(1.0)
                 continue
             consumed_triggers = await self._control._drain_pending_planning_triggers(
@@ -302,24 +312,24 @@ class OperationDriveService:
                 self._lifecycle_coordinator.mark_failed(state, summary=str(exc))
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
-                await self._store.save_operation(state)
+                await self._advance_checkpoint(state)
                 break
-            await self._store.save_operation(state)
+            await self._advance_checkpoint(state)
             if should_break:
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
-                await self._store.save_operation(state)
+                await self._advance_checkpoint(state)
                 break
             self._runtime._materialize_pause_if_ready(state)
             if self._runtime._is_scheduler_paused(state):
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
-                await self._store.save_operation(state)
+                await self._advance_checkpoint(state)
                 break
             if state.status is OperationStatus.NEEDS_HUMAN:
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
-                await self._store.save_operation(state)
+                await self._advance_checkpoint(state)
                 break
             if state.status in {
                 OperationStatus.COMPLETED,
@@ -328,7 +338,7 @@ class OperationDriveService:
             }:
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
-                await self._store.save_operation(state)
+                await self._advance_checkpoint(state)
                 break
             evaluation = await self._operator_policy.evaluate_result(state)
             await self._trace._emit(

@@ -270,6 +270,13 @@ class OperationTurnExecutionService:
             task.attempt_count += 1
             task.updated_at = datetime.now(UTC)
         state.active_session = session if not session.one_shot else None
+        await self._event_relay.emit(
+            "operation.active_session_updated",
+            state,
+            iteration.index,
+            {"session_id": state.active_session.session_id if state.active_session else None},
+            session_id=state.active_session.session_id if state.active_session else None,
+        )
         state.current_focus = FocusState(
             kind=FocusKind.SESSION,
             target_id=session.session_id,
@@ -283,6 +290,13 @@ class OperationTurnExecutionService:
             run,
             session.session_id,
             task.task_id if task else None,
+        )
+        await self._event_relay.emit(
+            "execution.session_linked",
+            state,
+            iteration.index,
+            {"execution_id": run.run_id, "session_id": session.session_id},
+            session_id=session.session_id,
         )
         await self._record_agent_turn_brief(
             state,
@@ -398,6 +412,13 @@ class OperationTurnExecutionService:
             task.updated_at = datetime.now(UTC)
         iteration.session = session
         state.active_session = session if not session.one_shot else None
+        await self._event_relay.emit(
+            "operation.active_session_updated",
+            state,
+            iteration.index,
+            {"session_id": state.active_session.session_id if state.active_session else None},
+            session_id=state.active_session.session_id if state.active_session else None,
+        )
         state.current_focus = FocusState(
             kind=FocusKind.SESSION,
             target_id=session.session_id,
@@ -411,6 +432,13 @@ class OperationTurnExecutionService:
             run,
             session.session_id,
             task.task_id if task else None,
+        )
+        await self._event_relay.emit(
+            "execution.session_linked",
+            state,
+            iteration.index,
+            {"execution_id": run.run_id, "session_id": session.session_id},
+            session_id=session.session_id,
         )
         await self._traceability_service.record_agent_turn_brief(
             state,

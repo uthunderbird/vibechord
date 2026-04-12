@@ -135,6 +135,7 @@ class OperationLifecycleCoordinator:
         final_result: AgentResult | None = None,
         summary: str = "Cancellation requested.",
         emit_cancel_wakeup: Callable[[], Awaitable[None]] | None = None,
+        emit_session_cancelled: Callable[[], Awaitable[None]] | None = None,
     ) -> OperationOutcome:
         if record is not None:
             record.status = SessionStatus.CANCELLED
@@ -142,6 +143,8 @@ class OperationLifecycleCoordinator:
             record.updated_at = state.updated_at
         if run_id is not None and emit_cancel_wakeup is not None:
             await emit_cancel_wakeup()
+        if record is not None and emit_session_cancelled is not None:
+            await emit_session_cancelled()
         await self.store.save_operation(state)
         return OperationOutcome(
             operation_id=state.operation_id,

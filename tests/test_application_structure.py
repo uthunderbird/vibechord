@@ -80,6 +80,35 @@ def test_migrated_flat_application_family_modules_are_removed() -> None:
     assert retired.isdisjoint(present)
 
 
+def test_drive_loop_save_operation_only_via_advance_checkpoint() -> None:
+    """ADR 0144: save_operation() in the drive loop must be called only from
+    _advance_checkpoint(), which is the explicit read-path checkpoint helper.
+    Direct calls to save_operation() outside _advance_checkpoint() would
+    introduce new mutation-path snapshot writes and violate the write-path rule.
+    """
+    drive_file = APPLICATION_DIR / "drive" / "operation_drive.py"
+    source = drive_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        if node.name == "_advance_checkpoint":
+            continue
+        for child in ast.walk(node):
+            if (
+                isinstance(child, ast.Attribute)
+                and child.attr == "save_operation"
+            ):
+                violations.append(
+                    f"Direct save_operation() call in {node.name}() at line {child.lineno} "
+                    f"— use _advance_checkpoint() instead (ADR 0144)"
+                )
+
+    assert violations == [], "\n".join(violations)
+
+
 def test_queries_do_not_import_commands_family() -> None:
     offenders: list[str] = []
     queries_dir = APPLICATION_DIR / "queries"

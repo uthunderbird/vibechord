@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
+from agent_operator.domain.agent import AgentSessionHandle
 from agent_operator.domain.attention import AttentionRequest
 from agent_operator.domain.control import OperatorMessage
 from agent_operator.domain.enums import InvolvementLevel, OperationStatus, SchedulerState
@@ -55,6 +56,7 @@ class OperationCheckpoint(BaseModel):
     policy_coverage: PolicyCoverage = Field(default_factory=PolicyCoverage)
     allowed_agents: list[str] = Field(default_factory=list)
     involvement_level: InvolvementLevel = InvolvementLevel.AUTO
+    active_session: AgentSessionHandle | None = None
     final_summary: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

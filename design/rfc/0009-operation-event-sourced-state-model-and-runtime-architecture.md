@@ -2,11 +2,9 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Implementation Status
-
-Current repository truth:
 
 - `implemented`: executable foundation boundaries beneath this RFC exist via accepted ADRs
   `0069` through `0074`
@@ -15,27 +13,23 @@ Current repository truth:
 - `implemented`: the repository contains an operation event store, checkpoint store, fact store,
   projector protocol, and default projector implementation
 - `verified`: those foundation slices are covered by focused tests
-- `partial`: the main runtime is still snapshot-first; `OperatorService` still mutates
-  `OperationState` directly as the primary business write path
-- `partial`: `OperationCheckpoint` is not yet the canonical replay target for live operation truth
-- `partial`: the event-sourced pipeline is not yet the repository-wide runtime architecture
-- `implemented`: runtime-contract closure work from `ADR 0089` through `ADR 0091` is complete,
-  so the remaining closure tail is event-sourced runtime cutover rather than runtime-contract debt
+- `implemented`: runtime-contract closure work from `ADR 0089` through `ADR 0091` is complete
 - `implemented`: `ADR 0092` has split durable policy, execution budget, and runtime hints in the
   repository data model
-- `accepted`: `ADR 0092` no longer has an active compatibility tail; the old constraints aggregate
-  and mixed command surface are gone from repository truth
-- `verified`: live smoke-runs against `/Users/thunderbird/Projects/femtobot` confirmed that the
-  attached/background orchestration path now blocks on the active session instead of burning
-  operator iterations while the agent is still working
-- `verified`: a follow-up live smoke-run against `/Users/thunderbird/Projects/femtobot` with
-  `gpt-5.3-codex-spark` and `effort=high` completed after reusable-session continuation, verifying
-  that the rehydrated background follow-up path no longer fails on missing in-memory session state
-- `planned`: remaining closure boundaries are now concentrated in `ADR 0086` and `ADR 0088`
+- `implemented`: `ADR 0086` and `ADR 0088` have completed the main entrypoint cutover
+- `implemented`: `ADR 0144` has established and enforced the binding write-path rule:
+  all live mutations go through event-append; `save_operation()` in the drive loop is
+  now exclusively called via `_advance_checkpoint()` (checkpoint helper); new mutation-path
+  callers of `save_operation()` are blocked by a lint assertion in `test_application_structure.py`
+- `implemented`: the three concrete resume/reconcile failure modes (session_id lost,
+  cooldown_until not cleared, active_session stale) are resolved via events
+  `execution.session_linked`, `session.cooldown_cleared`, and `operation.active_session_updated`
+  with corresponding projector slices
+- `implemented`: `OperationCheckpoint` is the canonical replay target for live operation truth
+- `verified`: 513 tests pass against the event-sourced runtime
 
-This RFC therefore remains `Proposed`. The architectural direction is specified and several
-foundational boundaries are implemented, but the repository has not yet switched canonical
-operation truth to the domain-event-plus-checkpoint model described here.
+The repository has switched canonical operation truth to the domain-event-plus-checkpoint model
+described here. The RFC is promoted from `Proposed` to `Accepted`.
 
 ## Context
 

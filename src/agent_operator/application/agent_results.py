@@ -87,6 +87,13 @@ class AgentResultService:
             state.active_session = None
         else:
             state.active_session = session
+        await self._event_relay.emit(
+            "operation.active_session_updated",
+            state,
+            iteration.index,
+            {"session_id": state.active_session.session_id if state.active_session else None},
+            session_id=state.active_session.session_id if state.active_session else None,
+        )
         execution_id = None
         if record.current_execution_id is not None:
             execution_id = record.current_execution_id

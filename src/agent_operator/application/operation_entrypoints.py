@@ -235,11 +235,6 @@ class OperationEntrypointService:
             if fallback_state.current_focus is not None
             else None
         )
-        state.active_session = (
-            fallback_state.active_session.model_copy(deep=True)
-            if fallback_state.active_session is not None
-            else None
-        )
         return state
 
     def _persist_runtime_mode_metadata(

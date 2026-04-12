@@ -68,6 +68,11 @@ class OperationStateViewService:
                 message.model_copy(deep=True)
                 for message in checkpoint.operator_messages
             ],
+            active_session=(
+                checkpoint.active_session.model_copy(deep=True)
+                if checkpoint.active_session is not None
+                else None
+            ),
             final_summary=checkpoint.final_summary,
             created_at=checkpoint.created_at,
             updated_at=checkpoint.updated_at,

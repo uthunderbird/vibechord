@@ -165,6 +165,14 @@ class OperationRuntimeReconciliationService:
                     reconciled_session_id,
                     reconciled_task_id,
                 )
+                if reconciled_session_id is not None:
+                    await self._event_relay.emit(
+                        "execution.session_linked",
+                        state,
+                        len(state.iterations),
+                        {"execution_id": run.run_id, "session_id": reconciled_session_id},
+                        session_id=reconciled_session_id,
+                    )
                 existing = run
                 if run.status in {
                     BackgroundRunStatus.COMPLETED,
@@ -187,6 +195,7 @@ class OperationRuntimeReconciliationService:
         now = datetime.now(UTC)
         changed = False
         still_waiting = False
+        cleared_sessions: list[str] = []
         for record in state.sessions:
             if record.cooldown_until is None:
                 continue
@@ -197,6 +206,7 @@ class OperationRuntimeReconciliationService:
             record.cooldown_reason = None
             record.waiting_reason = None
             changed = True
+            cleared_sessions.append(record.session_id)
             if record.status is SessionRecordStatus.WAITING:
                 record.status = SessionRecordStatus.IDLE
             if (
@@ -216,6 +226,14 @@ class OperationRuntimeReconciliationService:
             ):
                 self._lifecycle_coordinator.mark_running(state)
             state.updated_at = datetime.now(UTC)
+            for session_id in cleared_sessions:
+                await self._event_relay.emit(
+                    "session.cooldown_cleared",
+                    state,
+                    len(state.iterations),
+                    {"session_id": session_id, "updated_at": now.isoformat()},
+                    session_id=session_id,
+                )
 
     async def migrate_legacy_rate_limit_failures(self, state: OperationState) -> None:
         if state.status is not OperationStatus.FAILED:
@@ -386,6 +404,14 @@ class OperationRuntimeReconciliationService:
                 error="background_run_stale",
             )
         self._loaded_operation.upsert_background_run(state, run, run.session_id, run.task_id)
+        if run.session_id is not None:
+            await self._event_relay.emit(
+                "execution.session_linked",
+                state,
+                len(state.iterations),
+                {"execution_id": run.run_id, "session_id": run.session_id},
+                session_id=run.session_id,
+            )
         iteration = self._loaded_operation.find_iteration_for_session(
             state,
             record.handle.session_id,
@@ -444,6 +470,14 @@ class OperationRuntimeReconciliationService:
             event.session_id,
             event.task_id,
         )
+        if event.session_id is not None:
+            await self._event_relay.emit(
+                "execution.session_linked",
+                state,
+                len(state.iterations),
+                {"execution_id": run.run_id, "session_id": event.session_id},
+                session_id=event.session_id,
+            )
         if event.event_type.endswith("completed"):
             run.status = BackgroundRunStatus.COMPLETED
         elif event.event_type.endswith("failed"):
@@ -548,6 +582,14 @@ class OperationRuntimeReconciliationService:
                 run.session_id,
                 run.task_id,
             )
+            if run.session_id is not None:
+                await self._event_relay.emit(
+                    "execution.session_linked",
+                    state,
+                    len(state.iterations),
+                    {"execution_id": polled.run_id, "session_id": run.session_id},
+                    session_id=run.session_id,
+                )
             record = self._loaded_operation.find_session_record(state, polled.session_id)
             if record is None or not self._loaded_operation.session_has_pending_result_slot(record):
                 continue
