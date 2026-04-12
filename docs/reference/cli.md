@@ -202,3 +202,6 @@ forms: full id, unique short prefix, and `last`.
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`
 in the repository.
+
+For the stable machine-readable contract covered by ADR 0145, see
+`docs/reference/cli-json-schemas.md`.

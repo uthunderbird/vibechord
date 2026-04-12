@@ -2510,8 +2510,35 @@ def test_cancel_yes_skips_confirmation(tmp_path: Path, monkeypatch) -> None:
 
     result = runner.invoke(app, ["cancel", operation_id, "--yes"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 3
     assert "cancelled: Cancelled operation." in result.stdout
+
+
+def test_cancel_json_emits_machine_readable_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def cancel(self, operation_id: str, *, session_id=None, run_id=None):
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.CANCELLED,
+                summary="Cancelled operation.",
+                metadata={"source": "test"},
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["cancel", operation_id, "--yes", "--json"])
+
+    assert result.exit_code == 3
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["status"] == "cancelled"
+    assert payload["metadata"]["source"] == "test"
 
 
 def test_message_command_enqueues_operator_message(tmp_path: Path, monkeypatch) -> None:
@@ -2647,6 +2674,35 @@ def test_answer_command_enqueues_attention_answer(tmp_path: Path, monkeypatch) -
     assert record.command.target_scope is CommandTargetScope.ATTENTION_REQUEST
     assert record.command.target_id == attention_id
     assert record.command.payload["text"] == "Use staging."
+
+
+def test_answer_command_json_emits_machine_readable_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def resume(self, operation_id: str, options=None) -> OperationOutcome:
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resumed after attention answer.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["answer", operation_id, attention_id, "--text", "Use staging.", "--json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["answer_command"]["target_id"] == attention_id
+    assert payload["outcome"]["status"] == "running"
 
 
 def test_answer_command_can_enqueue_policy_promotion(tmp_path: Path, monkeypatch) -> None:
@@ -4118,6 +4174,140 @@ def test_run_json_streams_event_objects_and_outcome(tmp_path: Path, monkeypatch)
     assert lines[3]["outcome"]["summary"] == "Structured live run finished."
 
 
+def test_run_wait_brief_uses_semantic_exit_code_for_resumable_completion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "name: project\ncwd: .\ndefault_objective: Close open cards\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            return OperationOutcome(
+                operation_id=operation_id or "op-wait",
+                status=OperationStatus.RUNNING,
+                summary="Started in resumable mode.",
+            )
+
+    class FakeStatusService:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def build_status_payload(self, operation_id: str):
+            self.calls += 1
+            outcome = OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Completed after waiting.",
+            )
+            return None, outcome, None, None
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_status_query_service",
+        lambda settings: FakeStatusService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["run", "Close open cards", "--mode", "resumable", "--wait", "--brief"],
+    )
+
+    assert result.exit_code == 0
+    assert "STATUS=completed" in result.stdout
+    assert "OPERATION=" in result.stdout
+
+
+def test_run_wait_uses_needs_human_exit_code(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "name: project\ncwd: .\ndefault_objective: Close open cards\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            return OperationOutcome(
+                operation_id=operation_id or "op-needs-human",
+                status=OperationStatus.RUNNING,
+                summary="Started in resumable mode.",
+            )
+
+    class FakeStatusService:
+        async def build_status_payload(self, operation_id: str):
+            outcome = OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.NEEDS_HUMAN,
+                summary="Need an answer.",
+            )
+            return None, outcome, None, None
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_status_query_service",
+        lambda settings: FakeStatusService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["run", "Close open cards", "--mode", "resumable", "--wait", "--json"],
+    )
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "needs_human"
+
+
+def test_run_timeout_requires_resumable_mode(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "name: project\ncwd: .\ndefault_objective: Close open cards\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    result = runner.invoke(app, ["run", "Close open cards", "--wait", "--timeout", "1"])
+
+    assert result.exit_code != 0
+    assert "--timeout is currently supported only with --mode resumable." in result.output
+
+
 def test_resume_streams_live_events(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
@@ -4320,6 +4510,31 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
     assert "Attention: none" in result.stdout
     assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
     assert "completed: Live attached watch completed." in result.stdout
+
+
+def test_watch_once_emits_single_snapshot_and_exits(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-watch-once"
+    store = FileOperationStore(tmp_path / "runs")
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Inspect the repo"),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+            final_summary="Working.",
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+
+    result = runner.invoke(app, ["watch", operation_id, "--once", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["status"] == "running"
 
 
 def test_watch_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:

@@ -57,8 +57,28 @@ def run(
     attach_agent: str | None = ATTACH_AGENT_OPTION,
     attach_name: str | None = ATTACH_NAME_OPTION,
     attach_working_dir: Path | None = ATTACH_WORKING_DIR_OPTION,
+    wait: bool = typer.Option(
+        False,
+        "--wait",
+        help="Block until the operation reaches a terminal state or needs human input.",
+    ),
+    timeout: float | None = typer.Option(
+        None,
+        "--timeout",
+        min=0.0,
+        help="Maximum seconds to wait when --wait is used.",
+    ),
+    brief: bool = typer.Option(
+        False,
+        "--brief",
+        help="Emit a single-line completion summary when --wait is used.",
+    ),
     json_mode: bool = JSON_OPTION,
 ) -> None:
+    if brief and not wait:
+        raise typer.BadParameter("--brief requires --wait.")
+    if timeout is not None and not wait:
+        raise typer.BadParameter("--timeout requires --wait.")
     normalized_agents = normalize_agent_override(agent=agent)
     anyio.run(
         run_async,
@@ -74,6 +94,9 @@ def run(
         attach_agent,
         attach_name,
         attach_working_dir,
+        wait,
+        timeout,
+        brief,
         json_mode,
     )
 

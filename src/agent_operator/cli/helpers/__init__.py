@@ -1,3 +1,3 @@
 """CLI helper family package."""
 
-__all__ = ["logs", "policy", "rendering", "resolution", "services"]
+__all__ = ["exit_codes", "logs", "policy", "rendering", "resolution", "services"]

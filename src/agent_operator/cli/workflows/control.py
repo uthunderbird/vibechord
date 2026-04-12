@@ -35,6 +35,7 @@ from agent_operator.runtime import (
     snapshot_effective_adapter_settings,
 )
 
+from ..helpers.exit_codes import EXIT_INTERNAL_ERROR, raise_for_operation_status
 from ..helpers.rendering import (
     cli_projection_payload,
     format_live_event,
@@ -110,6 +111,9 @@ async def run_async(
     attach_agent: str | None,
     attach_name: str | None,
     attach_working_dir: Path | None,
+    wait: bool,
+    timeout: float | None,
+    brief: bool,
     json_mode: bool,
 ) -> None:
     settings, data_dir_source = load_settings_with_data_dir()
@@ -150,6 +154,8 @@ async def run_async(
             involvement_level=involvement,
         )
     effective_mode = resolved.run_mode
+    if timeout is not None and effective_mode is not RunMode.RESUMABLE:
+        raise typer.BadParameter("--timeout is currently supported only with --mode resumable.")
     operation_id = str(uuid4())
     projector = CliEventProjector(json_mode=json_mode)
     service = build_projected_service(settings, operation_id=operation_id, projector=projector)
@@ -205,7 +211,8 @@ async def run_async(
                 + (f" path={selected_profile_path}" if selected_profile_path is not None else ""),
                 err=True,
             )
-    projector.emit_operation(operation_id)
+    if not (wait and json_mode):
+        projector.emit_operation(operation_id)
     outcome = await service.run(
         OperationGoal(
             objective=resolved.objective_text,
@@ -230,10 +237,43 @@ async def run_async(
         operation_id=operation_id,
         attached_sessions=attached_sessions or None,
     )
+    if wait and effective_mode is RunMode.RESUMABLE:
+        outcome = await _wait_for_operation_outcome(
+            operation_id=operation_id,
+            poll_interval=0.5,
+            timeout=timeout,
+            json_mode=json_mode,
+        )
+    if wait:
+        if json_mode:
+            typer.echo(
+                json.dumps(
+                    {
+                        "operation_id": outcome.operation_id,
+                        "status": outcome.status.value,
+                        "summary": outcome.summary,
+                        "metadata": outcome.metadata,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+        elif brief:
+            status_service = build_status_query_service(load_settings())
+            operation, _, _, _ = await status_service.build_status_payload(operation_id)
+            iteration_count = len(operation.iterations) if operation is not None else 0
+            typer.echo(
+                "STATUS="
+                f"{outcome.status.value} OPERATION={outcome.operation_id} "
+                f"ITERATIONS={iteration_count}"
+            )
+        else:
+            projector.emit_outcome(outcome)
+        raise_for_operation_status(outcome.status)
     projector.emit_outcome(outcome)
 
 
-async def watch_async(operation_id: str, json_mode: bool, poll_interval: float) -> None:
+async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_interval: float) -> None:
     settings = load_settings()
     event_sink = build_event_sink(settings, operation_id)
     projector = CliEventProjector(json_mode=json_mode)
@@ -243,7 +283,7 @@ async def watch_async(operation_id: str, json_mode: bool, poll_interval: float) 
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
     use_live_tty = not json_mode and sys.stdout.isatty() and sys.stdin.isatty()
-    if not use_live_tty:
+    if not use_live_tty and not (once and json_mode):
         projector.emit_operation(operation_id)
     seen_event_ids: set[str] = set()
     latest_update: str | None = None
@@ -255,6 +295,16 @@ async def watch_async(operation_id: str, json_mode: bool, poll_interval: float) 
             if not use_live_tty:
                 typer.echo(rendered)
     last_snapshot: dict[str, object] | None = None
+    if once:
+        operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
+        snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
+        if json_mode:
+            typer.echo(json.dumps(snapshot, indent=2, ensure_ascii=False))
+        else:
+            projector.emit_snapshot(snapshot)
+        if outcome is not None and outcome.status is not OperationStatus.RUNNING:
+            projector.emit_outcome(outcome)
+        return
     if use_live_tty:
         console = RichConsole()
         initial_operation, initial_outcome, _, _ = await status_queries.build_status_payload(
@@ -303,6 +353,39 @@ async def watch_async(operation_id: str, json_mode: bool, poll_interval: float) 
         if outcome is not None and outcome.status is not OperationStatus.RUNNING:
             projector.emit_outcome(outcome)
             return
+        await anyio.sleep(poll_interval)
+
+
+async def _wait_for_operation_outcome(
+    *,
+    operation_id: str,
+    poll_interval: float,
+    timeout: float | None,
+    json_mode: bool,
+) -> OperationOutcome:
+    """Poll operation state until it reaches a terminal or needs-human status."""
+    service = build_status_query_service(load_settings())
+    deadline = anyio.current_time() + timeout if timeout is not None else None
+    while True:
+        _, outcome, _, _ = await service.build_status_payload(operation_id)
+        if outcome is not None and outcome.status is not OperationStatus.RUNNING:
+            return outcome
+        if deadline is not None and anyio.current_time() >= deadline:
+            if json_mode:
+                typer.echo(
+                    json.dumps(
+                        {
+                            "operation_id": operation_id,
+                            "status": "timeout",
+                            "summary": "Timed out while waiting for operation state.",
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                )
+            else:
+                typer.echo("Timed out while waiting for operation state.")
+            raise typer.Exit(code=EXIT_INTERNAL_ERROR)
         await anyio.sleep(poll_interval)
 
 
@@ -427,11 +510,31 @@ async def recover_async(
     projector.emit_outcome(outcome)
 
 
-async def cancel_async(operation_id: str, session_id: str | None, run_id: str | None) -> None:
+async def cancel_async(
+    operation_id: str,
+    session_id: str | None,
+    run_id: str | None,
+    json_mode: bool,
+) -> None:
     service = delivery_commands_service()
     outcome = await service.cancel(operation_id, session_id=session_id, run_id=run_id)
+    if json_mode:
+        typer.echo(
+            json.dumps(
+                {
+                    "operation_id": outcome.operation_id,
+                    "status": outcome.status.value,
+                    "summary": outcome.summary,
+                    "metadata": outcome.metadata,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        raise_for_operation_status(outcome.status)
     typer.echo(f"{outcome.status.value}: {outcome.summary}")
     typer.echo(f"operation_id={outcome.operation_id}", err=True)
+    raise_for_operation_status(outcome.status)
 
 
 async def stop_turn_async(operation_id: str, task_id: str | None = None) -> None:
@@ -457,6 +560,7 @@ async def answer_async(
     policy_run_mode: list[RunMode] | None,
     policy_involvement: list[InvolvementLevel] | None,
     policy_rationale: str | None,
+    json_mode: bool,
 ) -> None:
     service = delivery_commands_service()
     try:
@@ -481,11 +585,33 @@ async def answer_async(
         )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
+    if json_mode:
+        typer.echo(
+            json.dumps(
+                {
+                    "operation_id": operation_id,
+                    "answer_command": answer_command.model_dump(mode="json"),
+                    "policy_command": (
+                        policy_command.model_dump(mode="json")
+                        if policy_command is not None
+                        else None
+                    ),
+                    "outcome": outcome.model_dump(mode="json") if outcome is not None else None,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        if outcome is not None and outcome.status is not OperationStatus.RUNNING:
+            raise_for_operation_status(outcome.status)
+        return
     typer.echo(f"enqueued: {answer_command.command_type.value} [{answer_command.command_id}]")
     if policy_command is not None:
         typer.echo(f"enqueued: {policy_command.command_type.value} [{policy_command.command_id}]")
     if outcome is not None:
         typer.echo(f"{outcome.status.value}: {outcome.summary}")
+        if outcome.status is not OperationStatus.RUNNING:
+            raise_for_operation_status(outcome.status)
 
 
 async def enqueue_command_async(

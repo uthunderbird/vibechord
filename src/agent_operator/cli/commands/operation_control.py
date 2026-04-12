@@ -49,6 +49,7 @@ def cancel(
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt."),
     session_id: str | None = typer.Option(None, "--session", help="Cancel a specific session."),
     run_id: str | None = typer.Option(None, "--run", help="Cancel a specific background run."),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     resolved_operation_id = resolve_operation_id(operation_ref)
     if session_id is None and run_id is None and not yes:
@@ -56,7 +57,7 @@ def cancel(
         if not confirmed:
             typer.echo("cancelled")
             raise typer.Exit()
-    anyio.run(cancel_async, resolved_operation_id, session_id, run_id)
+    anyio.run(cancel_async, resolved_operation_id, session_id, run_id, json_mode)
 
 
 @app.command(hidden=True)
@@ -189,6 +190,7 @@ def answer(
     policy_rationale: str | None = typer.Option(
         None, "--policy-rationale", help="Optional rationale for the promoted policy."
     ),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     anyio.run(
         answer_async,
@@ -205,4 +207,5 @@ def answer(
         policy_run_mode,
         policy_involvement,
         policy_rationale,
+        json_mode,
     )

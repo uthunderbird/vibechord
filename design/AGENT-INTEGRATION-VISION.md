@@ -68,7 +68,8 @@ Applies to: `run`, `resume` (debug), and any command that reports terminal opera
 operator run "fix auth module" --wait [--timeout 300] [--json]
 ```
 
-Blocks until the operation reaches a terminal state OR a blocking attention opens. Returns with the appropriate exit code. `--timeout` in seconds (default: none — waits indefinitely).
+Blocks until the operation reaches a terminal state OR a blocking attention opens. Returns with the
+appropriate exit code. `--timeout` is currently grounded for `--mode resumable`.
 
 **Documented limitation:** For operations expected to run longer than a few minutes, use the fire-and-poll pattern instead. `--wait` holds the calling process open; long operations will exhaust agent context windows.
 
@@ -77,12 +78,12 @@ Blocks until the operation reaches a terminal state OR a blocking attention open
 For long-running operations, the canonical agent integration pattern is fire-and-poll:
 
 ```bash
-# Start the operation, capture ID
-OP=$(operator run "fix auth module" --json | jq -r .operation_id)
+# Start the operation, capture ID from the first JSONL record
+OP=$(operator run "fix auth module" --json | jq -r 'select(.type=="operation") | .operation_id' | head -n1)
 
 # Poll loop
 while true; do
-  STATE=$(operator status $OP --brief --json | jq -r .status)
+  STATE=$(operator status $OP --json | jq -r .status)
 
   case "$STATE" in
     needs_human)
@@ -119,7 +120,9 @@ The `--json` output of all commands is a public agent API surface. Stability rul
 - **Breaking (requires deprecation cycle):** removing fields, changing field types, changing field names
 - **Breaking (requires deprecation cycle):** changing `--json` output structure for any command
 
-The full schema will be documented in `docs/AGENT-API.md` (pending — see Open Items for Implementation). Until that document exists, the `--json` output of each command serves as the de facto schema. Adding new optional fields is non-breaking; all other changes (removing fields, changing field types, changing field names, changing output structure) require a deprecation cycle.
+The schema reference is documented in `docs/reference/cli-json-schemas.md`. Adding new optional
+fields is non-breaking; all other changes (removing fields, changing field types, changing field
+names, changing output structure) require a deprecation cycle.
 
 ---
 
@@ -236,7 +239,8 @@ The `agents` parameter in `run_operation` accepts adapter names as configured in
 
 ### `get_status` Return Schema (provisional)
 
-The `get_status` tool returns a JSON object. This is the provisional schema pending `docs/AGENT-API.md`:
+The `get_status` tool returns a JSON object. This is the provisional schema pending fuller MCP
+surface documentation:
 
 ```json
 {
@@ -417,8 +421,8 @@ The following additions to `CLI-UX-VISION.md` follow from this document:
 - Semantic exit codes for `run`, `status`, and all terminal-state-reporting commands
 - `--wait` and `--timeout` on `operator run`
 - `operator mcp` command: MCP stdio server, 6 core tools, JSON-RPC framing per MCP spec
-- MCP configuration snippet in README and `docs/AGENT-API.md`
-- `docs/AGENT-API.md`: JSON schema documentation for all `--json` output surfaces and event file format
+- MCP configuration snippet in README and MCP reference docs
+- Event file and MCP surface documentation beyond the CLI schema reference
 - Event kind enumeration: document all emitted `RunEvent.kind` values and their fields
 - Python SDK: `agent_operator.client.OperatorClient` async context manager
 - `stream_events` implementation: reads from `.operator/events/<op-id>.jsonl` with async file tail

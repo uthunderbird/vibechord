@@ -486,10 +486,11 @@ def dashboard(
 @app.command()
 def watch(
     operation_ref: str,
+    once: bool = typer.Option(False, "--once", help="Render one watch snapshot and exit."),
     json_mode: bool = JSON_OPTION,
     poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
 ) -> None:
-    anyio.run(watch_async, resolve_operation_id(operation_ref), json_mode, poll_interval)
+    anyio.run(watch_async, resolve_operation_id(operation_ref), once, json_mode, poll_interval)
 
 
 @app.command()
