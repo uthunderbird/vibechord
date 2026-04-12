@@ -6,7 +6,7 @@ from pathlib import Path
 import anyio
 import typer
 
-from agent_operator.domain import InvolvementLevel, ProjectProfile
+from agent_operator.domain import InvolvementLevel, ProjectProfile, RunMode
 from agent_operator.runtime import (
     list_project_profiles,
     load_project_profile,
@@ -25,8 +25,10 @@ from ..options import (
     PROJECT_HARNESS_OPTION,
     PROJECT_INVOLVEMENT_OPTION,
     PROJECT_MAX_ITERATIONS_OPTION,
+    PROJECT_MESSAGE_WINDOW_OPTION,
     PROJECT_OBJECTIVE_OPTION,
     PROJECT_PATH_OPTION,
+    PROJECT_RUN_MODE_OPTION,
     PROJECT_SUCCESS_CRITERION_OPTION,
     WATCH_POLL_INTERVAL_OPTION,
 )
@@ -38,7 +40,7 @@ def _emit_project_profile(profile: ProjectProfile, *, profile_path: Path | None 
     if profile_path is not None:
         typer.echo(f"Path: {profile_path}")
     typer.echo(f"CWD: {profile.cwd or '-'}")
-    typer.echo("Paths:")
+    typer.echo("Paths (stored profile paths; not consumed by `operator run` today):")
     if profile.paths:
         for item in profile.paths:
             typer.echo(f"- {item}")
@@ -68,14 +70,14 @@ def _emit_project_profile(profile: ProjectProfile, *, profile_path: Path | None 
         else "-"
     )
     typer.echo(f"Involvement: {involvement}")
-    typer.echo("Adapter settings:")
+    typer.echo("Adapter settings (pass-through adapter overrides; unknown keys are ignored):")
     if profile.adapter_settings:
         for adapter_key, settings in sorted(profile.adapter_settings.items()):
             rendered = json.dumps(settings, ensure_ascii=False, sort_keys=True)
             typer.echo(f"- {adapter_key}: {rendered}")
     else:
         typer.echo("- none")
-    typer.echo("Dashboard prefs:")
+    typer.echo("Dashboard prefs (reserved; not currently consumed):")
     if profile.dashboard_prefs:
         rendered = json.dumps(
             profile.dashboard_prefs,
@@ -87,7 +89,8 @@ def _emit_project_profile(profile: ProjectProfile, *, profile_path: Path | None 
     else:
         typer.echo("- none")
     typer.echo(f"History ledger: {'enabled' if profile.history_ledger else 'disabled'}")
-    typer.echo(f"Session reuse policy: {profile.session_reuse_policy or '-'}")
+    policy = profile.session_reuse_policy.value if profile.session_reuse_policy is not None else "-"
+    typer.echo(f"Session reuse policy: {policy} (currently no-op)")
     typer.echo(f"Message window: {profile.default_message_window or '-'}")
 
 
@@ -176,7 +179,9 @@ def project_create(
     harness: str | None = PROJECT_HARNESS_OPTION,
     success_criterion: list[str] | None = PROJECT_SUCCESS_CRITERION_OPTION,
     max_iterations: int | None = PROJECT_MAX_ITERATIONS_OPTION,
+    run_mode: RunMode | None = PROJECT_RUN_MODE_OPTION,
     involvement: InvolvementLevel | None = PROJECT_INVOLVEMENT_OPTION,
+    message_window: int | None = PROJECT_MESSAGE_WINDOW_OPTION,
     local: bool = typer.Option(
         False,
         "--local",
@@ -195,7 +200,9 @@ def project_create(
         default_harness_instructions=harness,
         default_success_criteria=list(success_criterion or []),
         default_max_iterations=max_iterations,
+        default_run_mode=run_mode,
         default_involvement_level=involvement,
+        default_message_window=message_window,
     )
     try:
         profile_path = write_project_profile(settings, profile, force=force, local=local)

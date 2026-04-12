@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from agent_operator.domain.enums import InvolvementLevel, RunMode
+from agent_operator.domain.enums import InvolvementLevel, RunMode, SessionReusePolicy
 
 
 class ProjectProfile(BaseModel):
@@ -16,13 +16,13 @@ class ProjectProfile(BaseModel):
     default_agents: list[str] = Field(default_factory=list)
     default_harness_instructions: str | None = None
     default_success_criteria: list[str] = Field(default_factory=list)
-    default_max_iterations: int | None = None
+    default_max_iterations: int | None = Field(default=None, ge=1)
     default_run_mode: RunMode | None = None
     default_involvement_level: InvolvementLevel | None = None
     adapter_settings: dict[str, dict[str, object]] = Field(default_factory=dict)
     dashboard_prefs: dict[str, object] = Field(default_factory=dict)
-    session_reuse_policy: str | None = None
-    default_message_window: int | None = None
+    session_reuse_policy: SessionReusePolicy | None = None
+    default_message_window: int | None = Field(default=None, ge=1)
 
 
 class ResolvedProjectRunConfig(BaseModel):

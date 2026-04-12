@@ -81,10 +81,21 @@ PROJECT_MAX_ITERATIONS_OPTION = typer.Option(
     min=1,
     help="Default maximum operator iterations.",
 )
+PROJECT_RUN_MODE_OPTION = typer.Option(
+    None,
+    "--run-mode",
+    help="Default run mode for this profile.",
+)
 PROJECT_INVOLVEMENT_OPTION = typer.Option(
     None,
     "--involvement",
     help="Default involvement level for this profile.",
+)
+PROJECT_MESSAGE_WINDOW_OPTION = typer.Option(
+    None,
+    "--message-window",
+    min=1,
+    help="Default operator message window for this profile.",
 )
 INVOLVEMENT_LEVEL_OPTION = typer.Option(..., "--level", help="New involvement level.")
 COMMAND_TYPE_OPTION = typer.Option(..., "--type", help="Command type to enqueue.")
@@ -230,9 +241,11 @@ __all__ = [
     "PROJECT_HARNESS_OPTION",
     "PROJECT_INVOLVEMENT_OPTION",
     "PROJECT_MAX_ITERATIONS_OPTION",
+    "PROJECT_MESSAGE_WINDOW_OPTION",
     "PROJECT_OBJECTIVE_OPTION",
     "PROJECT_OPTION",
     "PROJECT_PATH_OPTION",
+    "PROJECT_RUN_MODE_OPTION",
     "PROJECT_SUCCESS_CRITERION_OPTION",
     "PROMOTE_POLICY_AGENT_OPTION",
     "PROMOTE_POLICY_INVOLVEMENT_OPTION",

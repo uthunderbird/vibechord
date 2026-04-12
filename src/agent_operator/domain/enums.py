@@ -162,6 +162,11 @@ class RunMode(StrEnum):
     RESUMABLE = "resumable"
 
 
+class SessionReusePolicy(StrEnum):
+    ALWAYS_NEW = "always_new"
+    REUSE_IF_IDLE = "reuse_if_idle"
+
+
 class BackgroundRuntimeMode(StrEnum):
     INLINE = "inline"
     ATTACHED_LIVE = "attached_live"

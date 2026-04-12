@@ -30,9 +30,11 @@ from ..options import (
     PROJECT_HARNESS_OPTION,
     PROJECT_INVOLVEMENT_OPTION,
     PROJECT_MAX_ITERATIONS_OPTION,
+    PROJECT_MESSAGE_WINDOW_OPTION,
     PROJECT_OBJECTIVE_OPTION,
     PROJECT_OPTION,
     PROJECT_PATH_OPTION,
+    PROJECT_RUN_MODE_OPTION,
     PROJECT_SUCCESS_CRITERION_OPTION,
     RUN_AGENT_OPTION,
     RUN_MODE_OPTION,
@@ -112,7 +114,9 @@ def init(
     harness: str | None = PROJECT_HARNESS_OPTION,
     success_criterion: list[str] | None = PROJECT_SUCCESS_CRITERION_OPTION,
     max_iterations: int | None = PROJECT_MAX_ITERATIONS_OPTION,
+    run_mode: RunMode | None = PROJECT_RUN_MODE_OPTION,
     involvement: InvolvementLevel | None = PROJECT_INVOLVEMENT_OPTION,
+    message_window: int | None = PROJECT_MESSAGE_WINDOW_OPTION,
     force: bool = PROJECT_FORCE_OPTION,
     json_mode: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -126,7 +130,9 @@ def init(
         default_harness_instructions=harness,
         default_success_criteria=list(success_criterion or []),
         default_max_iterations=max_iterations,
+        default_run_mode=run_mode,
         default_involvement_level=involvement,
+        default_message_window=message_window,
     )
     try:
         profile_path = write_default_project_profile(root=root, profile=profile, force=force)

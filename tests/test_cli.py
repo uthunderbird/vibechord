@@ -3057,6 +3057,10 @@ def test_init_creates_committed_project_profile_and_gitignore(tmp_path: Path, mo
             "Prove the assigned theorem completely.",
             "--agent",
             "codex_acp",
+            "--run-mode",
+            "resumable",
+            "--message-window",
+            "6",
             "--json",
         ],
     )
@@ -3065,6 +3069,8 @@ def test_init_creates_committed_project_profile_and_gitignore(tmp_path: Path, mo
     payload = json.loads(result.stdout)
     assert payload["project_root"] == str(repo_root)
     assert payload["profile_path"] == str(repo_root / "operator-profile.yaml")
+    assert payload["profile"]["default_run_mode"] == "resumable"
+    assert payload["profile"]["default_message_window"] == 6
     assert (repo_root / "operator-profile.yaml").exists()
     assert (repo_root / "operator-profiles").is_dir()
     assert ".operator/" in (repo_root / ".gitignore").read_text(encoding="utf-8")

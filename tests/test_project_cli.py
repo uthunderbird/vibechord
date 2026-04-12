@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from agent_operator.cli.main import app
 from agent_operator.config import OperatorSettings
-from agent_operator.domain import InvolvementLevel, ProjectProfile, RunMode
+from agent_operator.domain import InvolvementLevel, ProjectProfile, RunMode, SessionReusePolicy
 from agent_operator.runtime import load_project_profile, write_project_profile
 
 runner = CliRunner()
@@ -117,6 +117,47 @@ def test_project_inspect_defaults_to_human_readable_local_profile(
     assert payload["default_involvement_level"] == "auto"
 
 
+def test_project_inspect_labels_no_op_and_reserved_profile_fields(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path / ".operator"))
+    (tmp_path / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: operator",
+                "cwd: .",
+                "paths:",
+                "  - src",
+                "adapter_settings:",
+                "  codex_acp:",
+                "    model: gpt-5.4",
+                "dashboard_prefs:",
+                "  density: compact",
+                "session_reuse_policy: reuse_if_idle",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["project", "inspect"])
+
+    assert result.exit_code == 0
+    assert "Paths (stored profile paths; not consumed by `operator run` today):" in result.stdout
+    assert "Adapter settings (pass-through adapter overrides; unknown keys are ignored):" in (
+        result.stdout
+    )
+    assert "Dashboard prefs (reserved; not currently consumed):" in result.stdout
+    assert "Session reuse policy: reuse_if_idle (currently no-op)" in result.stdout
+
+    json_result = runner.invoke(app, ["project", "inspect", "--json"])
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert payload["session_reuse_policy"] == SessionReusePolicy.REUSE_IF_IDLE.value
+
+
 def test_project_resolve_surfaces_effective_defaults(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path / ".operator"))
     (tmp_path / "operator-profile.yaml").write_text(
@@ -203,8 +244,12 @@ def test_project_create_remains_explicit_profile_mutation(tmp_path: Path, monkey
             "add focused verification",
             "--max-iterations",
             "9",
+            "--run-mode",
+            "resumable",
             "--involvement",
             "approval_heavy",
+            "--message-window",
+            "5",
         ],
     )
 
@@ -220,7 +265,9 @@ def test_project_create_remains_explicit_profile_mutation(tmp_path: Path, monkey
     assert stored.default_harness_instructions == "Stay within repo truth."
     assert stored.default_success_criteria == ["add focused verification"]
     assert stored.default_max_iterations == 9
+    assert stored.default_run_mode is RunMode.RESUMABLE
     assert stored.default_involvement_level is InvolvementLevel.APPROVAL_HEAVY
+    assert stored.default_message_window == 5
 
     json_result = runner.invoke(
         app,
@@ -237,6 +284,49 @@ def test_project_create_remains_explicit_profile_mutation(tmp_path: Path, monkey
     assert payload["profile_scope"] == "committed"
     assert payload["profile"]["name"] == "beta"
     assert payload["profile_path"] == str(tmp_path / "operator-profiles" / "beta.yaml")
+
+
+def test_project_resolve_json_covers_all_run_resolution_fields(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path / ".operator"))
+    (tmp_path / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: operator",
+                "cwd: .",
+                "default_objective: Inspect the repo",
+                "default_agents:",
+                "  - codex_acp",
+                "default_harness_instructions: Stay attached.",
+                "default_success_criteria:",
+                "  - Leave a concise report.",
+                "default_max_iterations: 8",
+                "default_run_mode: resumable",
+                "default_involvement_level: collaborative",
+                "default_message_window: 4",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["project", "resolve", "--json"])
+
+    assert result.exit_code == 0
+    resolved = json.loads(result.stdout)["resolved"]
+    assert set(resolved) == {
+        "profile_name",
+        "cwd",
+        "objective_text",
+        "default_agents",
+        "harness_instructions",
+        "success_criteria",
+        "max_iterations",
+        "run_mode",
+        "involvement_level",
+        "message_window",
+        "overrides",
+    }
 
 
 def test_project_dashboard_is_project_scoped_entry_surface(tmp_path: Path, monkeypatch) -> None:

@@ -39,6 +39,7 @@ from agent_operator.domain import (
     PolicyStatus,
     ProjectProfile,
     RunEvent,
+    SessionReusePolicy,
     TraceRecord,
     TypedRefs,
 )
@@ -663,6 +664,37 @@ def test_apply_project_profile_settings_updates_adapter_defaults(tmp_path: Path)
 
     assert settings.opencode_acp.command == "opencode acp --cwd /tmp/opencode"
     assert settings.opencode_acp.working_directory == Path("/tmp/femtobot")
+
+
+def test_load_project_profile_validates_session_reuse_policy(tmp_path: Path) -> None:
+    from agent_operator.config import OperatorSettings
+
+    settings = OperatorSettings()
+    settings.data_dir = tmp_path
+    (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "profiles" / "operator.yaml").write_text(
+        "name: operator\nsession_reuse_policy: reuse_if_idle\n",
+        encoding="utf-8",
+    )
+
+    profile = load_project_profile(settings, "operator")
+
+    assert profile.session_reuse_policy is SessionReusePolicy.REUSE_IF_IDLE
+
+
+def test_load_project_profile_rejects_unknown_session_reuse_policy(tmp_path: Path) -> None:
+    from agent_operator.config import OperatorSettings
+
+    settings = OperatorSettings()
+    settings.data_dir = tmp_path
+    (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "profiles" / "operator.yaml").write_text(
+        "name: operator\nsession_reuse_policy: later\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(Exception, match="session_reuse_policy"):
+        load_project_profile(settings, "operator")
 
 
 @pytest.mark.anyio
