@@ -13,7 +13,11 @@ from agent_operator.domain import (
     PolicyCategory,
     PolicyEntry,
 )
-from agent_operator.providers.prompting import build_decision_prompt, build_evaluation_prompt
+from agent_operator.providers.prompting import (
+    build_decision_prompt,
+    build_evaluation_prompt,
+    build_turn_summary_prompt,
+)
 from agent_operator.testing.operator_service_support import state_settings
 
 
@@ -84,6 +88,25 @@ def test_decision_prompt_requires_instruction_to_be_only_final_agent_message() -
     assert "WAIT_FOR_AGENT is valid only when there is a real in-flight dependency" in prompt
     assert "do not use WAIT_FOR_AGENT to monopolize the run on one agent" in prompt
     assert "Use FAIL when the objective should end as failed" in prompt
+
+
+def test_build_decision_prompt_requires_workfront_key_for_delegated_fronts() -> None:
+    state = OperationState(
+        goal=OperationGoal(objective="Close the next ADR gap"),
+        **state_settings(
+            allowed_agents=["codex_acp"],
+            metadata={
+                "run_mode": "attached",
+                "background_runtime_mode": "attached_live",
+            },
+        ),
+    )
+
+    prompt = build_decision_prompt(state)
+
+    assert "set workfront_key to a short stable identifier" in prompt
+    assert "bounded delegated front" in prompt
+    assert "change it when replanning to a different slice" in prompt
 
 
 def test_build_decision_prompt_surfaces_available_agent_descriptors() -> None:
@@ -275,3 +298,24 @@ def test_build_evaluation_prompt_falls_back_to_excerpt_when_summary_missing() ->
     assert "EXCERPT-TAIL" in prompt
     assert '"result_excerpt":' in prompt
     assert '"full_result": "LATEST-FULL ' in prompt
+
+
+def test_build_turn_summary_prompt_requires_progress_class_and_blocker_keys() -> None:
+    state = OperationState(
+        goal=OperationGoal(objective="Close the next ADR gap"),
+        **state_settings(),
+    )
+
+    prompt = build_turn_summary_prompt(
+        state,
+        operator_instruction="Continue with the next bounded slice.",
+        result=AgentResult(
+            session_id="session-1",
+            status=AgentResultStatus.SUCCESS,
+            output_text="No repository content changed in this turn.",
+        ),
+    )
+
+    assert "Set progress_class to one of" in prompt
+    assert "material_delta, inspection_only, no_verified_delta" in prompt
+    assert "Use blocker_keys for short stable blocker-family tags" in prompt
