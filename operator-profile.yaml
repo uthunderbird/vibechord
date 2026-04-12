@@ -1,0 +1,107 @@
+name: operator
+cwd: .
+history_ledger: true
+default_harness_instructions: |
+  You are working on the `operator` codebase — a Python library and CLI that acts as an
+  operator (supervisor) for other AI agents.
+
+  ## Mandatory reading before any substantial work
+
+  Read these in order:
+
+  1. AGENTS.md — non-negotiables, placement rules, canonical Codex launch command
+  2. policies/architecture.md — architectural biases, ADR practice, ADR lifecycle semantics
+  3. policies/engineering.md — code-authoring rules
+  4. policies/verification.md — evidence requirements
+  5. design/ARCHITECTURE.md — runtime layering and service boundaries
+  6. design/adr/ — relevant ADRs for the area you are touching
+
+  Never skip this reading. The policies and ADRs are short and contain binding rules.
+
+  ## ADR lifecycle — how to bring an ADR to full closure
+
+  Every ADR has two independent status fields near the top:
+
+  ```
+  ## Decision Status
+  Accepted
+
+  ## Implementation Status
+  Implemented
+  ```
+
+  Canonical Decision Status values: Proposed, Accepted, Rejected, Superseded, Stale
+  Canonical Implementation Status values: Planned, Partial, Implemented, Verified, N/A
+
+  ### Step-by-step closure protocol
+
+  1. **Understand the ADR before touching it.**
+     Read the full ADR text. Note the decision, the retirement/promotion conditions, and any
+     remaining-work artifacts it links (tranche ADRs, backlog entries, checklists).
+
+  2. **Ground the ADR in real code.**
+     Before updating any status field, verify that the stated implementation actually exists in
+     the codebase. Use Grep/Glob to confirm file paths and symbols. If the ADR names a method,
+     class, or test — check it exists. If it claims a lint assertion is in place — read the test
+     file. Do not trust the ADR text alone; trust the code.
+
+  3. **Implement or verify each item listed in the ADR.**
+     Work through the implementation record or criteria-to-close section line by line. For each
+     item mark it as done only after you have confirmed code evidence.
+
+  4. **Fix the Implementation Status field.**
+     Use the canonical values:
+     - Planned → no code yet
+     - Partial → some items done, some remain
+     - Implemented → all items in the implementation record are complete
+     - Verified → implemented AND the full test suite is green with the implementation in place
+
+  5. **Fix the Decision Status field only when warranted.**
+     Move to Accepted only when the decision direction is firm and you are ready to commit.
+     Never flip to Accepted and leave the repository uncommitted — the commit must happen in the
+     same work wave (policies/architecture.md: "ADR Acceptance And Commit Rule").
+
+  6. **Commit immediately after moving to Accepted.**
+     The commit anchors the decision to a concrete repository state. If you cannot commit right
+     now, keep Decision Status at Proposed.
+
+  7. **Promote dependent ADRs and RFCs if the closure conditions are met.**
+     Many ADRs are prerequisites for promoting a parent RFC or sibling ADRs. Check the Related
+     section for documents that list this ADR as a closure condition. If their closure criteria
+     are now satisfied, update them in the same pass.
+
+  8. **Document unresolved technical debt.**
+     If the implementation leaves known gaps that cannot be fixed immediately, write a new ADR
+     for the debt item. The debt ADR must include:
+     - What the gap is and which code paths are affected
+     - Why it cannot be fixed now (missing prerequisite, structural constraint)
+     - The prerequisites for resolution
+     - The proposed resolution approach (at least two options if applicable)
+     - A note on which existing code is load-bearing until the gap is closed (must not be removed)
+
+  ### Common mistakes to avoid
+
+  - Do not move Implementation Status to Implemented based on the ADR text alone — verify in code.
+  - Do not move Decision Status to Accepted before committing.
+  - Do not remove a recovery or fallback path before its underlying gap is closed and tested.
+  - Do not add new callers of `save_operation()` for new mutation logic — it is a checkpoint
+    helper only (see ADR 0144).
+
+  ## Test discipline
+
+  - Run `uv run pytest` to verify the full suite before declaring any implementation complete.
+  - If you add a new event type, add a projector slice test covering that event.
+  - If you add a new recovery path, add a test that would fail if the recovery path were removed.
+
+  ## Wave completion protocol
+
+  These are signals for you to surface as recommendations to the operator. You cannot invoke
+  the tools below directly — the human operator runs them in their Claude Code session.
+
+  **After closing an ADR** (moving it to Decision Status: Accepted + Implementation Status:
+  Implemented): recommend to the operator that they run `/swarm-red-team-nova` on that ADR to
+  verify completeness and confirm no unrecorded technical debt was left behind.
+
+  **When no open items remain in design/BACKLOG.md and no ADR is in Planned or Partial state**:
+  recommend to the operator that they run `/swarm-nova` to compare the current codebase against
+  design/VISION.md and design/ARCHITECTURE.md, identify gaps, and propose the next set of ADRs.
