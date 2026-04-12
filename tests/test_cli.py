@@ -2356,10 +2356,11 @@ def test_status_command_prints_human_readable_summary(tmp_path: Path, monkeypatc
     result = runner.invoke(app, ["status", operation_id])
 
     assert result.exit_code == 0
-    assert "status: completed" in result.stdout
-    assert "objective: Test objective" in result.stdout
-    assert "Open Attention" in result.stdout
-    assert "- none" in result.stdout
+    assert "COMPLETED · iter 0/100" in result.stdout
+    assert "Operation\n- op-cli-1 · Test objective" in result.stdout
+    assert "Now\n- Completed successfully." in result.stdout
+    assert "Attention\n- none" in result.stdout
+    assert "Progress\n- Done: Completed successfully." in result.stdout
 
 
 def test_status_brief_prints_single_line_summary(tmp_path: Path, monkeypatch) -> None:
@@ -2380,10 +2381,8 @@ def test_status_shows_action_line_when_attention_is_open(tmp_path: Path, monkeyp
     result = runner.invoke(app, ["status", operation_id])
 
     assert result.exit_code == 0
-    assert (
-        f"→ Action required: operator answer {operation_id} {attention_id} --text '...'"
-        in result.stdout
-    )
+    assert "Action" in result.stdout
+    assert f"- operator answer {operation_id} {attention_id} --text '...'" in result.stdout
 
 
 def test_status_open_attention_section_uses_positional_answer_syntax(
@@ -2395,7 +2394,9 @@ def test_status_open_attention_section_uses_positional_answer_syntax(
     result = runner.invoke(app, ["status", operation_id])
 
     assert result.exit_code == 0
-    assert f"  → operator answer {operation_id} {attention_id} --text '...'" in result.stdout
+    assert "Attention" in result.stdout
+    assert "[!!1] [question] Clarification required" in result.stdout
+    assert f"- operator answer {operation_id} {attention_id} --text '...'" in result.stdout
     assert "--attention" not in result.stdout
 
 

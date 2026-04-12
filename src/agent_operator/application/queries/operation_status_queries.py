@@ -32,7 +32,8 @@ class OperationStatusQueryService:
     overlay_live_background_progress: Callable[[OperationState, list], OperationState]
     build_runtime_alert: Callable[..., str | None]
     render_status_brief: Callable[[OperationState], str]
-    render_inspect_summary: Callable[[OperationState, object | None], str]
+    render_inspect_summary: Callable[..., str]
+    render_status_summary: Callable[..., str]
 
     async def build_status_payload(
         self,
@@ -97,11 +98,13 @@ class OperationStatusQueryService:
             return json.dumps(payload, indent=2, ensure_ascii=False)
         if brief:
             return self.render_status_brief(operation)
-        rendered = self.render_inspect_summary(operation, brief_bundle, runtime_alert=runtime_alert)
         action_hint = self.build_status_action_hint(operation)
-        if action_hint is not None:
-            rendered += f"\n→ Action required: {action_hint}"
-        return rendered
+        return self.render_status_summary(
+            operation,
+            brief_bundle,
+            runtime_alert=runtime_alert,
+            action_hint=action_hint,
+        )
 
     def build_status_action_hint(self, operation: OperationState) -> str | None:
         open_attention = [

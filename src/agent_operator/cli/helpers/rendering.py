@@ -10,11 +10,16 @@ from agent_operator.cli.rendering import render_project_dashboard as _render_pro
 from agent_operator.cli.rendering.text import emit_context_lines as _emit_context_lines_view
 from agent_operator.cli.rendering.text import format_live_event as _format_live_event_view
 from agent_operator.cli.rendering.text import format_live_snapshot as _format_live_snapshot_view
-from agent_operator.cli.rendering.text import render_inspect_summary as _render_inspect_summary_view
+from agent_operator.cli.rendering.text import (
+    render_inspect_summary as _render_inspect_summary_view,
+)
 from agent_operator.cli.rendering.text import (
     render_operation_list_line as _render_operation_list_line_view,
 )
 from agent_operator.cli.rendering.text import render_status_brief as _render_status_brief_view
+from agent_operator.cli.rendering.text import (
+    render_status_summary as _render_status_summary_view,
+)
 from agent_operator.cli.rendering.text import render_watch_snapshot as _render_watch_snapshot_view
 from agent_operator.domain import (
     AgentTurnBrief,
@@ -234,6 +239,26 @@ def render_inspect_summary(
         turn_next_step=turn_next_step,
         open_attention_requests=open_attention_requests,
         render_section=render_section,
+    )
+
+
+def render_status_summary(
+    operation: OperationState,
+    brief: TraceBriefBundle | None,
+    *,
+    runtime_alert: str | None,
+    action_hint: str | None,
+) -> str:
+    return _render_status_summary_view(
+        operation,
+        summary=PROJECTIONS.build_operation_brief_payload(
+            operation,
+            brief,
+            runtime_alert=runtime_alert,
+        ),
+        open_attention_requests=open_attention_requests,
+        shorten_paragraph_text=lambda text: shorten_paragraph_text(text, limit=180),
+        action_hint=action_hint,
     )
 
 

@@ -44,6 +44,7 @@ from .rendering import (
     overlay_live_background_progress,
     render_inspect_summary,
     render_status_brief,
+    render_status_summary,
 )
 
 if TYPE_CHECKING:
@@ -147,6 +148,7 @@ def build_status_query_service(settings: OperatorSettings) -> OperationStatusQue
         build_runtime_alert=build_runtime_alert,
         render_status_brief=render_status_brief,
         render_inspect_summary=render_inspect_summary,
+        render_status_summary=render_status_summary,
     )
 
 

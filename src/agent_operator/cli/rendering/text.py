@@ -201,6 +201,102 @@ def render_status_brief(
     )
 
 
+def render_status_summary(
+    operation: OperationState,
+    *,
+    summary: dict[str, object],
+    open_attention_requests: Callable[[OperationState], list[AttentionRequest]],
+    shorten_paragraph_text: Callable[[str | None], str | None],
+    action_hint: str | None,
+) -> str:
+    open_attention = open_attention_requests(operation)
+    max_iterations = operation.execution_budget.max_iterations
+    lines = [
+        f"{operation.status.value.upper()} · "
+        f"iter {len(operation.iterations)}/{max_iterations}",
+        "",
+    ]
+    progress_values: set[str] = set()
+    operation_anchor = (
+        shorten_paragraph_text(
+            f"{operation.operation_id} · {operation.objective_state.objective}"
+        )
+        or operation.operation_id
+    )
+
+    lines.extend(
+        [
+            "Operation",
+            f"- {operation_anchor}",
+        ]
+    )
+
+    current_label = "Wait" if summary.get("wait") else "Now"
+    current_value = summary.get("wait") or summary.get("now") or operation.status.value
+    lines.extend(
+        [
+            "",
+            current_label,
+            f"- {shorten_paragraph_text(str(current_value) if current_value else None) or '-'}",
+        ]
+    )
+
+    lines.append("")
+    lines.append("Attention")
+    if not open_attention:
+        lines.append("- none")
+    else:
+        first = open_attention[0]
+        badge = (
+            f"[!!{len(open_attention)}] "
+            if first.blocking
+            else f"[review {len(open_attention)}] "
+        )
+        lines.append(
+            "- "
+            + badge
+            + (
+                shorten_paragraph_text(
+                    f"[{first.attention_type.value}] {first.title}"
+                )
+                or f"[{first.attention_type.value}] {first.title}"
+            )
+        )
+
+    progress_lines: list[str] = []
+    progress = summary.get("progress")
+    if isinstance(progress, dict):
+        done = shorten_paragraph_text(
+            str(progress.get("done")) if progress.get("done") is not None else None
+        )
+        doing = shorten_paragraph_text(
+            str(progress.get("doing")) if progress.get("doing") is not None else None
+        )
+        next_step = shorten_paragraph_text(
+            str(progress.get("next")) if progress.get("next") is not None else None
+        )
+        if done:
+            progress_lines.append(f"- Done: {done}")
+            progress_values.add(done)
+        if doing and doing != done:
+            progress_lines.append(f"- Doing: {doing}")
+            progress_values.add(doing)
+        if next_step and next_step not in {done, doing}:
+            progress_lines.append(f"- Next: {next_step}")
+            progress_values.add(next_step)
+    if progress_lines:
+        lines.extend(["", "Progress", *progress_lines])
+
+    recent = shorten_paragraph_text(str(summary.get("recent")) if summary.get("recent") else None)
+    if recent and recent not in progress_values:
+        lines.extend(["", "Recent", f"- {recent}"])
+
+    if action_hint is not None:
+        lines.extend(["", "Action", f"- {action_hint}"])
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def emit_context_lines(payload: dict[str, object], *, operation_id: str) -> list[str]:
     lines = [f"Operation {operation_id}", "Goal:"]
     lines.append(f"- Objective: {payload['objective']}")
