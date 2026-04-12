@@ -167,6 +167,43 @@ async def test_session_runner_start_poll_collect_success() -> None:
 
 
 @pytest.mark.anyio
+async def test_session_runner_passes_configured_mcp_servers_to_session_new_and_load() -> None:
+    first = FakeAcpConnection()
+    second = FakeAcpConnection()
+    connections = [first, second]
+
+    def factory(_cwd: Path, _log: Path) -> FakeAcpConnection:
+        return connections.pop(0)
+
+    runner = AcpSessionRunner(
+        adapter_key="fake_acp",
+        working_directory=Path.cwd(),
+        mcp_servers=[{"name": "filesystem", "command": "npx"}],
+        connection_factory=factory,
+        hooks=FakeHooks(),
+    )
+    handle = await runner.start(AgentRunRequest(goal="goal", instruction="hello"))
+    first.prompt_future.set_result({"stopReason": "end_turn"})
+    await runner.collect(handle)
+
+    await runner.send(handle, "follow up")
+
+    expected_mcp_servers = [{"name": "filesystem", "command": "npx"}]
+    assert (
+        "session/new",
+        {"cwd": str(Path.cwd().resolve()), "mcpServers": expected_mcp_servers},
+    ) in first.requests
+    assert (
+        "session/load",
+        {
+            "sessionId": "sess-1",
+            "cwd": str(Path.cwd().resolve()),
+            "mcpServers": expected_mcp_servers,
+        },
+    ) in second.requests
+
+
+@pytest.mark.anyio
 async def test_session_runner_tracks_usage_updates_and_prompt_usage() -> None:
     connection = FakeAcpConnection()
     runner = AcpSessionRunner(

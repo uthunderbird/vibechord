@@ -104,6 +104,8 @@ def test_project_inspect_defaults_to_human_readable_local_profile(
     assert "Inspect the repo" in result.stdout
     assert "Default agents:" in result.stdout
     assert "- codex_acp" in result.stdout
+    assert "Paths: deferred" in result.stdout
+    assert "Dashboard prefs: deferred" in result.stdout
     assert "Message window: 5" in result.stdout
     assert '"name"' not in result.stdout
 
@@ -144,12 +146,10 @@ def test_project_inspect_labels_no_op_and_reserved_profile_fields(
     result = runner.invoke(app, ["project", "inspect"])
 
     assert result.exit_code == 0
-    assert "Paths (stored profile paths; not consumed by `operator run` today):" in result.stdout
-    assert "Adapter settings (pass-through adapter overrides; unknown keys are ignored):" in (
-        result.stdout
-    )
-    assert "Dashboard prefs (reserved; not currently consumed):" in result.stdout
-    assert "Session reuse policy: reuse_if_idle (currently no-op)" in result.stdout
+    assert "Paths: deferred" in result.stdout
+    assert "Adapter settings:" in result.stdout
+    assert "Dashboard prefs: deferred" in result.stdout
+    assert "Session reuse policy: reuse_if_idle" in result.stdout
 
     json_result = runner.invoke(app, ["project", "inspect", "--json"])
 
@@ -188,6 +188,7 @@ def test_project_resolve_surfaces_effective_defaults(tmp_path: Path, monkeypatch
     assert "Profile: operator" in result.stdout
     assert "Profile source: local_profile_file" in result.stdout
     assert "Resolved run defaults:" in result.stdout
+    assert "- History ledger: enabled" in result.stdout
     assert "- Objective: Ship the smallest verified slice" in result.stdout
     assert "- Agents: codex_acp" in result.stdout
     assert "- Harness: Stay within repo truth." in result.stdout
@@ -196,6 +197,7 @@ def test_project_resolve_surfaces_effective_defaults(tmp_path: Path, monkeypatch
     assert "- Max iterations: 12" in result.stdout
     assert "- Run mode: attached" in result.stdout
     assert "- Involvement: auto" in result.stdout
+    assert "- Session reuse policy: always_new" in result.stdout
     assert "- Message window: 7" in result.stdout
     assert "default_objective" not in result.stdout
     assert "default_harness_instructions" not in result.stdout
@@ -208,6 +210,7 @@ def test_project_resolve_surfaces_effective_defaults(tmp_path: Path, monkeypatch
     assert payload["resolved"] == {
         "profile_name": "operator",
         "cwd": str(tmp_path),
+        "history_ledger": True,
         "objective_text": "Ship the smallest verified slice",
         "default_agents": ["codex_acp"],
         "harness_instructions": "Stay within repo truth.",
@@ -215,6 +218,7 @@ def test_project_resolve_surfaces_effective_defaults(tmp_path: Path, monkeypatch
         "max_iterations": 12,
         "run_mode": RunMode.ATTACHED.value,
         "involvement_level": InvolvementLevel.AUTO.value,
+        "session_reuse_policy": "always_new",
         "message_window": 7,
         "overrides": [],
     }
@@ -317,6 +321,7 @@ def test_project_resolve_json_covers_all_run_resolution_fields(tmp_path: Path, m
     assert set(resolved) == {
         "profile_name",
         "cwd",
+        "history_ledger",
         "objective_text",
         "default_agents",
         "harness_instructions",
@@ -324,6 +329,7 @@ def test_project_resolve_json_covers_all_run_resolution_fields(tmp_path: Path, m
         "max_iterations",
         "run_mode",
         "involvement_level",
+        "session_reuse_policy",
         "message_window",
         "overrides",
     }

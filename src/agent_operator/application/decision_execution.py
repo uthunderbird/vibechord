@@ -24,6 +24,7 @@ from agent_operator.domain import (
     RunMode,
     RunOptions,
     SessionRecordStatus,
+    SessionReusePolicy,
     TaskState,
     TaskStatus,
 )
@@ -241,6 +242,27 @@ class DecisionExecutionService:
         *,
         supervisor_available: bool,
     ) -> bool:
+        if (
+            self._loaded_operation.resolved_session_reuse_policy(state)
+            is SessionReusePolicy.REUSE_IF_IDLE
+        ):
+            reusable_record = self._loaded_operation.resolve_reusable_idle_session(
+                state,
+                adapter_key,
+                task,
+            )
+            if reusable_record is not None:
+                iteration.decision = iteration.decision.model_copy(
+                    update={"session_id": reusable_record.session_id}
+                )
+                return await self._execute_continue_agent(
+                    state,
+                    iteration,
+                    task,
+                    options,
+                    adapter_key,
+                    supervisor_available=supervisor_available,
+                )
         if (
             self._runtime_context.should_use_background_runtime(options)
             and supervisor_available

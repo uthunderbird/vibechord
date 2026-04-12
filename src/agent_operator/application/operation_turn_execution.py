@@ -240,6 +240,7 @@ class OperationTurnExecutionService:
             or (task.goal if task is not None else state.objective_state.objective),
             session_name=decision.session_name,
             one_shot=decision.one_shot,
+            session_reuse_policy=self._loaded_operation.resolved_session_reuse_policy(state),
             working_directory=self._loaded_operation.resolve_working_directory(state, task),
             metadata=self._background_request_metadata(state),
         )
@@ -350,6 +351,7 @@ class OperationTurnExecutionService:
                 ),
                 session_name=decision.session_name or record.handle.session_name,
                 one_shot=decision.one_shot,
+                session_reuse_policy=self._loaded_operation.resolved_session_reuse_policy(state),
                 working_directory=self._loaded_operation.resolve_working_directory(
                     state,
                     task,
@@ -377,6 +379,7 @@ class OperationTurnExecutionService:
                 instruction=decision.instruction or "",
                 session_name=decision.session_name or record.handle.session_name,
                 one_shot=decision.one_shot,
+                session_reuse_policy=self._loaded_operation.resolved_session_reuse_policy(state),
                 working_directory=self._loaded_operation.resolve_working_directory(
                     state,
                     task,

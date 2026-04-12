@@ -32,7 +32,6 @@ from agent_operator.testing.operator_service_support import (
     MemoryWakeupInbox,
     RecoverableDisconnectAgent,
     StartThenStopBrain,
-    StartTwiceThenStopBrain,
     make_service,
     run_settings,
 )
@@ -118,6 +117,37 @@ class StartThenContinueThenStopBrain:
                 target_agent="claude_acp",
                 instruction="phase 2",
                 rationale="Continue with phase 2.",
+            )
+        return BrainDecision(action_type=BrainActionType.STOP, rationale="Done.")
+
+    async def evaluate_result(self, state) -> Evaluation:
+        should_continue = len(state.iterations) < 2
+        return Evaluation(
+            goal_satisfied=not should_continue,
+            should_continue=should_continue,
+            summary="ok",
+        )
+
+    async def summarize_progress(self, state) -> ProgressSummary:
+        return ProgressSummary(summary="summary")
+
+    async def normalize_artifact(self, goal, result) -> AgentResult:
+        return result
+
+
+class StartThenStartAgainThenStopBrain:
+    def __init__(self, *, target_agent: str = "codex_acp") -> None:
+        self.calls = 0
+        self.target_agent = target_agent
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        if self.calls <= 2:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent=self.target_agent,
+                instruction="keep going",
+                rationale="Reuse the idle session when policy allows it.",
             )
         return BrainDecision(action_type=BrainActionType.STOP, rationale="Done.")
 
@@ -548,7 +578,7 @@ async def test_resume_recovers_disconnected_codex_session_without_starting_new_o
         error_code="codex_acp_disconnected",
     )
     service = make_service(
-        brain=StartTwiceThenStopBrain(target_agent="codex_acp"),
+        brain=StartThenStartAgainThenStopBrain(target_agent="codex_acp"),
         store=store,
         trace_store=MemoryTraceStore(),
         event_sink=MemoryEventSink(),
@@ -589,11 +619,43 @@ async def test_resume_recovers_disconnected_codex_session_without_starting_new_o
 
 
 @pytest.mark.anyio
+async def test_start_agent_reuses_idle_session_when_profile_requests_reuse_if_idle() -> None:
+    store = MemoryStore()
+    agent = FakeAgent(key="codex_acp")
+    service = make_service(
+        brain=StartThenStartAgainThenStopBrain(target_agent="codex_acp"),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"codex_acp": agent}),
+    )
+
+    outcome = await service.run(
+        OperationGoal(
+            objective="reuse the same codex session",
+            metadata={
+                "resolved_project_profile": {
+                    "session_reuse_policy": "reuse_if_idle",
+                }
+            },
+        ),
+        **run_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+    )
+    operation = await store.load_operation(outcome.operation_id)
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert operation is not None
+    assert len(agent.started_requests) == 1
+    assert agent.sent_messages == ["keep going"]
+    assert len(operation.sessions) == 1
+
+
+@pytest.mark.anyio
 async def test_background_request_metadata_includes_project_profile_path() -> None:
     store = MemoryStore()
     supervisor = FakeSupervisor()
     service = make_service(
-        brain=StartTwiceThenStopBrain(target_agent="codex_acp"),
+        brain=StartThenStartAgainThenStopBrain(target_agent="codex_acp"),
         store=store,
         trace_store=MemoryTraceStore(),
         event_sink=MemoryEventSink(),

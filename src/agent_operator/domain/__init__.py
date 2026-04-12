@@ -116,7 +116,12 @@ from agent_operator.domain.policy_matching import (
     policy_match_reasons,
     policy_mismatch_reasons,
 )
-from agent_operator.domain.profile import ProjectProfile, ResolvedProjectRunConfig
+from agent_operator.domain.profile import (
+    ProjectProfile,
+    ProjectProfileAdapterSettings,
+    ProjectProfileMcpServer,
+    ResolvedProjectRunConfig,
+)
 from agent_operator.domain.session_runtime import AgentSessionCommand, AgentSessionCommandType
 from agent_operator.domain.traceability import (
     AgentTurnBrief,
@@ -226,6 +231,8 @@ __all__ = [
     "policy_match_reasons",
     "policy_mismatch_reasons",
     "ProjectProfile",
+    "ProjectProfileAdapterSettings",
+    "ProjectProfileMcpServer",
     "RunMode",
     "SessionReusePolicy",
     "ResumePolicy",

@@ -37,6 +37,8 @@ class ClaudeAcpAdapterSettings(BaseModel):
     model: str | None = None
     effort: Literal["none", "low", "medium", "high", "max"] | None = None
     permission_mode: str | None = "bypassPermissions"
+    timeout_seconds: float | None = None
+    mcp_servers: list[dict[str, object]] = Field(default_factory=list)
     substrate_backend: Literal["bespoke", "sdk"] = "sdk"
     stdio_limit_bytes: int = 1_048_576
     working_directory: Path = Field(default_factory=Path.cwd)
@@ -48,6 +50,8 @@ class CodexAcpAdapterSettings(BaseModel):
     reasoning_effort: Literal["low", "medium", "high", "xhigh"] | None = None
     approval_policy: Literal["untrusted", "on-request", "never"] | None = None
     sandbox_mode: Literal["read-only", "workspace-write", "danger-full-access"] | None = None
+    timeout_seconds: float | None = None
+    mcp_servers: list[dict[str, object]] = Field(default_factory=list)
     substrate_backend: Literal["bespoke", "sdk"] = "bespoke"
     stdio_limit_bytes: int = 1_048_576
     working_directory: Path = Field(default_factory=Path.cwd)
@@ -56,6 +60,8 @@ class CodexAcpAdapterSettings(BaseModel):
 class OpencodeAcpAdapterSettings(BaseModel):
     command: str = "opencode acp"
     model: str | None = None
+    timeout_seconds: float | None = None
+    mcp_servers: list[dict[str, object]] = Field(default_factory=list)
     substrate_backend: Literal["bespoke", "sdk"] = "bespoke"
     stdio_limit_bytes: int = 1_048_576
     working_directory: Path = Field(default_factory=Path.cwd)

@@ -17,6 +17,7 @@ from agent_operator.domain import (
     OperationState,
     SessionRecord,
     SessionRecordStatus,
+    SessionReusePolicy,
     TaskDraft,
     TaskPatch,
     TaskState,
@@ -302,6 +303,45 @@ class LoadedOperation:
             if record.session_id == session_id and not record.handle.one_shot:
                 return record
         return None
+
+    def resolve_reusable_idle_session(
+        self,
+        state: OperationState,
+        adapter_key: str,
+        task: TaskState | None,
+    ) -> SessionRecord | None:
+        preferred_ids: list[str] = []
+        if task is not None and task.linked_session_id is not None:
+            preferred_ids.append(task.linked_session_id)
+        if state.active_session is not None:
+            preferred_ids.append(state.active_session.session_id)
+        for session_id in preferred_ids:
+            record = self.find_session_record(state, session_id)
+            if (
+                record is not None
+                and record.adapter_key == adapter_key
+                and record.status is SessionRecordStatus.IDLE
+                and not record.handle.one_shot
+            ):
+                return record
+        idle_matches = [
+            record
+            for record in state.sessions
+            if record.adapter_key == adapter_key
+            and record.status is SessionRecordStatus.IDLE
+            and not record.handle.one_shot
+        ]
+        if not idle_matches:
+            return None
+        return sorted(idle_matches, key=lambda item: item.updated_at, reverse=True)[0]
+
+    def resolved_session_reuse_policy(self, state: OperationState) -> SessionReusePolicy:
+        resolved_profile = state.goal.metadata.get("resolved_project_profile")
+        if isinstance(resolved_profile, dict):
+            raw_policy = resolved_profile.get("session_reuse_policy")
+            if isinstance(raw_policy, str) and raw_policy:
+                return SessionReusePolicy(raw_policy)
+        return SessionReusePolicy.ALWAYS_NEW
 
     def decorate_session_handle(
         self,

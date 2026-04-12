@@ -17,6 +17,8 @@ from agent_operator.domain import (
 )
 from agent_operator.protocols import AdapterRuntime
 
+McpServerPayload = dict[str, object]
+
 
 class AcpAgentSessionRuntime:
     """ACP-backed session runtime with one-live-session ownership.
@@ -30,9 +32,11 @@ class AcpAgentSessionRuntime:
         *,
         adapter_runtime: AdapterRuntime,
         working_directory: Path,
+        mcp_servers: list[McpServerPayload] | None = None,
     ) -> None:
         self._adapter_runtime = adapter_runtime
         self._working_directory = working_directory
+        self._mcp_servers = list(mcp_servers or [])
         self._live_session_id: str | None = None
         self._events_claimed = False
         self._event_queue: asyncio.Queue[TechnicalFactDraft | None] = asyncio.Queue()
@@ -78,7 +82,7 @@ class AcpAgentSessionRuntime:
                     {
                         "sessionId": command.session_id,
                         "cwd": str(self._working_directory.resolve()),
-                        "mcpServers": [],
+                        "mcpServers": list(self._mcp_servers),
                     },
                 )
                 self._live_session_id = command.session_id
@@ -160,7 +164,10 @@ class AcpAgentSessionRuntime:
     async def _start_new_session(self, instruction: str) -> str:
         response = await self._request(
             "session/new",
-            {"cwd": str(self._working_directory.resolve()), "mcpServers": []},
+            {
+                "cwd": str(self._working_directory.resolve()),
+                "mcpServers": list(self._mcp_servers),
+            },
         )
         session_id = response.get("sessionId")
         if not isinstance(session_id, str) or not session_id:

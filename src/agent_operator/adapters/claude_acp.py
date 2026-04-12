@@ -52,6 +52,8 @@ class ClaudeAcpAgentAdapter:
         model: str | None = None,
         effort: str | None = None,
         permission_mode: str | None = "bypassPermissions",
+        timeout_seconds: float | None = None,
+        mcp_servers: list[dict[str, object]] | None = None,
         substrate_backend: str = "bespoke",
         stdio_limit_bytes: int = 1_048_576,
         working_directory: Path | None = None,
@@ -62,6 +64,8 @@ class ClaudeAcpAgentAdapter:
         self._model = model
         self._effort = effort
         self._permission_mode = permission_mode
+        self._timeout_seconds = timeout_seconds
+        self._mcp_servers = list(mcp_servers or [])
         self._substrate_backend = substrate_backend
         self._stdio_limit_bytes = stdio_limit_bytes
         self._working_directory = working_directory or Path.cwd()
@@ -70,6 +74,7 @@ class ClaudeAcpAgentAdapter:
         self._runner = AcpSessionRunner(
             adapter_key="claude_acp",
             working_directory=self._working_directory,
+            mcp_servers=self._mcp_servers,
             connection_factory=self._connection_factory,
             hooks=_ClaudeAcpHooks(self),
         )

@@ -25,6 +25,7 @@ from agent_operator.domain import (
 from agent_operator.dtos.requests import AgentRunRequest
 
 JsonObject = dict[str, Any]
+McpServerPayload = dict[str, object]
 
 
 @dataclass
@@ -95,9 +96,11 @@ class AcpSessionRunner:
         working_directory: Path,
         connection_factory: Callable[[Path, Path], AcpConnection],
         hooks: AcpSessionRunnerHooks,
+        mcp_servers: list[McpServerPayload] | None = None,
     ) -> None:
         self._adapter_key = adapter_key
         self._working_directory = working_directory
+        self._mcp_servers = list(mcp_servers or [])
         self._connection_factory = connection_factory
         self._hooks = hooks
         self.sessions: dict[str, AcpSessionState] = {}
@@ -162,7 +165,7 @@ class AcpSessionRunner:
                 {
                     "sessionId": session.acp_session_id,
                     "cwd": str(session.working_directory.resolve()),
-                    "mcpServers": [],
+                    "mcpServers": list(self._mcp_servers),
                 },
             )
             await self._hooks.configure_loaded_session(connection, session.acp_session_id)
@@ -331,7 +334,7 @@ class AcpSessionRunner:
                 {
                     "sessionId": session.acp_session_id,
                     "cwd": str(session.working_directory.resolve()),
-                    "mcpServers": [],
+                    "mcpServers": list(self._mcp_servers),
                 },
             )
             await self._hooks.configure_loaded_session(connection, session.acp_session_id)
@@ -366,7 +369,7 @@ class AcpSessionRunner:
             "session/new",
             {
                 "cwd": str(cwd.resolve()),
-                "mcpServers": [],
+                "mcpServers": list(self._mcp_servers),
             },
         )
         session_id = response.get("sessionId")

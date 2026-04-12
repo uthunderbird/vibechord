@@ -47,6 +47,8 @@ class OpencodeAcpAgentAdapter:
         self,
         command: str = "opencode acp",
         model: str | None = None,
+        timeout_seconds: float | None = None,
+        mcp_servers: list[dict[str, object]] | None = None,
         substrate_backend: Literal["bespoke", "sdk"] = "bespoke",
         stdio_limit_bytes: int = 1_048_576,
         working_directory: Path | None = None,
@@ -55,6 +57,8 @@ class OpencodeAcpAgentAdapter:
     ) -> None:
         self._command = _build_opencode_acp_command(command)
         self._model = model
+        self._timeout_seconds = timeout_seconds
+        self._mcp_servers = list(mcp_servers or [])
         self._substrate_backend = substrate_backend
         self._stdio_limit_bytes = stdio_limit_bytes
         self._working_directory = working_directory or Path.cwd()
@@ -63,6 +67,7 @@ class OpencodeAcpAgentAdapter:
         self._runner = AcpSessionRunner(
             adapter_key="opencode_acp",
             working_directory=self._working_directory,
+            mcp_servers=self._mcp_servers,
             connection_factory=self._connection_factory,
             hooks=_OpencodeAcpHooks(self),
         )

@@ -12,26 +12,23 @@ Implemented
 
 ## Context
 
-`operator` already ships a YAML-backed project-profile surface through `ProjectProfile`,
+`operator` already exposed project profiles through YAML, `ProjectProfile`,
 `ResolvedProjectRunConfig`, `resolve_project_run_config(...)`, `operator project inspect`, and
 `operator project resolve`.
 
-Before this closure wave, the repository truth was uneven:
+Before this closure wave, the contract was incomplete in four concrete ways:
 
-- run-resolution precedence already existed in code, but the committed config reference was still
-  a placeholder
-- `session_reuse_policy` was an untyped `str | None`
-- `project inspect` surfaced `session_reuse_policy`, `dashboard_prefs`, and `paths` without
-  clarifying whether they were wired runtime controls, passive metadata, or deferred fields
-- `project create` and `init` did not expose all currently implemented run-bound defaults even
-  though the schema already carried them
+- `session_reuse_policy` was not a typed schema field
+- `adapter_settings` had no committed shared-key schema or ACP `mcp_servers` wiring
+- `project resolve` did not surface the full effective run contract
+- the written config reference and ADR text were not anchored to exact repository evidence
 
-This ADR closes the schema and run-resolution contract to the current implemented repository
-surface rather than to the broader aspirational `CONFIG_UX_VISION.md`.
+This ADR closes the current repository truth rather than the broader aspirational
+`CONFIG_UX_VISION.md`.
 
 ## Decision
 
-### Run resolution order
+### 1. Binding resolution order
 
 For `operator run`, the binding resolution order is:
 
@@ -39,30 +36,36 @@ For `operator run`, the binding resolution order is:
 2. project profile value
 3. global default or hardcoded application default
 
-This contract applies to the run-bound resolved fields exposed by `ResolvedProjectRunConfig`.
+No delivery or runtime component may invert that precedence for the resolved run fields committed
+below.
 
-### Binding run-resolved fields
+### 2. Binding resolved run contract
 
-The current resolved run contract is:
+`ResolvedProjectRunConfig` is the committed effective-default contract for `operator run`.
 
-| Field | Source model | Semantics |
-|---|---|---|
-| `cwd` | `ResolvedProjectRunConfig.cwd` | working directory associated with the selected profile |
-| `objective_text` | `ResolvedProjectRunConfig.objective_text` | resolved objective after CLI/profile fallback |
-| `default_agents` | `ResolvedProjectRunConfig.default_agents` | resolved allowed-agent list |
-| `harness_instructions` | `ResolvedProjectRunConfig.harness_instructions` | resolved harness text |
-| `success_criteria` | `ResolvedProjectRunConfig.success_criteria` | resolved success-criteria list |
-| `max_iterations` | `ResolvedProjectRunConfig.max_iterations` | resolved iteration cap |
-| `run_mode` | `ResolvedProjectRunConfig.run_mode` | resolved run mode |
-| `involvement_level` | `ResolvedProjectRunConfig.involvement_level` | resolved involvement tier |
-| `message_window` | `ResolvedProjectRunConfig.message_window` | resolved operator-message window |
-| `overrides` | `ResolvedProjectRunConfig.overrides` | CLI-origin override markers for resolved fields |
+The binding resolved fields are:
 
-`operator project resolve` is the committed inspection surface for these resolved run defaults.
+| Field | Meaning |
+|---|---|
+| `profile_name` | selected profile identity |
+| `cwd` | resolved working directory |
+| `history_ledger` | resolved history-ledger enable/disable flag |
+| `objective_text` | resolved objective text |
+| `default_agents` | resolved allowed-agent list |
+| `harness_instructions` | resolved harness text |
+| `success_criteria` | resolved success-criteria list |
+| `max_iterations` | resolved iteration cap |
+| `run_mode` | resolved run mode |
+| `involvement_level` | resolved involvement level |
+| `session_reuse_policy` | resolved session-reuse policy |
+| `message_window` | resolved operator-message window |
+| `overrides` | CLI-origin override markers |
 
-### Stable profile schema fields
+`operator project resolve` is the committed inspection surface for this resolved contract.
 
-The current committed profile schema is:
+### 3. Binding profile schema
+
+The committed `ProjectProfile` schema contains:
 
 - `name`
 - `cwd`
@@ -80,10 +83,12 @@ The current committed profile schema is:
 - `session_reuse_policy`
 - `default_message_window`
 
-The semantics are split as follows.
+The schema has the following status split.
 
-#### Run-bound stable fields
+#### Active run-affecting fields
 
+- `cwd`
+- `history_ledger`
 - `default_objective`
 - `default_agents`
 - `default_harness_instructions`
@@ -91,34 +96,49 @@ The semantics are split as follows.
 - `default_max_iterations`
 - `default_run_mode`
 - `default_involvement_level`
+- `session_reuse_policy`
 - `default_message_window`
-- `cwd`
 
-#### Stable but non-run-resolved fields
+#### Stable but not resolved into `operator run` defaults
 
-- `name`: profile identity
-- `history_ledger`: ledger enable/disable flag
-- `paths`: stored path list, resolved relative to the profile file on load; currently not consumed
-  by `operator run`
-- `adapter_settings`: pass-through per-adapter override map applied only to known adapter settings
-  fields; unknown adapter keys and unknown field names are ignored
+- `name`
+- `adapter_settings`
 
-#### Stub or reserved fields
+`adapter_settings` is a typed per-adapter override map. Its committed shared keys are:
 
-- `session_reuse_policy`: typed as `SessionReusePolicy` with accepted values `always_new` and
-  `reuse_if_idle`; currently parsed and surfaced but still a no-op stub until runtime session
-  selection is wired to it
-- `dashboard_prefs`: stored and surfaced, but not currently consumed by CLI or TUI behavior
+- `timeout_seconds`
+- `mcp_servers`
 
-### Authoring surfaces
+Adapter-specific keys that match real adapter setting fields remain allowed and are applied only
+when that field exists on the target adapter settings model.
 
-The current profile authoring surfaces are:
+#### Deferred fields
+
+- `paths`
+- `dashboard_prefs`
+
+Both fields remain in the schema, but `project inspect` treats them as deferred rather than
+presenting them as active runtime controls.
+
+### 4. Session reuse policy contract
+
+`session_reuse_policy` is typed as `SessionReusePolicy` with exactly these values:
+
+- `always_new`
+- `reuse_if_idle`
+
+`reuse_if_idle` allows the operator to reuse an existing idle, non-one-shot session for the same
+adapter instead of launching a fresh session. `always_new` requires a fresh session.
+
+### 5. Authoring surfaces
+
+The profile-authoring surfaces are:
 
 - `operator init`
 - `operator project create`
 - manual YAML editing
 
-`init` and `project create` currently support authoring these run-bound defaults directly:
+`init` and `project create` both expose the currently implemented run-bound defaults:
 
 - `cwd`
 - `paths`
@@ -131,52 +151,125 @@ The current profile authoring surfaces are:
 - `default_involvement_level`
 - `default_message_window`
 
-Stub or reserved fields remain manual-YAML-only.
+## Closure Criteria And Evidence
+
+### 1. The profile schema is typed and committed
+
+Evidence:
+
+- profile models:
+  `src/agent_operator/domain/profile.py:ProjectProfile`
+  `src/agent_operator/domain/profile.py:ProjectProfileAdapterSettings`
+  `src/agent_operator/domain/profile.py:ProjectProfileMcpServer`
+  `src/agent_operator/domain/profile.py:ResolvedProjectRunConfig`
+- enum:
+  `src/agent_operator/domain/enums.py:SessionReusePolicy`
+- exports:
+  `src/agent_operator/domain/__init__.py`
+
+Verification:
+
+- `tests/test_runtime.py::test_load_project_profile_validates_session_reuse_policy`
+- `tests/test_runtime.py::test_load_project_profile_rejects_unknown_session_reuse_policy`
+
+### 2. The resolved run contract is explicit and complete
+
+Evidence:
+
+- resolver:
+  `src/agent_operator/runtime/profiles.py:resolve_project_run_config`
+- resolved schema:
+  `src/agent_operator/domain/profile.py:ResolvedProjectRunConfig`
+- human and JSON inspection:
+  `src/agent_operator/cli/commands/project.py:_emit_resolved_project_config`
+  `src/agent_operator/cli/commands/project.py:project_resolve`
+
+Verification:
+
+- `tests/test_runtime.py::test_resolve_project_run_config_includes_history_ledger_and_session_reuse_policy`
+- `tests/test_project_cli.py::test_project_resolve_surfaces_effective_defaults`
+- `tests/test_project_cli.py::test_project_resolve_json_covers_all_run_resolution_fields`
+
+### 3. Adapter settings have committed shared keys and ACP `mcp_servers` wiring
+
+Evidence:
+
+- adapter setting models:
+  `src/agent_operator/config.py:ClaudeAcpAdapterSettings`
+  `src/agent_operator/config.py:CodexAcpAdapterSettings`
+  `src/agent_operator/config.py:OpencodeAcpAdapterSettings`
+- profile application:
+  `src/agent_operator/runtime/profiles.py:apply_project_profile_settings`
+- ACP session payload wiring:
+  `src/agent_operator/acp/session_runner.py:AcpSessionRunner`
+  `src/agent_operator/acp/session_runtime.py:AcpAgentSessionRuntime`
+- adapter/binding plumbing:
+  `src/agent_operator/adapters/claude_acp.py:ClaudeAcpAgentAdapter`
+  `src/agent_operator/adapters/codex_acp.py:CodexAcpAgentAdapter`
+  `src/agent_operator/adapters/opencode_acp.py:OpencodeAcpAgentAdapter`
+  `src/agent_operator/adapters/runtime_bindings.py:build_agent_runtime_bindings`
+
+Verification:
+
+- `tests/test_runtime.py::test_apply_project_profile_settings_updates_mcp_servers_and_timeout_seconds`
+- `tests/test_acp_session_runner.py::test_session_runner_passes_configured_mcp_servers_to_session_new_and_load`
+
+### 4. `session_reuse_policy` is wired to runtime session selection
+
+Evidence:
+
+- policy lookup:
+  `src/agent_operator/application/loaded_operation.py:LoadedOperation.resolved_session_reuse_policy`
+- reusable-session resolution:
+  `src/agent_operator/application/loaded_operation.py:LoadedOperation.resolve_reusable_idle_session`
+- start-path enforcement:
+  `src/agent_operator/application/decision_execution.py:DecisionExecutionService._execute_start_agent`
+
+Verification:
+
+- `tests/test_attached_turn_service.py::test_start_agent_reuses_idle_session_when_profile_requests_reuse_if_idle`
+
+### 5. Deferred fields are surfaced as deferred, not as active runtime controls
+
+Evidence:
+
+- inspect renderer:
+  `src/agent_operator/cli/commands/project.py:_emit_project_profile`
+
+Verification:
+
+- `tests/test_project_cli.py::test_project_inspect_labels_no_op_and_reserved_profile_fields`
+
+### 6. Authoring and docs match the implemented contract
+
+Evidence:
+
+- project authoring:
+  `src/agent_operator/cli/commands/project.py:project_create`
+  `src/agent_operator/cli/commands/run.py:init`
+  `src/agent_operator/cli/options.py`
+- committed config reference:
+  `docs/reference/config.md`
+
+Verification:
+
+- `tests/test_project_cli.py::test_project_create_remains_explicit_profile_mutation`
 
 ## Consequences
 
-- The committed config reference now matches the implemented profile and resolution surface.
-- `session_reuse_policy` is schema-validated instead of being an arbitrary string.
-- `project inspect` now distinguishes passive, reserved, and no-op fields from active run controls.
-- `project resolve` is explicitly the run-default resolution surface, not a dump of the full
-  profile schema.
+- project-profile resolution is now a concrete, inspectable contract rather than an implicit merge
+  behavior
+- `session_reuse_policy` is schema-validated and runtime-effective
+- shared adapter override keys are documented and ACP `mcp_servers` now reach session creation/load
+  payloads
+- `project inspect` no longer presents deferred fields as active runtime behavior
 
-## Grounding Evidence
+## Verification
 
-- Schema and typing:
-  - `src/agent_operator/domain/profile.py` (`ProjectProfile`, `ResolvedProjectRunConfig`)
-  - `src/agent_operator/domain/enums.py` (`SessionReusePolicy`)
-- Resolution and load/write behavior:
-  - `src/agent_operator/runtime/profiles.py` (`load_project_profile_from_path`,
-    `write_project_profile`, `apply_project_profile_settings`, `resolve_project_run_config`,
-    `_resolve_profile_relative_paths`)
-- CLI authoring and inspection:
-  - `src/agent_operator/cli/commands/project.py` (`project_create`, `project_inspect`,
-    `project_resolve`, `_emit_project_profile`, `_emit_resolved_project_config`)
-  - `src/agent_operator/cli/commands/run.py` (`init`)
-  - `src/agent_operator/cli/options.py`
-- Schema reference:
-  - `docs/reference/config.md`
-- Verification:
-  - `tests/test_runtime.py`
-  - `tests/test_project_cli.py`
-  - `tests/test_cli.py`
+Local verification for this ADR was completed with:
 
-## Closure Evidence Matrix
-
-| ADR clause | Repository evidence | Closure |
-|---|---|---|
-| run precedence is CLI > profile > global/app default | `src/agent_operator/runtime/profiles.py` `resolve_project_run_config` | closed |
-| resolved run contract is explicit and inspectable | `src/agent_operator/domain/profile.py` `ResolvedProjectRunConfig`; `src/agent_operator/cli/commands/project.py` `project_resolve` | closed |
-| `session_reuse_policy` is typed and validated | `src/agent_operator/domain/enums.py` `SessionReusePolicy`; `src/agent_operator/domain/profile.py` `ProjectProfile.session_reuse_policy`; `tests/test_runtime.py::test_load_project_profile_validates_session_reuse_policy` | closed |
-| unknown `session_reuse_policy` values are rejected | `tests/test_runtime.py::test_load_project_profile_rejects_unknown_session_reuse_policy` | closed |
-| `session_reuse_policy` is surfaced as a no-op stub, not implied runtime behavior | `src/agent_operator/cli/commands/project.py` `_emit_project_profile`; `tests/test_project_cli.py::test_project_inspect_labels_no_op_and_reserved_profile_fields` | closed |
-| `adapter_settings` is documented as pass-through known-field overrides | `src/agent_operator/runtime/profiles.py` `apply_project_profile_settings`; `docs/reference/config.md` | closed |
-| `paths` are resolved relative to the profile file and treated as stored profile paths | `src/agent_operator/runtime/profiles.py` `_resolve_profile_relative_paths`; `src/agent_operator/cli/commands/project.py` `_emit_project_profile` | closed |
-| `dashboard_prefs` is explicitly reserved, not silently implied as active UX behavior | `src/agent_operator/cli/commands/project.py` `_emit_project_profile`; `docs/reference/config.md` | closed |
-| `project create` and `init` expose the currently implemented run-bound defaults | `src/agent_operator/cli/commands/project.py` `project_create`; `src/agent_operator/cli/commands/run.py` `init`; `src/agent_operator/cli/options.py` | closed |
-| `project resolve` JSON covers all resolved run fields | `tests/test_project_cli.py::test_project_resolve_json_covers_all_run_resolution_fields`; `tests/test_project_cli.py::test_project_resolve_surfaces_effective_defaults` | closed |
-| config documentation is committed instead of placeholder-level | `docs/reference/config.md` | closed |
+- `pytest tests/test_runtime.py tests/test_project_cli.py tests/test_attached_turn_service.py tests/test_acp_session_runner.py`
+- `uv run pytest`
 
 ## Related
 

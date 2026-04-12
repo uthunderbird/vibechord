@@ -2,9 +2,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent_operator.domain.enums import InvolvementLevel, RunMode, SessionReusePolicy
+
+
+class ProjectProfileMcpServer(BaseModel):
+    name: str
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: str | None = None
+    cwd: Path | None = None
+
+
+class ProjectProfileAdapterSettings(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    timeout_seconds: float | None = Field(default=None, ge=0)
+    mcp_servers: list[ProjectProfileMcpServer] = Field(default_factory=list)
 
 
 class ProjectProfile(BaseModel):
@@ -19,7 +35,7 @@ class ProjectProfile(BaseModel):
     default_max_iterations: int | None = Field(default=None, ge=1)
     default_run_mode: RunMode | None = None
     default_involvement_level: InvolvementLevel | None = None
-    adapter_settings: dict[str, dict[str, object]] = Field(default_factory=dict)
+    adapter_settings: dict[str, ProjectProfileAdapterSettings] = Field(default_factory=dict)
     dashboard_prefs: dict[str, object] = Field(default_factory=dict)
     session_reuse_policy: SessionReusePolicy | None = None
     default_message_window: int | None = Field(default=None, ge=1)
@@ -28,6 +44,7 @@ class ProjectProfile(BaseModel):
 class ResolvedProjectRunConfig(BaseModel):
     profile_name: str | None = None
     cwd: Path | None = None
+    history_ledger: bool = True
     objective_text: str | None = None
     default_agents: list[str] = Field(default_factory=list)
     harness_instructions: str | None = None
@@ -35,5 +52,6 @@ class ResolvedProjectRunConfig(BaseModel):
     max_iterations: int
     run_mode: RunMode
     involvement_level: InvolvementLevel
+    session_reuse_policy: SessionReusePolicy = SessionReusePolicy.ALWAYS_NEW
     message_window: int = 3
     overrides: list[str] = Field(default_factory=list)

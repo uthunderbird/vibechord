@@ -37,6 +37,7 @@ For `operator run`, the binding resolution order is:
 The current resolved run fields are:
 
 - `cwd`
+- `history_ledger`
 - `objective_text`
 - `default_agents`
 - `harness_instructions`
@@ -44,6 +45,7 @@ The current resolved run fields are:
 - `max_iterations`
 - `run_mode`
 - `involvement_level`
+- `session_reuse_policy`
 - `message_window`
 
 `operator project resolve` is the inspection surface for these resolved run defaults.
@@ -66,15 +68,26 @@ The current resolved run fields are:
 
 ### Stable but non-run-resolved fields
 
-- `paths`: stored profile-relative or absolute paths; resolved relative to the profile file on load
-- `adapter_settings`: pass-through adapter override map applied only to known adapter settings
-  fields; unknown adapter keys or unknown field names are ignored
+- `paths`: deferred field reserved in the schema; `project inspect` does not surface stored values
+- `adapter_settings`: typed per-adapter override map applied only to known adapter settings fields
+  with shared documented keys:
+  - `timeout_seconds`
+  - `mcp_servers`
 
 ### Stub or deferred fields
 
-- `session_reuse_policy`: accepted values are `always_new` and `reuse_if_idle`; currently parsed and
-  surfaced, but not yet wired to runtime session-selection behavior
-- `dashboard_prefs`: stored and surfaced, but not currently consumed by CLI or TUI behavior
+- `dashboard_prefs`: deferred field reserved in the schema; `project inspect` does not surface
+  stored values
+
+## Session Reuse Policy
+
+Accepted values:
+
+- `always_new`
+- `reuse_if_idle`
+
+`reuse_if_idle` allows the operator to reuse an existing idle non-one-shot session for the same
+adapter instead of starting a new session. `always_new` forces a fresh session.
 
 ## Runtime Defaults
 

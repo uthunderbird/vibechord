@@ -20,6 +20,7 @@ from agent_operator.domain import (
     OperationState,
     SessionRecord,
     SessionRecordStatus,
+    SessionReusePolicy,
     TaskState,
     TaskStatus,
 )
@@ -60,6 +61,7 @@ class AttachedTurnService:
             instruction=resolve_instruction(),
             session_name=decision.session_name,
             one_shot=decision.one_shot,
+            session_reuse_policy=SessionReusePolicy.ALWAYS_NEW,
             working_directory=resolve_working_directory(task, None),
             metadata=background_request_metadata(),
         )
@@ -146,6 +148,7 @@ class AttachedTurnService:
                 ),
                 session_name=decision.session_name or record.handle.session_name,
                 one_shot=decision.one_shot,
+                session_reuse_policy=SessionReusePolicy.ALWAYS_NEW,
                 working_directory=resolve_working_directory(task, record.handle),
                 metadata=background_request_metadata(),
             )

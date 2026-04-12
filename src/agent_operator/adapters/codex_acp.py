@@ -50,6 +50,8 @@ class CodexAcpAgentAdapter:
         reasoning_effort: str | None = None,
         approval_policy: str | None = None,
         sandbox_mode: str | None = None,
+        timeout_seconds: float | None = None,
+        mcp_servers: list[dict[str, object]] | None = None,
         substrate_backend: str = "bespoke",
         stdio_limit_bytes: int = 1_048_576,
         working_directory: Path | None = None,
@@ -63,6 +65,8 @@ class CodexAcpAgentAdapter:
         )
         self._model = model
         self._reasoning_effort = reasoning_effort
+        self._timeout_seconds = timeout_seconds
+        self._mcp_servers = list(mcp_servers or [])
         self._substrate_backend = substrate_backend
         self._stdio_limit_bytes = stdio_limit_bytes
         self._working_directory = working_directory or Path.cwd()
@@ -71,6 +75,7 @@ class CodexAcpAgentAdapter:
         self._runner = AcpSessionRunner(
             adapter_key="codex_acp",
             working_directory=self._working_directory,
+            mcp_servers=self._mcp_servers,
             connection_factory=self._connection_factory,
             hooks=_CodexAcpHooks(self),
         )

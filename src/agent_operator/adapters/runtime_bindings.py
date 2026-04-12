@@ -66,6 +66,8 @@ def build_agent_runtime_bindings(
         model=settings.claude_acp.model,
         effort=settings.claude_acp.effort,
         permission_mode=settings.claude_acp.permission_mode,
+        timeout_seconds=settings.claude_acp.timeout_seconds,
+        mcp_servers=settings.claude_acp.mcp_servers,
         substrate_backend=settings.claude_acp.substrate_backend,
         stdio_limit_bytes=settings.claude_acp.stdio_limit_bytes,
         working_directory=settings.claude_acp.working_directory,
@@ -77,6 +79,8 @@ def build_agent_runtime_bindings(
         reasoning_effort=settings.codex_acp.reasoning_effort,
         approval_policy=settings.codex_acp.approval_policy,
         sandbox_mode=settings.codex_acp.sandbox_mode,
+        timeout_seconds=settings.codex_acp.timeout_seconds,
+        mcp_servers=settings.codex_acp.mcp_servers,
         substrate_backend=settings.codex_acp.substrate_backend,
         stdio_limit_bytes=settings.codex_acp.stdio_limit_bytes,
         working_directory=settings.codex_acp.working_directory,
@@ -85,6 +89,8 @@ def build_agent_runtime_bindings(
     opencode_adapter = OpencodeAcpAgentAdapter(
         command=settings.opencode_acp.command,
         model=settings.opencode_acp.model,
+        timeout_seconds=settings.opencode_acp.timeout_seconds,
+        mcp_servers=settings.opencode_acp.mcp_servers,
         substrate_backend=settings.opencode_acp.substrate_backend,
         stdio_limit_bytes=settings.opencode_acp.stdio_limit_bytes,
         working_directory=settings.opencode_acp.working_directory,
@@ -162,6 +168,7 @@ def _build_session_runtime_factory(
         return AcpAgentSessionRuntime(
             adapter_runtime=adapter_runtime,
             working_directory=working_directory,
+            mcp_servers=list(getattr(adapter, "_mcp_servers", [])),
         )
 
     return factory

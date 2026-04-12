@@ -38,6 +38,8 @@ from agent_operator.domain import (
     PolicySourceRef,
     PolicyStatus,
     ProjectProfile,
+    ProjectProfileAdapterSettings,
+    ProjectProfileMcpServer,
     RunEvent,
     SessionReusePolicy,
     TraceRecord,
@@ -571,6 +573,35 @@ def test_resolve_project_run_config_applies_success_criteria_override(tmp_path: 
     assert resolved.overrides == ["success_criteria"]
 
 
+def test_resolve_project_run_config_includes_history_ledger_and_session_reuse_policy(
+    tmp_path: Path,
+) -> None:
+    from agent_operator.config import OperatorSettings
+
+    settings = OperatorSettings()
+    settings.data_dir = tmp_path
+    profile = ProjectProfile(
+        name="femtobot",
+        history_ledger=False,
+        session_reuse_policy=SessionReusePolicy.REUSE_IF_IDLE,
+    )
+
+    resolved = resolve_project_run_config(
+        settings,
+        profile=profile,
+        objective=None,
+        harness=None,
+        success_criteria=None,
+        allowed_agents=None,
+        max_iterations=None,
+        run_mode=None,
+        involvement_level=None,
+    )
+
+    assert resolved.history_ledger is False
+    assert resolved.session_reuse_policy is SessionReusePolicy.REUSE_IF_IDLE
+
+
 def test_write_project_profile_roundtrips_and_requires_force(tmp_path: Path) -> None:
     from agent_operator.config import OperatorSettings
 
@@ -664,6 +695,44 @@ def test_apply_project_profile_settings_updates_adapter_defaults(tmp_path: Path)
 
     assert settings.opencode_acp.command == "opencode acp --cwd /tmp/opencode"
     assert settings.opencode_acp.working_directory == Path("/tmp/femtobot")
+
+
+def test_apply_project_profile_settings_updates_mcp_servers_and_timeout_seconds(
+    tmp_path: Path,
+) -> None:
+    from agent_operator.config import OperatorSettings
+
+    settings = OperatorSettings()
+    settings.data_dir = tmp_path
+    profile = ProjectProfile(
+        name="femtobot",
+        adapter_settings={
+            "codex_acp": ProjectProfileAdapterSettings(
+                timeout_seconds=45.0,
+                mcp_servers=[
+                    ProjectProfileMcpServer(
+                        name="filesystem",
+                        command="npx",
+                        args=["-y", "@modelcontextprotocol/server-filesystem", "."],
+                    )
+                ],
+                command="npm exec --yes @zed-industries/codex-acp --",
+            )
+        },
+    )
+
+    apply_project_profile_settings(settings, profile)
+
+    assert settings.codex_acp.timeout_seconds == 45.0
+    assert settings.codex_acp.command == "npm exec --yes @zed-industries/codex-acp --"
+    assert settings.codex_acp.mcp_servers == [
+        {
+            "name": "filesystem",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+            "env": {},
+        }
+    ]
 
 
 def test_load_project_profile_validates_session_reuse_policy(tmp_path: Path) -> None:

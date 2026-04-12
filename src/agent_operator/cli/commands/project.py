@@ -40,12 +40,7 @@ def _emit_project_profile(profile: ProjectProfile, *, profile_path: Path | None 
     if profile_path is not None:
         typer.echo(f"Path: {profile_path}")
     typer.echo(f"CWD: {profile.cwd or '-'}")
-    typer.echo("Paths (stored profile paths; not consumed by `operator run` today):")
-    if profile.paths:
-        for item in profile.paths:
-            typer.echo(f"- {item}")
-    else:
-        typer.echo("- none")
+    typer.echo("Paths: deferred")
     typer.echo("Default objective:")
     typer.echo(profile.default_objective or "-")
     typer.echo("Default agents:")
@@ -70,27 +65,21 @@ def _emit_project_profile(profile: ProjectProfile, *, profile_path: Path | None 
         else "-"
     )
     typer.echo(f"Involvement: {involvement}")
-    typer.echo("Adapter settings (pass-through adapter overrides; unknown keys are ignored):")
+    typer.echo("Adapter settings:")
     if profile.adapter_settings:
         for adapter_key, settings in sorted(profile.adapter_settings.items()):
-            rendered = json.dumps(settings, ensure_ascii=False, sort_keys=True)
+            rendered = json.dumps(
+                settings.model_dump(mode="json", exclude_none=True),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
             typer.echo(f"- {adapter_key}: {rendered}")
     else:
         typer.echo("- none")
-    typer.echo("Dashboard prefs (reserved; not currently consumed):")
-    if profile.dashboard_prefs:
-        rendered = json.dumps(
-            profile.dashboard_prefs,
-            indent=2,
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        typer.echo(rendered)
-    else:
-        typer.echo("- none")
+    typer.echo("Dashboard prefs: deferred")
     typer.echo(f"History ledger: {'enabled' if profile.history_ledger else 'disabled'}")
     policy = profile.session_reuse_policy.value if profile.session_reuse_policy is not None else "-"
-    typer.echo(f"Session reuse policy: {policy} (currently no-op)")
+    typer.echo(f"Session reuse policy: {policy}")
     typer.echo(f"Message window: {profile.default_message_window or '-'}")
 
 
@@ -106,6 +95,10 @@ def _emit_resolved_project_config(payload: dict[str, object]) -> None:
     typer.echo(f"Data dir source: {payload.get('data_dir_source') or '-'}")
     typer.echo("Resolved run defaults:")
     typer.echo(f"- CWD: {resolved.get('cwd') or '-'}")
+    typer.echo(
+        "- History ledger: "
+        f"{'enabled' if resolved.get('history_ledger', True) else 'disabled'}"
+    )
     typer.echo(f"- Objective: {resolved.get('objective_text') or '-'}")
     typer.echo(
         f"- Agents: {', '.join(resolved.get('default_agents', [])) or '-'}"
@@ -121,6 +114,7 @@ def _emit_resolved_project_config(payload: dict[str, object]) -> None:
     typer.echo(f"- Max iterations: {resolved.get('max_iterations') or '-'}")
     typer.echo(f"- Run mode: {resolved.get('run_mode') or '-'}")
     typer.echo(f"- Involvement: {resolved.get('involvement_level') or '-'}")
+    typer.echo(f"- Session reuse policy: {resolved.get('session_reuse_policy') or '-'}")
     typer.echo(f"- Message window: {resolved.get('message_window') or '-'}")
     overrides = resolved.get("overrides", [])
     if isinstance(overrides, list) and overrides:

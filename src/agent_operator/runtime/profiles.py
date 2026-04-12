@@ -11,6 +11,7 @@ from agent_operator.domain import (
     ProjectProfile,
     ResolvedProjectRunConfig,
     RunMode,
+    SessionReusePolicy,
 )
 
 
@@ -218,7 +219,14 @@ def apply_project_profile_settings(
         target = getattr(settings, adapter_key, None)
         if target is None:
             continue
-        for field_name, value in overrides.items():
+        payload = (
+            overrides.model_dump(mode="json", exclude_none=True)
+            if hasattr(overrides, "model_dump")
+            else overrides
+        )
+        if not isinstance(payload, dict):
+            continue
+        for field_name, value in payload.items():
             if hasattr(target, field_name):
                 setattr(target, field_name, value)
 
@@ -340,10 +348,16 @@ def resolve_project_run_config(
         if profile is not None and profile.default_message_window is not None
         else 3
     )
+    resolved_session_reuse_policy = (
+        profile.session_reuse_policy
+        if profile is not None and profile.session_reuse_policy is not None
+        else SessionReusePolicy.ALWAYS_NEW
+    )
 
     return ResolvedProjectRunConfig(
         profile_name=profile.name if profile is not None else None,
         cwd=profile.cwd if profile is not None else None,
+        history_ledger=profile.history_ledger if profile is not None else True,
         objective_text=resolved_objective,
         default_agents=resolved_agents,
         harness_instructions=resolved_harness,
@@ -351,6 +365,7 @@ def resolve_project_run_config(
         max_iterations=resolved_iterations,
         run_mode=resolved_run_mode,
         involvement_level=resolved_involvement,
+        session_reuse_policy=resolved_session_reuse_policy,
         message_window=resolved_message_window,
         overrides=overrides,
     )
@@ -390,3 +405,20 @@ def _resolve_profile_relative_paths(payload: dict[str, object], *, base_dir: Pat
             else:
                 resolved_paths.append(item)
         payload["paths"] = resolved_paths
+
+    adapter_settings = payload.get("adapter_settings")
+    if isinstance(adapter_settings, dict):
+        for overrides in adapter_settings.values():
+            if not isinstance(overrides, dict):
+                continue
+            mcp_servers = overrides.get("mcp_servers")
+            if not isinstance(mcp_servers, list):
+                continue
+            for server in mcp_servers:
+                if not isinstance(server, dict):
+                    continue
+                cwd_value = server.get("cwd")
+                if isinstance(cwd_value, str) and cwd_value.strip():
+                    candidate = Path(cwd_value)
+                    if not candidate.is_absolute():
+                        server["cwd"] = (base_dir / candidate).resolve()
