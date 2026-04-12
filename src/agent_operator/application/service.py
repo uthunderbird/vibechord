@@ -262,11 +262,13 @@ class OperatorService:
         *,
         session_id: str | None = None,
         run_id: str | None = None,
+        reason: str | None = None,
     ) -> OperationOutcome:
         outcome = await self._operation_cancellation_service.cancel(
             operation_id=operation_id,
             session_id=session_id,
             run_id=run_id,
+            reason=reason,
             find_background_run=self._loaded_operation.find_background_run,
             find_session_record=self._loaded_operation.find_session_record,
             find_latest_result=self._loaded_operation.find_latest_result,

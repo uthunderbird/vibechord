@@ -121,3 +121,30 @@ current keymap, supported actions, and known limitations, see
 - [Integrations](docs/integrations.md)
 - [Contributing](CONTRIBUTING.md)
 - [Design corpus](design/README.md)
+
+## MCP Server
+
+Start the inbound MCP server on stdio:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator mcp
+```
+
+Claude Code configuration:
+
+```json
+{
+  "mcpServers": {
+    "operator": {
+      "command": "operator",
+      "args": ["mcp"],
+      "env": {
+        "OPERATOR_DATA_DIR": "/path/to/project/.operator"
+      }
+    }
+  }
+}
+```
+
+The committed MCP contract reference lives in
+[design/reference/mcp-tool-schemas.md](design/reference/mcp-tool-schemas.md).

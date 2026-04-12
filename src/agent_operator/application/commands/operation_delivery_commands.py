@@ -39,6 +39,7 @@ class OperatorServiceLike(Protocol):
         *,
         session_id: str | None = None,
         run_id: str | None = None,
+        reason: str | None = None,
     ) -> OperationOutcome: ...
 
     async def tick(
@@ -70,9 +71,21 @@ class OperationDeliveryCommandService:
         *,
         session_id: str | None,
         run_id: str | None,
+        reason: str | None = None,
     ) -> OperationOutcome:
         service = self.service_factory()
-        return await service.cancel(operation_id, session_id=session_id, run_id=run_id)
+        if reason is None:
+            return await service.cancel(
+                operation_id,
+                session_id=session_id,
+                run_id=run_id,
+            )
+        return await service.cancel(
+            operation_id,
+            session_id=session_id,
+            run_id=run_id,
+            reason=reason,
+        )
 
     async def resume(
         self,

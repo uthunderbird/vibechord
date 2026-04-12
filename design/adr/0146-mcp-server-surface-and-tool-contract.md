@@ -49,7 +49,7 @@ Evidence:
 - CLI registration: `src/agent_operator/cli/app.py`
 - Command module: `src/agent_operator/cli/commands/mcp.py:mcp`
 - Server boundary: `src/agent_operator/mcp/server.py:OperatorMcpServer.serve`
-- Verification: `tests/test_mcp_server.py:test_mcp_command_runs_stdio_server`
+- Verification: `tests/test_mcp_server.py:test_mcp_server_handles_initialize_and_tools_list`
 
 ### 2. The server publishes exactly the six committed tools
 
@@ -64,14 +64,18 @@ Evidence:
 
 Evidence:
 
-- Input models: `src/agent_operator/mcp/contracts.py:McpParamsModel`
+- Input models:
+  `src/agent_operator/mcp/contracts.py:ListOperationsParams`
+  `src/agent_operator/mcp/contracts.py:RunOperationParams`
+  `src/agent_operator/mcp/contracts.py:GetStatusParams`
+  `src/agent_operator/mcp/contracts.py:AnswerAttentionParams`
+  `src/agent_operator/mcp/contracts.py:CancelOperationParams`
+  `src/agent_operator/mcp/contracts.py:InterruptOperationParams`
 - Published JSON Schema generation:
   `src/agent_operator/mcp/server.py:McpToolDefinition.payload`
 - Committed schema reference: `design/reference/mcp-tool-schemas.md`
 - Verification:
   `tests/test_mcp_server.py:test_mcp_server_handles_initialize_and_tools_list`
-  and
-  `tests/test_mcp_server.py:test_mcp_server_rejects_unknown_tool_arguments`
 
 ### 4. Tool failures return structured MCP errors
 
@@ -83,8 +87,6 @@ Evidence:
   `src/agent_operator/mcp/server.py:OperatorMcpServer._dispatch`
 - Verification:
   `tests/test_mcp_server.py:test_mcp_server_returns_structured_tool_error`
-  `tests/test_mcp_server.py:test_mcp_server_rejects_unknown_tool_arguments`
-  `tests/test_mcp_server.py:test_mcp_server_wraps_unhandled_handler_failure`
 
 ### 5. The six-tool surface is wired to the existing operator runtime and query layer
 
@@ -108,6 +110,7 @@ Evidence:
 
 - User-facing entry snippet: `README.md`
 - Integration index: `docs/integrations.md`
+- CLI reference entry: `docs/reference/cli.md`
 - Design authority alignment: `design/AGENT-INTEGRATION-VISION.md`
 - Contract reference: `design/reference/mcp-tool-schemas.md`
 
@@ -115,7 +118,7 @@ Evidence:
 
 Evidence:
 
-- CLI design backlog cleanup: `design/CLI-UX-VISION.md`
+- CLI design entry: `design/CLI-UX-VISION.md`
 
 ## Consequences
 

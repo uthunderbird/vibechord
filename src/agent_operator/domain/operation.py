@@ -658,5 +658,6 @@ class OperationOutcome(BaseModel):
     operation_id: str
     status: OperationStatus
     summary: str
+    ended_at: datetime | None = None
     final_result: AgentResult | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -31,6 +31,7 @@ Primary workflow surfaces:
 - `project ...` — manage project profiles
 - `agent ...` — inspect configured agent descriptors and adapter settings
 - `policy ...` — inspect and mutate project-local policy memory
+- `mcp` — start the inbound stdio MCP server
 
 Situational and forensic surfaces:
 

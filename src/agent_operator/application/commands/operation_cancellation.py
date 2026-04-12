@@ -77,6 +77,7 @@ class OperationCancellationService:
         find_session_record: SessionRecordFinder,
         find_latest_result: LatestResultFinder,
         emit: WakeupEmitter,
+        reason: str | None = None,
     ) -> OperationOutcome:
         """Apply cancellation semantics and persist updated state.
 
@@ -118,6 +119,11 @@ class OperationCancellationService:
             return await coordinator.cancel_operation(
                 state,
                 final_result=find_latest_result(state),
+                summary=(
+                    f"Operation cancelled: {reason.strip()}."
+                    if isinstance(reason, str) and reason.strip()
+                    else "Operation cancelled."
+                ),
             )
         if record is not None:
             state.updated_at = datetime.now(UTC)

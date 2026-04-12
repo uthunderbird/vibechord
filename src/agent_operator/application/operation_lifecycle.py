@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 from agent_operator.domain import (
@@ -105,6 +106,7 @@ class OperationLifecycleCoordinator:
             operation_id=state.operation_id,
             status=state.status,
             summary=outcome_summary,
+            ended_at=datetime.now(UTC),
             final_result=final_result,
         )
         await self.store.save_operation(state)
@@ -150,6 +152,7 @@ class OperationLifecycleCoordinator:
             operation_id=state.operation_id,
             status=state.status,
             summary=summary,
+            ended_at=datetime.now(UTC),
             final_result=final_result,
         )
 
