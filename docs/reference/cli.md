@@ -20,6 +20,7 @@ Primary workflow surfaces:
 - `run` — start an operation toward a goal
 - `fleet` — supervise active operations across projects
 - `status` — canonical shell-native one-operation summary
+- `ask` — single-shot natural-language question against one operation's read-only context
 - `answer` — answer a blocking attention request
 - `message` — inject durable operator context
 - `pause` / `unpause` — control operation execution
@@ -105,7 +106,14 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 UV_CACHE_DIR=/tmp/uv-cache uv run operator report last
 UV_CACHE_DIR=/tmp/uv-cache uv run operator dashboard last --once
 UV_CACHE_DIR=/tmp/uv-cache uv run operator watch last
+UV_CACHE_DIR=/tmp/uv-cache uv run operator ask last "what is the current status?"
 ```
+
+`ask` is a read-only natural-language query surface for one persisted operation. It accepts the
+same operation reference forms as other operation-scoped commands (`last`, full id, unique short
+prefix`) and also accepts a project profile name, which resolves to that profile's latest
+persisted operation. It prints a grounded natural-language answer. Use `--json` for
+`question`/`answer`.
 
 Inspect transcript, ledger, and retrospective surfaces:
 

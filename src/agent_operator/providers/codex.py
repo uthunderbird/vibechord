@@ -15,6 +15,7 @@ from agent_operator.dtos import (
     EvaluationDTO,
     MemoryEntryDraftDTO,
     PermissionDecisionDTO,
+    QuestionAnswerDTO,
     StructuredDecisionDTO,
     build_strict_json_schema,
 )
@@ -24,6 +25,7 @@ from agent_operator.providers.prompting import (
     build_evaluation_prompt,
     build_memory_distillation_prompt,
     build_permission_decision_prompt,
+    build_question_answer_prompt,
     build_turn_summary_prompt,
 )
 
@@ -58,6 +60,14 @@ class CodexStructuredOutputProvider:
             prompt=build_decision_prompt(state),
         )
         return StructuredDecisionDTO.model_validate(payload)
+
+    async def answer_question(self, state: OperationState, question: str) -> str:
+        payload = await self._request_structured_output(
+            schema_name="question_answer",
+            schema=build_strict_json_schema(QuestionAnswerDTO.model_json_schema()),
+            prompt=build_question_answer_prompt(state, question),
+        )
+        return QuestionAnswerDTO.model_validate(payload).answer.strip()
 
     async def evaluate_result(self, state: OperationState) -> EvaluationDTO:
         payload = await self._request_structured_output(
@@ -185,7 +195,6 @@ class CodexStructuredOutputProvider:
                 )
             text = await _consume_sse_text(response)
         return cast(dict[str, Any], httpx.Response(200, content=text.encode("utf-8")).json())
-
 
 async def _consume_sse_text(response: httpx.Response) -> str:
     chunks: list[str] = []

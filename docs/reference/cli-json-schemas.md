@@ -37,6 +37,11 @@ With `--wait`, the command emits one final JSON object:
 - `action_hint`: string or null
 - `durable_truth`: object
 
+### `operator ask --json`
+
+- `question`: string
+- `answer`: string
+
 ### `operator fleet --once --json`
 
 Fleet snapshot object as emitted by `cli_projection_payload(...)`.
@@ -62,6 +67,12 @@ with `runtime_alert`.
 - `answer_command`: object
 - `policy_command`: object or null
 - `outcome`: object or null
+
+### `operator ask --json`
+
+- `operation_id`: string
+- `question`: string
+- `answer`: string
 
 ### `operator cancel --json`
 

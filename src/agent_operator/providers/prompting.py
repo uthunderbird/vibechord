@@ -472,6 +472,38 @@ def build_evaluation_prompt(state: OperationState) -> str:
     )
 
 
+def build_question_answer_prompt(state: OperationState, question: str) -> str:
+    return (
+        "You are the operator brain's read-only question answering surface.\n"
+        "Answer the user's question about this single operation using only the provided operation "
+        "state.\n"
+        "This surface is strictly read-only: do not claim to have modified operation state, "
+        "scheduled work, answered attention, or performed any side effect.\n"
+        "If the provided state is insufficient, say what is missing.\n"
+        "Prefer concise, direct answers grounded in the operation context.\n\n"
+        f"Objective:\n{state.objective_state.objective}\n\n"
+        "Harness Instructions:\n"
+        f"{state.objective_state.harness_instructions or '(none)'}\n\n"
+        "Success Criteria:\n"
+        f"{json.dumps(state.objective_state.success_criteria, ensure_ascii=True)}\n\n"
+        f"Current status:\n{state.status.value}\n\n"
+        f"Current focus:\n{json.dumps(_serialize_focus(state), ensure_ascii=True)}\n\n"
+        f"Tasks:\n{json.dumps(_serialize_tasks(state), ensure_ascii=True)}\n\n"
+        f"Sessions:\n{json.dumps(_serialize_sessions(state), ensure_ascii=True)}\n\n"
+        f"Current memory:\n{json.dumps(_serialize_memory_entries(state), ensure_ascii=True)}\n\n"
+        "Open Attention Requests:\n"
+        f"{_attention_requests_json(state, statuses={'open'})}\n\n"
+        "Answered Attention Pending Replan:\n"
+        f"{_attention_requests_json(state, statuses={'answered'})}\n\n"
+        "Recent Operator Messages:\n"
+        f"{json.dumps(_serialize_operator_messages(state), ensure_ascii=True)}\n\n"
+        "Recent iteration history:\n"
+        f"{json.dumps(_serialize_recent_iterations(state), ensure_ascii=True)}\n\n"
+        "User question:\n"
+        f"{question}"
+    )
+
+
 def build_turn_summary_prompt(
     state: OperationState,
     *,

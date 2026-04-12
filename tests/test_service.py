@@ -116,6 +116,9 @@ def test_operator_service_accepts_non_llm_operator_policy() -> None:
 
 
 class StopImmediatelyBrain:
+    async def answer_question(self, state, question: str) -> str:
+        return f"answer: {question}"
+
     async def decide_next_action(self, state) -> BrainDecision:
         return BrainDecision(
             action_type=BrainActionType.STOP,
@@ -163,6 +166,9 @@ async def test_operator_service_runs_agent_and_completes() -> None:
 
 
 class UnknownAdapterBrain:
+    async def answer_question(self, state, question: str) -> str:
+        return f"answer: {question}"
+
     async def decide_next_action(self, state) -> BrainDecision:
         return BrainDecision(
             action_type=BrainActionType.START_AGENT,
@@ -198,6 +204,33 @@ async def test_operator_service_fails_on_unavailable_adapter() -> None:
 
     assert outcome.status is OperationStatus.FAILED
     assert "not allowed" in outcome.summary
+
+
+@pytest.mark.anyio
+async def test_operator_service_answers_question_from_loaded_operation_state() -> None:
+    class AnsweringBrain(StartThenStopBrain):
+        async def answer_question(self, state, question: str) -> str:
+            return f"{state.goal.objective_text} :: {question}"
+
+    store = MemoryStore()
+    operation = OperationState(
+        operation_id="op-ask-1",
+        goal=OperationGoal(objective="Inspect ADR 0149"),
+        **state_settings(),
+    )
+    await store.save_operation(operation)
+
+    service = make_service(
+        brain=AnsweringBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings={},
+    )
+
+    answer = await service.answer_question("op-ask-1", "What is the objective?")
+
+    assert answer == "Inspect ADR 0149 :: What is the objective?"
 
 
 @pytest.mark.anyio

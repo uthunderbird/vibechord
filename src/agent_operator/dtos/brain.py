@@ -139,6 +139,10 @@ class PermissionDecisionDTO(BaseModel):
     policy_rule_text: str | None = None
 
 
+class QuestionAnswerDTO(BaseModel):
+    answer: str
+
+
 # --- File context tool-use loop types ---
 
 class FileToolCallStep:

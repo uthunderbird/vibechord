@@ -16,6 +16,7 @@ from agent_operator.domain import (
 from agent_operator.providers.prompting import (
     build_decision_prompt,
     build_evaluation_prompt,
+    build_question_answer_prompt,
     build_turn_summary_prompt,
 )
 from agent_operator.testing.operator_service_support import state_settings
@@ -42,6 +43,21 @@ def test_build_decision_prompt_surfaces_active_project_policy() -> None:
     assert "Active project policy:" in prompt
     assert "MANUAL_TESTING_REQUIRED.md" in prompt
     assert '"objective_keywords": ["manual testing"]' in prompt
+
+
+def test_build_question_answer_prompt_enforces_read_only_grounded_answering() -> None:
+    state = OperationState(
+        goal=OperationGoal(objective="Ship the feature"),
+        **state_settings(),
+    )
+
+    prompt = build_question_answer_prompt(state, "What is the current status?")
+
+    assert "read-only question answering surface" in prompt
+    assert "strictly read-only" in prompt
+    assert "User question:\nWhat is the current status?" in prompt
+    assert "Tasks:" in prompt
+    assert "Recent iteration history:" in prompt
 
 
 def test_build_decision_prompt_requires_typed_clarification_metadata() -> None:
@@ -319,3 +335,17 @@ def test_build_turn_summary_prompt_requires_progress_class_and_blocker_keys() ->
     assert "Set progress_class to one of" in prompt
     assert "material_delta, inspection_only, no_verified_delta" in prompt
     assert "Use blocker_keys for short stable blocker-family tags" in prompt
+
+
+def test_build_question_answer_prompt_enforces_read_only_boundary() -> None:
+    state = OperationState(
+        goal=OperationGoal(objective="Inspect the repository"),
+        **state_settings(),
+    )
+
+    prompt = build_question_answer_prompt(state, "What is the operator likely to do next?")
+
+    assert "read-only question answering surface" in prompt
+    assert "do not claim to have modified operation state" in prompt
+    assert "User question:" in prompt
+    assert "What is the operator likely to do next?" in prompt

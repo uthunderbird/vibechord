@@ -62,6 +62,7 @@ from agent_operator.protocols import (
     OperationCommandInbox,
     OperationRuntime,
     OperationStore,
+    OperatorBrain,
     OperatorPolicy,
     PlanningTriggerBus,
     PolicyStore,
@@ -78,6 +79,7 @@ class OperatorService:
     def __init__(
         self,
         operator_policy: OperatorPolicy,
+        brain: OperatorBrain,
         store: OperationStore,
         trace_store: TraceStore,
         event_sink: EventSink,
@@ -115,6 +117,7 @@ class OperatorService:
         history_ledger: object | None = None,
     ) -> None:
         self._operator_policy = operator_policy
+        self._brain = brain
         self._store = store
         self._trace_store = trace_store
         self._event_sink = event_sink
@@ -275,6 +278,12 @@ class OperatorService:
             emit=self._event_relay.emit,
         )
         return outcome
+
+    async def answer_question(self, operation_id: str, question: str) -> str:
+        state = await self._store.load_operation(operation_id)
+        if state is None:
+            raise RuntimeError(f"Operation {operation_id!r} was not found.")
+        return await self._brain.answer_question(state, question)
 
     async def _drive_state(
         self,

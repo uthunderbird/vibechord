@@ -82,6 +82,7 @@ from agent_operator.protocols import (
     OperationCommandInbox,
     OperationRuntime,
     OperationStore,
+    OperatorBrain,
     OperatorPolicy,
     PlanningTriggerBus,
     PolicyStore,
@@ -514,6 +515,16 @@ class _TestServiceProvider(Provider):
         return policy
 
     @provide(scope=Scope.APP)
+    def brain(self) -> OperatorBrain:
+        brain = self._overrides.get("brain")
+        if brain is not None:
+            return brain
+        policy = self._overrides.get("operator_policy")
+        if policy is None:
+            raise RuntimeError("make_service requires brain or operator_policy.")
+        return policy
+
+    @provide(scope=Scope.APP)
     def store(self) -> OperationStore:
         return self._get("store", MemoryStore())
 
@@ -597,6 +608,7 @@ class _TestServiceProvider(Provider):
     def operator_service(
         self,
         operator_policy: OperatorPolicy,
+        brain: OperatorBrain,
         store: OperationStore,
         trace_store: TraceStore,
         event_sink: EventSink,
@@ -834,6 +846,7 @@ class _TestServiceProvider(Provider):
 
         return OperatorService(
             operator_policy=operator_policy,
+            brain=brain,
             store=store,
             trace_store=trace_store,
             event_sink=event_sink,
@@ -874,7 +887,7 @@ class _TestServiceProvider(Provider):
 
 def make_service(**kwargs) -> OperatorService:
     if "brain" in kwargs and "operator_policy" not in kwargs:
-        kwargs["operator_policy"] = kwargs.pop("brain")
+        kwargs["operator_policy"] = kwargs["brain"]
     container = make_container(_TestServiceProvider(kwargs))
     return container.get(OperatorService)
 

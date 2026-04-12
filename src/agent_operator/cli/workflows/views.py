@@ -55,6 +55,7 @@ from ..helpers.resolution import (
     resolve_project_profile_selection,
 )
 from ..helpers.services import (
+    _current_build_service,
     build_agenda_query_service,
     build_delivery_commands_service,
     build_fleet_workbench_query_service,
@@ -201,6 +202,80 @@ async def history_async(operation_ref: str | None, json_mode: bool) -> None:
         if isinstance(profile, str) and profile.strip():
             line += f" [profile={profile}]"
         typer.echo(line)
+
+
+async def _resolve_ask_operation_id(operation_ref: str) -> str:
+    settings = load_settings()
+    store = build_store(settings)
+    summaries = await store.list_operations()
+    if operation_ref == "last":
+        if not summaries:
+            raise RuntimeError("No persisted operations were found.")
+        states = [
+            operation
+            for summary in summaries
+            if (operation := await store.load_operation(summary.operation_id)) is not None
+        ]
+        if not states:
+            raise RuntimeError("No persisted operations were found.")
+        return max(states, key=lambda item: item.created_at).operation_id
+    exact = next(
+        (item.operation_id for item in summaries if item.operation_id == operation_ref),
+        None,
+    )
+    if exact is not None:
+        return exact
+    prefix_matches = [
+        item.operation_id for item in summaries if item.operation_id.startswith(operation_ref)
+    ]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    if len(prefix_matches) > 1:
+        raise RuntimeError(
+            f"Operation reference {operation_ref!r} is ambiguous. Matches: "
+            + ", ".join(sorted(prefix_matches))
+        )
+    profile_matches = []
+    for summary in summaries:
+        operation = await store.load_operation(summary.operation_id)
+        if operation is None:
+            continue
+        profile_name = operation.goal.metadata.get("project_profile_name")
+        if isinstance(profile_name, str) and profile_name == operation_ref:
+            profile_matches.append(operation)
+    if profile_matches:
+        return max(profile_matches, key=lambda item: item.created_at).operation_id
+    raise RuntimeError(f"Operation {operation_ref!r} was not found.")
+
+
+async def ask_async(operation_ref: str, question: str, json_mode: bool) -> None:
+    settings = load_settings()
+    try:
+        operation_id = await _resolve_ask_operation_id(operation_ref)
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=4) from exc
+    try:
+        service = _current_build_service()(settings)
+        answer = (await service.answer_question(operation_id, question)).strip()
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=4) from exc
+    if json_mode:
+        typer.echo(
+            json.dumps(
+                {
+                    "operation_id": operation_id,
+                    "question": question,
+                    "answer": answer,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+    typer.echo(f"Question: {question}\n")
+    typer.echo(answer)
 
 
 async def agenda_async(project: str | None, include_all: bool, json_mode: bool) -> None:

@@ -16,6 +16,13 @@ from agent_operator.dtos import (
 class FakeStructuredOutputProvider:
     """Minimal provider for scaffolding the application loop."""
 
+    async def answer_question(self, state: OperationState, question: str) -> str:
+        return (
+            f"Question: {question}\n"
+            f"Status: {state.status.value}\n"
+            f"Objective: {state.objective_state.objective}"
+        )
+
     async def decide_next_action(self, state: OperationState) -> StructuredDecisionDTO:
         if not state.iterations:
             return StructuredDecisionDTO(

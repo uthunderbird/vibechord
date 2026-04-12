@@ -27,6 +27,7 @@ from ..options import (
 )
 from ..workflows import (
     answer_async,
+    ask_async,
     cancel_async,
     enqueue_command_async,
     status_async,
@@ -41,6 +42,15 @@ def status(
     brief: bool = typer.Option(False, "--brief", help="Emit a single-line summary."),
 ) -> None:
     anyio.run(status_async, resolve_operation_id(operation_ref), json_mode, brief)
+
+
+@app.command()
+def ask(
+    operation_ref: str,
+    question: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    anyio.run(ask_async, operation_ref, question, json_mode)
 
 
 @app.command()

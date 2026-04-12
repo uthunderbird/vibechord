@@ -16,6 +16,7 @@ from .control import (
 )
 from .views import (
     agenda_async,
+    ask_async,
     fleet_async,
     fleet_tui_async,
     has_any_operations_async,
@@ -29,6 +30,7 @@ from .workspace import clear_async
 __all__ = [
     "CliEventProjector",
     "agenda_async",
+    "ask_async",
     "answer_async",
     "cancel_async",
     "clear_async",

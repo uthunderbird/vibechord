@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -306,6 +307,107 @@ def _seed_operation(tmp_path: Path) -> str:
 
     anyio.run(_seed)
     return operation_id
+
+
+def test_ask_cli_renders_text_output(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = _seed_operation(tmp_path)
+    captured: list[tuple[str, str]] = []
+
+    class _Service:
+        async def answer_question(self, resolved_operation_id: str, question: str) -> str:
+            captured.append((resolved_operation_id, question))
+            return "It is completed."
+
+    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+
+    result = runner.invoke(app, ["ask", "last", "What is the current status?"])
+
+    assert result.exit_code == 0
+    assert captured == [(operation_id, "What is the current status?")]
+    assert result.stdout == "Question: What is the current status?\n\nIt is completed.\n"
+
+
+def test_ask_cli_json_output_contract(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _seed_operation(tmp_path)
+
+    class _Service:
+        async def answer_question(self, resolved_operation_id: str, question: str) -> str:
+            assert resolved_operation_id == "op-cli-1"
+            assert question == "Summarize the result."
+            return "Completed successfully."
+
+    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+
+    result = runner.invoke(app, ["ask", "op-cli-1", "Summarize the result.", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "operation_id": "op-cli-1",
+        "question": "Summarize the result.",
+        "answer": "Completed successfully.",
+    }
+
+
+def test_ask_cli_resolves_profile_name_to_latest_operation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+
+    async def _seed() -> None:
+        await store.save_operation(
+            OperationState(
+                operation_id="op-profile-old",
+                goal=OperationGoal(
+                    objective="Older profile operation",
+                    metadata={"project_profile_name": "femtobot"},
+                ),
+                created_at=datetime.now(UTC) - timedelta(hours=1),
+                **state_settings(),
+            )
+        )
+        await store.save_operation(
+            OperationState(
+                operation_id="op-profile-new",
+                goal=OperationGoal(
+                    objective="Newest profile operation",
+                    metadata={"project_profile_name": "femtobot"},
+                ),
+                created_at=datetime.now(UTC),
+                **state_settings(),
+            )
+        )
+
+    anyio.run(_seed)
+    captured: list[str] = []
+
+    class _Service:
+        async def answer_question(self, resolved_operation_id: str, question: str) -> str:
+            captured.append(resolved_operation_id)
+            return "Newest profile operation."
+
+    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+
+    result = runner.invoke(app, ["ask", "femtobot", "Which operation is current?"])
+
+    assert result.exit_code == 0
+    assert captured == ["op-profile-new"]
+    assert "Newest profile operation." in result.stdout
+
+
+def test_ask_cli_missing_operation_exits_code_4(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class _Service:
+        async def answer_question(self, resolved_operation_id: str, question: str) -> str:
+            raise AssertionError("service should not be called when operation resolution fails")
+
+    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+
+    result = runner.invoke(app, ["ask", "missing-op", "What happened?"])
+
+    assert result.exit_code == 4
+    assert "Operation 'missing-op' was not found." in result.output
 
 
 def _seed_operation_without_linked_session(tmp_path: Path) -> str:
@@ -2552,6 +2654,87 @@ def test_message_command_enqueues_operator_message(tmp_path: Path, monkeypatch) 
     assert record.command is not None
     assert record.command.command_type is OperationCommandType.INJECT_OPERATOR_MESSAGE
     assert record.command.payload["text"] == "Use swarm before deciding."
+
+
+def test_ask_command_answers_question(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeBrain:
+        async def answer_question(self, state: OperationState, question: str) -> str:
+            assert state.operation_id == operation_id
+            assert question == "what is the current status?"
+            return "The operation is completed."
+
+    class FakeService:
+        async def answer_question(self, operation_id_: str, question: str) -> str:
+            assert operation_id_ == operation_id
+            return await FakeBrain().answer_question(
+                OperationState(
+                    operation_id=operation_id_,
+                    goal=OperationGoal(objective="Test objective"),
+                    status=OperationStatus.COMPLETED,
+                    **state_settings(),
+                ),
+                question,
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["ask", "last", "what is the current status?"])
+
+    assert result.exit_code == 0
+    assert "Question: what is the current status?" in result.stdout
+    assert "The operation is completed." in result.stdout
+
+
+def test_ask_command_json_emits_machine_readable_payload(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeBrain:
+        async def answer_question(self, state: OperationState, question: str) -> str:
+            return f"{state.status.value}: {question}"
+
+    class FakeService:
+        async def answer_question(self, operation_id_: str, question: str) -> str:
+            assert operation_id_ == operation_id
+            return await FakeBrain().answer_question(
+                OperationState(
+                    operation_id=operation_id_,
+                    goal=OperationGoal(objective="Test objective"),
+                    status=OperationStatus.COMPLETED,
+                    **state_settings(),
+                ),
+                question,
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["ask", operation_id, "what happened?", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "operation_id": operation_id,
+        "question": "what happened?",
+        "answer": "completed: what happened?",
+    }
+
+
+def test_ask_command_missing_operation_exits_with_internal_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", "/tmp/does-not-exist-for-ask-test")
+
+    result = runner.invoke(app, ["ask", "missing-op", "what happened?"])
+
+    assert result.exit_code == 4
+    assert "was not found" in result.stderr
 
 
 def test_attention_command_shows_attention_requests(tmp_path: Path, monkeypatch) -> None:

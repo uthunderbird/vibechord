@@ -580,6 +580,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
     @provide(scope=Scope.APP)
     def operator_service(
         self,
+        brain: ProviderBackedBrain,
         operator_policy: LlmFirstOperatorPolicy,
         store: FileOperationStore,
         trace_store: FileTraceStore,
@@ -618,6 +619,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
     ) -> OperatorService:
         return OperatorService(
             operator_policy=operator_policy,
+            brain=brain,
             store=store,
             trace_store=trace_store,
             event_sink=event_sink,
@@ -671,6 +673,10 @@ def build_service(
         OperatorGraphProvider(settings, event_sink=event_sink),
     )
     return container.get(OperatorService)
+
+
+def build_brain(settings: OperatorSettings) -> ProviderBackedBrain:
+    return ProviderBackedBrain(_build_provider(settings))
 
 
 def build_store(settings: OperatorSettings) -> FileOperationStore:

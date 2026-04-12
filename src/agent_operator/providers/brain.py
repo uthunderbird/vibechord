@@ -34,6 +34,9 @@ class ProviderBackedBrain:
     def provider(self) -> StructuredOutputProvider:
         return self._provider
 
+    async def answer_question(self, state: OperationState, question: str) -> str:
+        return await self._provider.answer_question(state, question)
+
     async def decide_next_action(self, state: OperationState) -> BrainDecision:
         dto: StructuredDecisionDTO = await self._provider.decide_next_action(state)
         return map_decision_dto(dto)
