@@ -8,7 +8,21 @@ Accepted
 
 ## Implementation Status
 
-Planned
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: primary navigation remains zoom-based: fleet → operation → session → forensic;
+  each level entered via `enter`/`r`, exited via `esc`/`q`
+- `implemented`: cross-cutting briefing elements (header summary band, Now/Wait/Attention cues,
+  selected-operation brief in fleet) are supportive and do not replace zoom
+- `implemented`: higher-level panes summarize deeper levels without absorbing them — fleet shows
+  compact operation brief, not full task board or session detail
+- `implemented`: layout documented per-level in `docs/tui-workbench.md` (Navigation Model section)
+- `verified`: `test_enter_opens_operation_view_and_escape_returns_to_fleet`,
+  `test_operation_view_enter_opens_session_view_and_escape_returns`,
+  `test_session_timeline_enter_opens_forensic_view_and_escape_returns` in `tests/test_tui.py`
+  confirm zoom is the sole primary navigation path
 
 ## Context
 

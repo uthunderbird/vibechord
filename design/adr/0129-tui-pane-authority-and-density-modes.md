@@ -8,7 +8,20 @@ Accepted
 
 ## Implementation Status
 
-Planned
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: one canonical default layout per supervisory level — fleet, operation, session,
+  forensic each have a documented left/right pane split with fixed header and footer bands
+- `implemented`: no arbitrary pane on/off composition or user-selectable layout modes; `verbose`
+  is not present as a separate mode
+- `implemented`: layout authority documented in `docs/tui-workbench.md` — Navigation Model section
+  describes each level's pane structure, header content, and footer action band
+- `implemented`: optional `operation_panel_mode` (detail/transcript/decisions/events/memory)
+  cycles named view modes within the operation level with fixed semantics — not freeform
+- `verified`: default-mode rendering tests in `tests/test_tui.py` target the canonical layout
+  (header lines, footer copy, pane content assertions) across all four supervisory levels
 
 ## Context
 

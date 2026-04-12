@@ -1436,6 +1436,23 @@ def test_no_args_non_tty_falls_back_to_help_when_no_operations_exist(
     assert "fleet" in result.stdout
 
 
+def test_list_is_inventory_shaped_not_supervisory_snapshot(tmp_path: Path, monkeypatch) -> None:
+    _seed_agenda_operations(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    list_result = runner.invoke(app, ["list"])
+    fleet_result = runner.invoke(app, ["fleet", "--all", "--once"])
+
+    assert list_result.exit_code == 0
+    assert fleet_result.exit_code == 0
+    # list is inventory: plain id/status rows, no dashboard header
+    assert "Fleet Dashboard" not in list_result.stdout
+    assert "needs_attention" not in list_result.stdout
+    # fleet is supervisory snapshot: has dashboard header
+    assert "Fleet Dashboard" in fleet_result.stdout
+    assert "needs_attention" in fleet_result.stdout
+
+
 def test_fleet_json_can_filter_by_project(tmp_path: Path, monkeypatch) -> None:
     _seed_agenda_operations(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
