@@ -4,6 +4,7 @@ __all__ = [
     "agent",
     "debug",
     "fleet",
+    "mcp",
     "operation_control",
     "operation_detail",
     "policy",

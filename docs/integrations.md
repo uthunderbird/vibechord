@@ -6,12 +6,14 @@
 
 - CLI commands
 - JSON-capable CLI output surfaces
+- MCP stdio server via `operator mcp`
 - Python package imports for selected stable modules
 - ACP-related client/runtime utilities
 
 ## Start points
 
 - CLI usage: [reference/cli.md](reference/cli.md)
+- MCP tool schemas: [../design/reference/mcp-tool-schemas.md](../design/reference/mcp-tool-schemas.md)
 - Python API reference: [reference/python/overview.md](reference/python/overview.md)
 
 ## Design-level integration direction

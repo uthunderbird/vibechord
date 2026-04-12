@@ -53,6 +53,24 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 
 Runtime state is stored under `.operator/` in the project root.
 
+## MCP Server
+
+`operator` also exposes an inbound MCP server for Claude Code and Codex:
+
+```json
+{
+  "mcpServers": {
+    "operator": {
+      "command": "operator",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The stable initial tool contract is documented in
+[`design/reference/mcp-tool-schemas.md`](design/reference/mcp-tool-schemas.md).
+
 ## TUI Workbench
 
 Launch the interactive fleet workbench from a real terminal:

@@ -728,7 +728,6 @@ See [RFC 0011](./rfc/0011-delivery-package-boundary-for-cli-and-tui.md) for the 
 - `operator session OP --task TASK` implementation and shared payload contract
 - `operator converse [OP]` — NL REPL session; new primary command (specified in NL-UX-VISION.md)
 - `operator ask OP "..."` — single-shot NL query, read-only; new primary command (specified in NL-UX-VISION.md)
-- `operator mcp` — MCP stdio server; new secondary command (specified in AGENT-INTEGRATION-VISION.md)
 - `operator project create [NAME]` — create or update a committed named profile (replaces `operator project init`)
 - Semantic exit codes for `run`, `status`, and terminal-state-reporting commands (specified in AGENT-INTEGRATION-VISION.md)
 - `--wait [--timeout N]` flag on `operator run` (specified in AGENT-INTEGRATION-VISION.md)

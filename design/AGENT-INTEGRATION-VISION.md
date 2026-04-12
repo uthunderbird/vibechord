@@ -224,20 +224,24 @@ event_file = f"{data_dir}/events/{operation_id}.jsonl"
 
 | Tool | Parameters | Returns | LLM description |
 |------|-----------|---------|-----------------|
-| `list_operations` | `project?: string` | Array of `OperationBrief` | *List all active and recent operations. Use to understand what is currently running before starting new work.* |
-| `run_operation` | `goal: string, project?: string, mode?: "background"\|"attached", agents?: string[]` | `{operation_id, status}` | *Start a new operation toward a goal. Returns an operation ID for subsequent monitoring. Use `mode="background"` (default) with the fire-and-poll pattern for long-running operations. `mode="attached"` blocks until the operation reaches a terminal state or a blocking attention opens; governed by the MCP client's tool timeout configuration.* |
-| `get_status` | `operation_id: string` | `OperationBrief` + attention summary (see schema below) | *Get the current status of an operation, including any blocking attention requests that need a response.* |
-| `answer_attention` | `operation_id: string, attention_id: string, text: string` | `{success: bool}` | *Answer a blocking attention request to allow the operation to continue. Use when `get_status` shows `status=needs_human`.* |
-| `cancel_operation` | `operation_id: string` | `{success: bool}` | *Cancel a running operation. Use when the goal is no longer relevant or the operation should be abandoned.* |
-| `interrupt_operation` | `operation_id: string, task_id?: string` | `{success: bool}` | *Interrupt the current agent turn so the operator re-evaluates next steps. Does not cancel the operation. When `task_id` is omitted, interrupts all active agent turns for the operation.* |
+| `list_operations` | `status_filter?: "running"\|"needs_human"\|"completed"\|"failed"\|"cancelled"` | Array of operation summaries | *List current operations, optionally filtered by stable operator status.* |
+| `run_operation` | `goal: string, agent?: string, wait?: boolean, timeout_seconds?: integer` | `{operation_id, status}` or `{operation_id, status, outcome}` when waiting | *Start a new operation toward a goal. Returns an operation ID for monitoring. Use `wait=true` only when the MCP client can tolerate a blocking tool call.* |
+| `get_status` | `operation_id: string` | Operation status payload plus blocking attention summary | *Get the current status of an operation, including any blocking attention requests that need a response.* |
+| `answer_attention` | `operation_id: string, attention_id?: string, answer: string` | `{attention_id, status}` | *Answer a blocking attention request to allow the operation to continue. If `attention_id` is omitted, the oldest blocking request is answered.* |
+| `cancel_operation` | `operation_id: string, reason?: string` | `{operation_id, status}` | *Cancel a running operation. Use when the goal is no longer relevant or the operation should be abandoned.* |
+| `interrupt_operation` | `operation_id: string` | `{operation_id, acknowledged}` | *Interrupt the current active agent turn so the operator re-evaluates next steps. Does not cancel the operation.* |
 
 All `operation_id` parameters accept `last` to refer to the most recently started operation in the configured data dir.
 
 ### Agent Names
 
-The `agents` parameter in `run_operation` accepts adapter names as configured in the active project profile. Valid values are the same as `--agent` on the CLI (e.g., `claude_acp`, `codex_acp`). Omit `agents` to use the profile's `default_agents` list. To discover what agents are configured, check `list_operations` result entries' agent fields, or read the project's `operator-profile.yaml`.
+The `agent` parameter in `run_operation` accepts one adapter name as configured in the active
+project profile. Valid values are the same as `--allowed-agent` on the CLI (for example
+`claude_acp`, `codex_acp`). Omit `agent` to use the profile's `default_agents` list. The MCP
+server requires a local `operator-profile.yaml` so the run can resolve project defaults without an
+extra MCP-specific project selector.
 
-### `get_status` Return Schema (provisional)
+### `get_status` Return Schema
 
 The `get_status` tool returns a JSON object. This is the provisional schema pending fuller MCP
 surface documentation:
@@ -248,40 +252,39 @@ surface documentation:
   "status": "running | needs_human | completed | failed | cancelled",
   "goal": "Fix auth module",
   "iteration": 14,
-  "max_iterations": 100,
-  "task_summary": {
-    "running": 2,
-    "queued": 3,
-    "blocked": 1,
-    "completed": 4,
-    "failed": 0
-  },
+  "task_summary": "2 running, 3 queued, 1 blocked, 4 completed",
   "attention_requests": [
     {
-      "attention_id": "att-7f2a",
-      "attention_type": "policy_gap",
-      "blocking": true,
-      "question": "Should I commit directly to main or use a branch?"
+      "id": "att-7f2a",
+      "question": "Should I commit directly to main or use a branch?",
+      "created_at": "2026-04-03T10:03:00Z"
     }
   ],
-  "started_at": "2026-04-03T10:00:00Z"
+  "started_at": "2026-04-03T10:00:00Z",
+  "ended_at": null,
+  "outcome_summary": null
 }
 ```
 
-Fields are stable per the schema stability contract. Additional optional fields may be added without a deprecation cycle.
+Fields are stable per the schema stability contract. Additional optional fields may be added
+without a deprecation cycle. The committed contract reference lives in
+`design/reference/mcp-tool-schemas.md`.
 
 ### Error Handling
 
-MCP tool errors return structured error objects:
+MCP tool errors return structured JSON-RPC errors whose `error.data` object contains the stable
+operator fields:
 
 ```json
 {
-  "code": 2,
-  "message": "Operation op-abc123 has status needs_human — answer the blocking attention before proceeding"
+  "code": "invalid_state",
+  "operation_id": "op-abc123"
 }
 ```
 
-Error codes match CLI exit code semantics (0=completed, 1=failed, 2=needs_human, 3=cancelled, 4=internal error).
+The published `code` values are `not_found`, `invalid_state`, `timeout`, and `internal_error`.
+They mirror the CLI's semantic distinction between user-target errors and operator-side failures
+without exposing raw process exit codes inside the MCP payload.
 
 ### Recommended Agent Workflow via MCP
 

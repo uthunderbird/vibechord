@@ -106,6 +106,7 @@ def main(
 from .commands import agent as _commands_agent  # noqa: E402,F401
 from .commands import debug as _commands_debug  # noqa: E402,F401
 from .commands import fleet as _commands_fleet  # noqa: E402,F401
+from .commands import mcp as _commands_mcp  # noqa: E402,F401
 from .commands import operation_control as _commands_operation_control  # noqa: E402,F401
 from .commands import operation_detail as _commands_operation_detail  # noqa: E402,F401
 from .commands import policy as _commands_policy  # noqa: E402,F401
