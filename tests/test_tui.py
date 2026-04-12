@@ -89,6 +89,7 @@ def test_human_footer_text_uses_compact_fleet_actions() -> None:
 
     rendered = str(human_footer_text(state))
 
+    assert rendered.startswith("Selected op-1. Move j/k  Open Enter  Answer a/n  Pick A")
     assert "Next blocker Tab" in rendered
     assert "Pause p  Resume u  Interrupt s  Cancel c" in rendered
     assert "Help ?" in rendered
