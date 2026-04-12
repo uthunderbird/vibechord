@@ -163,7 +163,8 @@ class OperationRuntimeReconciliationService:
                     reconciled_session_id,
                     reconciled_task_id,
                 )
-                if reconciled_session_id is not None:
+                session_id_changed = reconciled_session_id != existing_session_id
+                if reconciled_session_id is not None and session_id_changed:
                     await self._event_relay.emit(
                         "execution.session_linked",
                         state,
