@@ -89,6 +89,21 @@ class StartWaitStopBrain:
         return result
 
 
+class DelayedCollectSupervisor(FakeSupervisor):
+    """Return no collected result on the first terminal wakeup reconciliation attempt."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.collect_calls: dict[str, int] = {}
+
+    async def collect_background_turn(self, run_id: str) -> AgentResult | None:
+        calls = self.collect_calls.get(run_id, 0) + 1
+        self.collect_calls[run_id] = calls
+        if calls == 1:
+            return None
+        return await super().collect_background_turn(run_id)
+
+
 @pytest.mark.anyio
 async def test_operator_service_reconciles_background_wakeup_on_resume() -> None:
     store = MemoryStore()
@@ -188,6 +203,63 @@ async def test_resume_reconciles_completed_background_run_without_wakeup() -> No
         event.event_type == "background_run.reconciled_from_supervisor"
         for event in event_sink.events
     )
+
+
+@pytest.mark.anyio
+async def test_resume_releases_unhandled_wakeup_for_retry() -> None:
+    store = MemoryStore()
+    trace_store = MemoryTraceStore()
+    inbox = MemoryWakeupInbox()
+    supervisor = DelayedCollectSupervisor()
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=trace_store,
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        wakeup_inbox=inbox,
+        supervisor=supervisor,
+    )
+
+    first = await service.run(
+        OperationGoal(objective="background task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(first.operation_id)
+    assert operation is not None
+    run_id = operation.background_runs[0].run_id
+    await inbox.enqueue(
+        RunEvent(
+            event_type="background_run.completed",
+            kind=RunEventKind.WAKEUP,
+            operation_id=operation.operation_id,
+            iteration=1,
+            task_id=operation.tasks[0].task_id,
+            session_id=operation.sessions[0].session_id,
+            dedupe_key=f"{run_id}:completed",
+            payload={"run_id": run_id},
+        )
+    )
+
+    reconciliation = service._operation_runtime_reconciliation_service
+
+    await reconciliation.reconcile_background_wakeups(operation)
+
+    pending_after_first_resume = await inbox.list_pending(operation.operation_id)
+    assert operation.iterations[0].result is None
+    assert len(pending_after_first_resume) == 1
+    assert pending_after_first_resume[0].payload == {"run_id": run_id}
+    assert inbox.acked == []
+
+    await reconciliation.reconcile_background_wakeups(operation)
+
+    assert operation.iterations[0].result is not None
+    assert operation.iterations[0].result.output_text == "completed by fake background agent"
+    assert await inbox.list_pending(operation.operation_id) == []
 
 
 @pytest.mark.anyio

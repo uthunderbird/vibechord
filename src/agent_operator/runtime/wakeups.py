@@ -61,6 +61,18 @@ class FileWakeupInbox:
             envelope.acked_at = now
             self._save(path, envelope)
 
+    async def release(self, event_ids: list[str]) -> None:
+        for event_id in event_ids:
+            path = self._path(event_id)
+            if not path.exists():
+                continue
+            envelope = self._load(path)
+            if envelope.status != "claimed":
+                continue
+            envelope.status = "pending"
+            envelope.claimed_at = None
+            self._save(path, envelope)
+
     async def requeue_stale_claims(self) -> int:
         now = datetime.now(UTC)
         count = 0
