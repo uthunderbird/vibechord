@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import anyio
@@ -10,7 +11,15 @@ import typer
 from rich.console import Console as RichConsole
 from rich.live import Live
 
-from agent_operator.bootstrap import build_event_sink, build_store, build_wakeup_inbox
+from agent_operator.bootstrap import (
+    build_event_sink,
+    build_store,
+    build_wakeup_inbox,
+)
+from agent_operator.bootstrap import (
+    build_service as bootstrap_build_service,
+)
+from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AgentSessionHandle,
     BackgroundRuntimeMode,
@@ -55,6 +64,9 @@ from ..helpers.services import (
     load_settings_with_data_dir,
 )
 
+if TYPE_CHECKING:
+    from agent_operator.application import OperatorService
+
 
 class CliEventProjector:
     def __init__(self, *, json_mode: bool) -> None:
@@ -96,6 +108,16 @@ class CliEventProjector:
             )
             return
         typer.echo(f"{outcome.status.value}: {outcome.summary}")
+
+
+def _build_cli_service(settings: OperatorSettings) -> OperatorService:
+    try:
+        import agent_operator.cli.main as cli_main
+
+        factory = getattr(cli_main, "build_service", bootstrap_build_service)
+    except Exception:
+        factory = bootstrap_build_service
+    return cast("OperatorService", factory(settings))
 
 
 async def run_async(
@@ -213,6 +235,7 @@ async def run_async(
             )
     if not (wait and json_mode):
         projector.emit_operation(operation_id)
+    assert resolved.objective_text is not None
     outcome = await service.run(
         OperationGoal(
             objective=resolved.objective_text,
@@ -440,6 +463,75 @@ async def resume_async(operation_id: str, max_cycles: int, json_mode: bool) -> N
     )
     outcome = await delivery.resume(operation_id, max_cycles=max_cycles)
     projector.emit_outcome(outcome)
+
+
+async def _resolve_ask_operation_id(operation_ref: str) -> str:
+    settings = load_settings()
+    store = build_store(settings)
+    summaries = await store.list_operations()
+    if operation_ref == "last":
+        if not summaries:
+            raise RuntimeError("No persisted operations were found.")
+        states = [
+            operation
+            for summary in summaries
+            if (operation := await store.load_operation(summary.operation_id)) is not None
+        ]
+        if not states:
+            raise RuntimeError("No persisted operations were found.")
+        return max(states, key=lambda item: item.created_at).operation_id
+    exact = next(
+        (item.operation_id for item in summaries if item.operation_id == operation_ref),
+        None,
+    )
+    if exact is not None:
+        return exact
+    prefix_matches = [
+        item.operation_id for item in summaries if item.operation_id.startswith(operation_ref)
+    ]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    if len(prefix_matches) > 1:
+        raise RuntimeError(
+            f"Operation reference {operation_ref!r} is ambiguous. Matches: "
+            + ", ".join(sorted(prefix_matches))
+        )
+    profile_matches = []
+    for summary in summaries:
+        operation = await store.load_operation(summary.operation_id)
+        if operation is None:
+            continue
+        profile_name = operation.goal.metadata.get("project_profile_name")
+        if isinstance(profile_name, str) and profile_name == operation_ref:
+            profile_matches.append(operation)
+    if profile_matches:
+        return max(profile_matches, key=lambda item: item.created_at).operation_id
+    raise RuntimeError(f"Operation {operation_ref!r} was not found.")
+
+
+async def ask_async(operation_ref: str, question: str, json_mode: bool) -> None:
+    settings = load_settings()
+    try:
+        operation_id = await _resolve_ask_operation_id(operation_ref)
+        service = _build_cli_service(settings)
+        answer = (await service.answer_question(operation_id, question)).strip()
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=EXIT_INTERNAL_ERROR) from exc
+    if json_mode:
+        typer.echo(
+            json.dumps(
+                {
+                    "question": question,
+                    "answer": answer,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+    typer.echo(f"Question: {question}\n")
+    typer.echo(answer)
 
 
 async def status_async(operation_id: str, json_mode: bool, brief: bool) -> None:
@@ -673,7 +765,9 @@ async def enqueue_custom_command_async(
     typer.echo(f"enqueued: {command.command_type.value} [{command.command_id}]")
 
 
-async def _restore_operation_scoped_runtime_settings(settings, operation_id: str) -> None:
+async def _restore_operation_scoped_runtime_settings(
+    settings: OperatorSettings, operation_id: str
+) -> None:
     operation = await build_store(settings).load_operation(operation_id)
     if operation is None:
         return

@@ -4,6 +4,7 @@ import json
 
 from agent_operator.domain import (
     AgentResult,
+    IterationState,
     MemoryFreshness,
     OperationGoal,
     OperationState,
@@ -33,11 +34,11 @@ def _excerpt_result_text(text: str, *, limit: int = _RESULT_EXCERPT_LIMIT) -> st
     return head + marker + tail[overflow:]
 
 
-def _serialize_turn_summary(iteration) -> dict[str, object] | None:
+def _serialize_turn_summary(iteration: IterationState) -> dict[str, object] | None:
     summary = iteration.turn_summary
     if summary is None:
         return None
-    return summary.model_dump(mode="json")
+    return dict(summary.model_dump(mode="json"))
 
 
 def _completed_iteration_history(
@@ -52,6 +53,8 @@ def _completed_iteration_history(
     older_completed = completed[:-1][-max(0, limit - 1) :]
     history: list[object] = []
     for iteration in older_completed:
+        result = iteration.result
+        assert result is not None
         payload: dict[str, object] = {
             "index": iteration.index,
             "task_id": iteration.task_id,
@@ -61,17 +64,19 @@ def _completed_iteration_history(
                 else None
             ),
             "turn_summary": _serialize_turn_summary(iteration),
-            "result_status": iteration.result.status.value,
+            "result_status": result.status.value,
             "result_error": (
-                iteration.result.error.message
-                if iteration.result.error is not None
+                result.error.message
+                if result.error is not None
                 else None
             ),
             "notes": iteration.notes,
         }
-        if iteration.turn_summary is None and iteration.result.output_text:
-            payload["result_excerpt"] = _excerpt_result_text(iteration.result.output_text)
+        if iteration.turn_summary is None and result.output_text:
+            payload["result_excerpt"] = _excerpt_result_text(result.output_text)
         history.append(payload)
+    latest_result = latest_completed.result
+    assert latest_result is not None
     latest_payload: dict[str, object] = {
         "index": latest_completed.index,
         "task_id": latest_completed.task_id,
@@ -81,11 +86,11 @@ def _completed_iteration_history(
             else None
         ),
         "turn_summary": _serialize_turn_summary(latest_completed),
-        "full_result": latest_completed.result.output_text,
-        "result_status": latest_completed.result.status.value,
+        "full_result": latest_result.output_text,
+        "result_status": latest_result.status.value,
         "result_error": (
-            latest_completed.result.error.message
-            if latest_completed.result.error is not None
+            latest_result.error.message
+            if latest_result.error is not None
             else None
         ),
         "notes": latest_completed.notes,
@@ -99,11 +104,17 @@ def _serialize_recent_iterations(
 ) -> list[dict[str, object]]:
     recent = state.iterations[-limit:]
     older_completed, latest_completed = _completed_iteration_history(state, limit=limit)
-    by_index: dict[int, dict[str, object]] = {
-        int(item["index"]): item for item in older_completed if isinstance(item, dict)
-    }
+    by_index: dict[int, dict[str, object]] = {}
+    for item in older_completed:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        if isinstance(index, int):
+            by_index[index] = item
     if latest_completed is not None:
-        by_index[int(latest_completed["index"])] = latest_completed
+        index = latest_completed.get("index")
+        if isinstance(index, int):
+            by_index[index] = latest_completed
     rendered: list[dict[str, object]] = []
     for iteration in recent:
         if iteration.index in by_index:

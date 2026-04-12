@@ -80,7 +80,6 @@ with:
 
   ```json
   {
-    "operation_id": "...",
     "question": "...",
     "answer": "..."
   }
@@ -100,106 +99,25 @@ Missing or ambiguous references exit with code `4`.
 
 ### Relationship to `OperatorPolicy`
 
-`answer_question` is not an operator-loop policy decision. The service-level query path now
-depends directly on `OperatorBrain` rather than reaching the brain through `OperatorPolicy`.
-`LlmFirstOperatorPolicy` remains responsible only for operator-loop decisions.
+`answer_question` is not treated as an operator-loop policy decision. The CLI query path resolves
+an operation reference, then calls `OperatorService.answer_question(...)`, which loads persisted
+`OperationState` and reaches the brain through the configured policy's `brain` property.
+`LlmFirstOperatorPolicy` remains unchanged as the loop-decision adapter.
 
-## Closure Criteria And Evidence
+## Closure Evidence Matrix
 
-### 1. The brain contract includes a read-only question method
-
-Evidence:
-
-- protocol:
-  `src/agent_operator/protocols/brain.py:OperatorBrain.answer_question`
-- provider contract:
-  `src/agent_operator/protocols/providers.py:StructuredOutputProvider.answer_question`
-- direct service dependency:
-  `src/agent_operator/application/service.py:OperatorService.answer_question`
-
-Verification:
-
-- `tests/test_provider_brain.py::test_provider_backed_brain_delegates_answer_question`
-
-### 2. Provider-backed brain and concrete providers implement the contract
-
-Evidence:
-
-- brain adapter:
-  `src/agent_operator/providers/brain.py:ProviderBackedBrain.answer_question`
-- prompt construction:
-  `src/agent_operator/providers/prompting.py:build_question_answer_prompt`
-- OpenAI provider:
-  `src/agent_operator/providers/openai_responses.py:OpenAIResponsesStructuredOutputProvider.answer_question`
-- Codex provider:
-  `src/agent_operator/providers/codex.py:CodexStructuredOutputProvider.answer_question`
-- bootstrap wiring:
-  `src/agent_operator/bootstrap.py:build_brain`
-
-Verification:
-
-- `tests/test_prompting.py::test_build_question_answer_prompt_enforces_read_only_grounded_answering`
-- `tests/test_provider_brain.py::test_provider_backed_brain_delegates_answer_question`
-
-### 3. `operator ask` exists as a read-only CLI surface with human and JSON output
-
-Evidence:
-
-- command:
-  `src/agent_operator/cli/commands/operation_control.py:ask`
-- workflow:
-  `src/agent_operator/cli/workflows/views.py:ask_async`
-- CLI docs:
-  `docs/reference/cli.md`
-- JSON contract docs:
-  `docs/reference/cli-json-schemas.md`
-
-Verification:
-
-- `tests/test_cli.py::test_ask_command_answers_question`
-- `tests/test_cli.py::test_ask_command_json_emits_machine_readable_payload`
-
-### 4. Missing-operation handling is explicit and uses exit code 4
-
-Evidence:
-
-- workflow resolver and exit handling:
-  `src/agent_operator/cli/workflows/views.py:_resolve_ask_operation_id`
-  `src/agent_operator/cli/workflows/views.py:ask_async`
-
-Verification:
-
-- `tests/test_cli.py::test_ask_command_missing_operation_exits_with_internal_error_code`
-
-### 5. The query path does not route through `OperatorPolicy`
-
-Evidence:
-
-- direct service method:
-  `src/agent_operator/application/service.py:OperatorService.answer_question`
-- unchanged policy seam:
-  `src/agent_operator/application/operator_policy.py:LlmFirstOperatorPolicy`
-
-Verification:
-
-- `uv run pytest`
-
-### 6. The implementation is closed against current repository truth
-
-Evidence:
-
-- command and workflow are present in the shipped CLI package:
-  `src/agent_operator/cli/commands/operation_control.py`
-  `src/agent_operator/cli/workflows/__init__.py`
-- test-support wiring updated for the direct brain dependency:
-  `src/agent_operator/testing/operator_service_support.py:make_service`
-
-Verification:
-
-- ADR-focused test run:
-  `pytest tests/test_prompting.py tests/test_provider_brain.py tests/test_cli.py -q`
-- repository suite:
-  `uv run pytest`
+| ADR line / closure claim | Repository evidence | Schema evidence | Verification |
+| --- | --- | --- | --- |
+| Add a read-only brain question method | `src/agent_operator/protocols/brain.py:OperatorBrain.answer_question`; `src/agent_operator/protocols/providers.py:StructuredOutputProvider.answer_question`; `src/agent_operator/application/service.py:OperatorService.answer_question` | `src/agent_operator/dtos/brain.py:QuestionAnswerDTO` | `tests/test_service.py::test_operator_service_answers_question_from_loaded_operation_state` |
+| Provider-backed brain implements the method | `src/agent_operator/providers/brain.py:ProviderBackedBrain.answer_question` | `src/agent_operator/dtos/brain.py:QuestionAnswerDTO` | `tests/test_service.py::test_operator_service_answers_question_from_loaded_operation_state` |
+| Concrete providers support NL single-shot answering | `src/agent_operator/providers/openai_responses.py:OpenAIResponsesStructuredOutputProvider.answer_question`; `src/agent_operator/providers/codex.py:CodexStructuredOutputProvider.answer_question`; `src/agent_operator/bootstrap.py:build_brain` | `QuestionAnswerDTO.model_json_schema()` is passed through `build_strict_json_schema(...)` in both providers | `uv run mypy src/agent_operator/providers/openai_responses.py src/agent_operator/providers/codex.py src/agent_operator/providers/brain.py` |
+| The prompt is explicitly read-only and grounded in operation context | `src/agent_operator/providers/prompting.py:build_question_answer_prompt` | Prompt references serialized `OperationState` context; no write-side schema is accepted or emitted | `tests/test_prompting.py::test_build_question_answer_prompt_enforces_read_only_boundary` |
+| `operator ask OP QUESTION` exists as a committed CLI surface | `src/agent_operator/cli/commands/operation_control.py:ask`; `src/agent_operator/cli/workflows/control.py:ask_async`; `src/agent_operator/cli/workflows/__init__.py:ask_async` | `docs/reference/cli-json-schemas.md` documents `question` and `answer` fields | `tests/test_cli.py::test_ask_cli_renders_text_output`; `tests/test_cli.py::test_ask_cli_json_output_contract`; `tests/test_cli.py::test_ask_command_answers_question`; `tests/test_cli.py::test_ask_command_json_emits_machine_readable_payload` |
+| Operation references include full id, short prefix, `last`, and profile name | `src/agent_operator/cli/workflows/control.py:_resolve_ask_operation_id` | Resolver reads `goal.metadata["project_profile_name"]` from persisted `OperationState` | `tests/test_cli.py::test_ask_cli_resolves_profile_name_to_latest_operation` |
+| Missing operations fail explicitly with exit code `4` | `src/agent_operator/cli/workflows/control.py:ask_async` catches resolver/service `RuntimeError` and raises `typer.Exit(code=EXIT_INTERNAL_ERROR)`; `src/agent_operator/cli/helpers/exit_codes.py:EXIT_INTERNAL_ERROR` | CLI JSON schema intentionally omits any fallback/null payload for not-found cases | `tests/test_cli.py::test_ask_cli_missing_operation_exits_code_4`; `tests/test_cli.py::test_ask_command_missing_operation_exits_with_internal_error_code` |
+| The query path is read-only and does not enqueue commands | `src/agent_operator/application/service.py:OperatorService.answer_question` only loads state and calls `brain.answer_question(...)`; no command inbox or event mutation path is touched | `QuestionAnswerDTO` contains only `answer: str`; CLI JSON contract exposes only `question` and `answer` | `uv run pytest tests/test_prompting.py tests/test_service.py tests/test_cli.py -q` |
+| Docs and shipped JSON contract are closed | `docs/reference/cli.md`; `docs/reference/cli-json-schemas.md` | Human output shape plus JSON field contract are documented there | `tests/test_cli.py::test_ask_cli_json_output_contract` |
+| Final repository closure is verified against current codebase | Changed implementation lives in `src/agent_operator/...`; no follow-on tranche artifact is needed for this minimal surface | `QuestionAnswerDTO` and CLI JSON schema docs are committed with code | `uv run ruff check src/agent_operator/dtos/brain.py src/agent_operator/dtos/__init__.py src/agent_operator/providers/prompting.py src/agent_operator/providers/openai_responses.py src/agent_operator/providers/codex.py src/agent_operator/providers/brain.py src/agent_operator/application/service.py src/agent_operator/cli/workflows/views.py src/agent_operator/cli/workflows/control.py src/agent_operator/cli/workflows/__init__.py src/agent_operator/cli/commands/operation_control.py tests/test_prompting.py tests/test_service.py tests/test_cli.py`; `uv run mypy src/agent_operator/dtos/brain.py src/agent_operator/dtos/__init__.py src/agent_operator/providers/prompting.py src/agent_operator/providers/openai_responses.py src/agent_operator/providers/codex.py src/agent_operator/providers/brain.py src/agent_operator/application/service.py src/agent_operator/cli/workflows/views.py src/agent_operator/cli/workflows/control.py src/agent_operator/cli/workflows/__init__.py src/agent_operator/cli/commands/operation_control.py`; `uv run pytest tests/test_prompting.py tests/test_service.py tests/test_cli.py -q`; `uv run pytest -q` |
 
 ## Deferred
 

@@ -1,6 +1,7 @@
 from .control import (
     CliEventProjector,
     answer_async,
+    ask_async,
     cancel_async,
     daemon_async,
     dashboard_async,
@@ -16,7 +17,6 @@ from .control import (
 )
 from .views import (
     agenda_async,
-    ask_async,
     fleet_async,
     fleet_tui_async,
     has_any_operations_async,

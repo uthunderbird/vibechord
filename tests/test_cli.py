@@ -344,7 +344,6 @@ def test_ask_cli_json_output_contract(tmp_path: Path, monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {
-        "operation_id": "op-cli-1",
         "question": "Summarize the result.",
         "answer": "Completed successfully.",
     }
@@ -2722,7 +2721,6 @@ def test_ask_command_json_emits_machine_readable_payload(tmp_path: Path, monkeyp
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload == {
-        "operation_id": operation_id,
         "question": "what happened?",
         "answer": "completed: what happened?",
     }
