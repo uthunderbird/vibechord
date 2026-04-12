@@ -8,7 +8,24 @@ Accepted
 
 ## Implementation Status
 
-Planned
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: no-arg `operator` in non-TTY renders the cross-operation supervisory snapshot
+  (Fleet Dashboard with needs_attention, status_mix, operation rows); falls back to help when no
+  operations exist
+- `implemented`: `operator fleet --once` renders the same cross-operation snapshot grammar,
+  sharing supervisory summary fields with no-arg `operator`
+- `implemented`: `operator list` remains inventory-shaped — plain id/status rows without
+  dashboard header, needs_attention counts, or supervisory narrative
+- `implemented`: TTY `operator` enters TUI workbench rather than re-entering textual snapshot
+- `verified`: `test_fleet_once_renders_cross_operation_dashboard` and
+  `test_no_args_non_tty_renders_fleet_snapshot_when_operations_exist` confirm shared snapshot
+  grammar in `tests/test_cli.py`
+- `verified`: `test_list_default_is_human_readable_brief` confirms inventory shape
+- `verified`: `test_list_is_inventory_shaped_not_supervisory_snapshot` explicitly asserts the
+  fleet/list distinction
 
 ## Commands Covered
 

@@ -341,6 +341,36 @@ async def test_live_fleet_filter_refreshes_selected_operation_payload() -> None:
     assert controller.state.selected_operation_payload["operation_id"] == "op-done"
 
 
+@pytest.mark.anyio
+async def test_fleet_filter_does_not_carry_into_operation_level_on_zoom() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+    await controller.refresh()
+
+    # Set a fleet-level filter
+    await controller.handle_key("/")
+    for ch in "running":
+        await controller.handle_key(ch)
+    await controller.handle_key("enter")
+    assert controller.state.filter_query == "running"
+
+    # Zoom into operation view
+    await controller.handle_key("enter")
+    assert controller.state.view_level == "operation"
+
+    # task_filter_query must be empty — fleet filter must not carry over
+    assert controller.state.task_filter_query == ""
+    # fleet filter is preserved in its own slot
+    assert controller.state.filter_query == "running"
+
+
 def test_filtered_empty_fleet_shows_filter_specific_message() -> None:
     state = FleetWorkbenchState(filter_query="codex")
     table = render_list_table(state)

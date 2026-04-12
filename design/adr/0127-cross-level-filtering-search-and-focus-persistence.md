@@ -8,7 +8,25 @@ Accepted
 
 ## Implementation Status
 
-Planned
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: each supervisory level owns its own filter slot — `filter_query` (fleet),
+  `task_filter_query` (operation), `session_filter_query` (session), `forensic_filter_query`
+  (forensic); filters are reset when zooming between levels (`_clear_task_filter`,
+  `_clear_session_filter`, `_clear_forensic_filter`)
+- `implemented`: escape cancels a pending filter edit and restores the previous query without
+  erasing user intent
+- `implemented`: background refresh updates data but does not reset active filters or current
+  selection
+- `implemented`: focus restoration falls to nearest stable neighbour when filtered rows change
+- `verified`: `test_fleet_filter_escape_restores_previous_query`,
+  `test_operation_filter_escape_restores_previous_query`,
+  `test_session_filter_escape_restores_previous_query`,
+  `test_forensic_filter_escape_restores_previous_query` in `tests/test_tui.py`
+- `verified`: `test_fleet_filter_does_not_carry_into_operation_level_on_zoom` explicitly asserts
+  level-local filter locality — fleet filter not carried into operation task_filter_query
 
 ## Context
 
