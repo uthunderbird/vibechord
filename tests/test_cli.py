@@ -2112,11 +2112,14 @@ def test_session_command_prints_session_snapshot_for_task_short_id(
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
 
     assert result.exit_code == 0
-    assert "Session scope for Primary objective" in result.stdout
+    assert "Session for Primary objective" in result.stdout
     assert "Operation: op-cli-1" in result.stdout
+    assert "Task: task-1" in result.stdout
     assert "Session: session-1" in result.stdout
-    assert "Recent events:" in result.stdout
-    assert "Selected event:" in result.stdout
+    assert "Now:" in result.stdout
+    assert "Wait:" in result.stdout or "Attention:" in result.stdout
+    assert "Recent:" in result.stdout
+    assert "Event detail:" in result.stdout
     assert "Transcript: operator log op-cli-1 --agent codex" in result.stdout
 
 
@@ -2145,9 +2148,9 @@ def test_session_command_follow_once_prints_single_live_snapshot(
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--follow", "--once"])
 
     assert result.exit_code == 0
-    assert result.stdout.count("Session scope for Primary objective") == 1
-    assert "Latest output:" in result.stdout
-    assert "Selected event:" not in result.stdout
+    assert result.stdout.count("Session for Primary objective") == 1
+    assert "Latest:" in result.stdout
+    assert "Event detail:" not in result.stdout
     assert "Transcript: operator log op-cli-1 --agent codex --follow" in result.stdout
     assert result.stdout.count("  - iter=") <= 2
 
@@ -2193,7 +2196,7 @@ def test_session_command_follow_uses_live_redraw_in_tty(
     assert captured["entered"] is True
     assert captured["exited"] is True
     assert captured["refresh_per_second"] == 4
-    assert "Session scope for Primary objective" in str(captured["initial_renderable"])
+    assert "Session for Primary objective" in str(captured["initial_renderable"])
     assert "Transcript: operator log op-cli-1 --agent codex --follow" in str(
         captured["initial_renderable"]
     )
@@ -2267,6 +2270,8 @@ def test_session_command_prints_selected_event_summary_when_present(
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
 
     assert result.exit_code == 0
+    assert "Attention: -" not in result.stdout
+    assert "Wait: waiting for review" in result.stdout
     assert "time: 2026-04-12T09:30:00+00:00" in result.stdout
     assert "summary: [iter 1] agent completed: success" in result.stdout
     assert "status: success" in result.stdout
@@ -2274,6 +2279,50 @@ def test_session_command_prints_selected_event_summary_when_present(
     assert "artifacts:" in result.stdout
     assert "task-board-plan.md [note]: Captured the migration notes." in result.stdout
     assert "Review: Review the non-blocking note" in result.stdout
+
+
+def test_session_command_prefers_attention_over_wait_when_attention_is_present(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class _FakeDashboardQueries:
+        async def load_payload(self, operation_id: str) -> dict[str, object]:
+            return {
+                "session_views": [
+                    {
+                        "task_id": "task-1",
+                        "session": {
+                            "session_id": "session-1",
+                            "adapter_key": "codex_acp",
+                            "status": "running",
+                            "bound_task_ids": ["task-1"],
+                        },
+                        "session_brief": {
+                            "now": "Waiting on operator guidance",
+                            "wait": "waiting for a policy answer",
+                            "attention": "Need approval for the generated migration plan",
+                            "latest_output": "Plan draft is ready for review",
+                        },
+                        "timeline": [],
+                        "selected_event": None,
+                        "transcript_hint": {"command": "operator log op-cli-1 --agent codex"},
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(
+        commands_operation_detail,
+        "build_operation_dashboard_query_service",
+        lambda settings, operation_id, codex_home: _FakeDashboardQueries(),
+    )
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
+
+    assert result.exit_code == 0
+    assert "Attention: Need approval for the generated migration plan" in result.stdout
+    assert "Wait:" not in result.stdout
 
 
 def test_session_command_errors_when_task_has_no_linked_session(
