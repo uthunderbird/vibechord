@@ -62,7 +62,7 @@ from agent_operator.domain.event_sourcing import (
     OperationEventStoreAppendConflict,
     StoredOperationDomainEvent,
 )
-from agent_operator.domain.events import RunEvent
+from agent_operator.domain.events import EVENT_FILE_SCHEMA_VERSION, EventFileRecord, RunEvent
 from agent_operator.domain.facts import (
     AdapterFactDraft,
     FactStoreAppendConflict,
@@ -176,6 +176,8 @@ __all__ = [
     "ControlIntentKind",
     "ControlIntentStatus",
     "Evaluation",
+    "EventFileRecord",
+    "EVENT_FILE_SCHEMA_VERSION",
     "FeatureDraft",
     "FeaturePatch",
     "FeatureState",

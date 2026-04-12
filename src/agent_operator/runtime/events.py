@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from agent_operator.domain import RunEvent
+from agent_operator.domain import EVENT_FILE_SCHEMA_VERSION, EventFileRecord, RunEvent
 from agent_operator.protocols import EventSink
 
 
@@ -31,7 +31,7 @@ class JsonlEventSink:
     async def emit(self, event: RunEvent) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("a", encoding="utf-8") as handle:
-            handle.write(event.model_dump_json())
+            handle.write(event.to_event_file_record().model_dump_json())
             handle.write("\n")
 
     def read_events(self, operation_id: str | None = None) -> list[RunEvent]:
@@ -43,7 +43,7 @@ class JsonlEventSink:
                 raw = line.strip()
                 if not raw:
                     continue
-                events.append(RunEvent.model_validate(json.loads(raw)))
+                events.append(parse_event_file_line(raw))
         return events
 
     def iter_events(
@@ -74,7 +74,7 @@ class JsonlEventSink:
                     handle.seek(position)
                     time.sleep(poll_interval)
                     continue
-                yield RunEvent.model_validate(json.loads(line))
+                yield parse_event_file_line(line)
         finally:
             if handle is not None:
                 handle.close()
@@ -88,3 +88,16 @@ class ProjectingEventSink:
     async def emit(self, event: RunEvent) -> None:
         await self._sink.emit(event)
         self._on_event(event)
+
+
+def parse_event_file_line(raw_line: str) -> RunEvent:
+    """Parse one persisted event-file line into a `RunEvent`.
+
+    The parser accepts both the current stable event-file wire schema and
+    legacy raw `RunEvent` lines written before the contract serializer existed.
+    """
+
+    payload = json.loads(raw_line)
+    if isinstance(payload, dict) and payload.get("schema_version") == EVENT_FILE_SCHEMA_VERSION:
+        return EventFileRecord.model_validate(payload).to_run_event()
+    return RunEvent.model_validate(payload)

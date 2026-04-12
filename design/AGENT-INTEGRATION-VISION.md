@@ -140,7 +140,8 @@ Default location with standard project setup:
 .operator/events/op-abc123.jsonl
 ```
 
-Each line is a JSONL-encoded `RunEvent` emitted by the operator loop at every state transition.
+Each line is a JSON object emitted by the operator loop at a state transition. The committed
+schema reference is `docs/reference/event-file-json-schema.md`.
 
 ### Agent Usage
 
@@ -150,11 +151,11 @@ tail -f .operator/events/op-abc123.jsonl | jq .
 
 # Wait for a specific event type (attention opened)
 tail -f .operator/events/op-abc123.jsonl | \
-  jq --unbuffered 'select(.kind == "attention_opened")'
+  jq --unbuffered 'select(.event_type == "agent.invocation.completed")'
 
 # Wait for terminal state
 tail -f .operator/events/op-abc123.jsonl | \
-  jq --unbuffered 'select(.kind | test("operation_completed|operation_failed|operation_cancelled"))' | \
+  jq --unbuffered 'select(.event_type == "operation.cycle_finished")' | \
   head -1
 ```
 
@@ -162,25 +163,23 @@ tail -f .operator/events/op-abc123.jsonl | \
 
 Agents get real-time event push without polling. The event stream includes: iteration completions, attention opens, agent turn progress updates, brain decisions, task status changes, stop condition fires. This is superior to polling `status --json` every 30 seconds for latency-sensitive agent loops.
 
-### Documented Event Kinds
+### Documented Event Types
 
-| Kind | When emitted |
+| Event type | When emitted |
 |------|-------------|
-| `iteration_started` | Operator loop begins a new iteration |
-| `iteration_completed` | Operator loop iteration finishes |
-| `attention_opened` | A new attention request is created |
-| `attention_answered` | An attention request is answered |
-| `agent_turn_started` | An agent session begins a turn |
-| `agent_turn_completed` | An agent session turn finishes |
-| `operation_completed` | Operation reaches `completed` state |
-| `operation_failed` | Operation reaches `failed` state |
-| `operation_cancelled` | Operation reaches `cancelled` state |
-| `task_assigned` | A task is assigned to an agent |
-| `task_completed` | A task reaches completed state |
+| `operation.started` | Operation launch is persisted and event streaming begins |
+| `brain.decision.made` | The operator brain produced the next decision |
+| `agent.invocation.started` | An attached agent session turn begins |
+| `agent.invocation.background_started` | A background agent turn begins |
+| `agent.invocation.completed` | An agent turn result is assimilated |
+| `evaluation.completed` | Post-turn evaluation is recorded |
+| `operation.cycle_finished` | The run finished with a persisted outcome |
 
 ### Public API Commitment
 
-The event file path convention and `RunEvent` JSON schema are part of the agent integration surface. The path is stable as long as `data_dir` is stable. The event schema follows the same stability contract as `--json` output.
+The event file path convention and event-file JSON schema are part of the agent integration
+surface. The path is stable as long as `data_dir` is stable. The committed schema reference lives
+in `docs/reference/event-file-json-schema.md`.
 
 ---
 

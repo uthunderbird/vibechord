@@ -13,6 +13,7 @@
 ## Start points
 
 - CLI usage: [reference/cli.md](reference/cli.md)
+- Event file schema: [reference/event-file-json-schema.md](reference/event-file-json-schema.md)
 - MCP tool schemas: [../design/reference/mcp-tool-schemas.md](../design/reference/mcp-tool-schemas.md)
 - Python API reference: [reference/python/overview.md](reference/python/overview.md)
 

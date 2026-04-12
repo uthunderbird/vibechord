@@ -23,6 +23,7 @@ from agent_operator.domain import (
     CommandStatus,
     CommandTargetScope,
     DecisionMemo,
+    EventFileRecord,
     IterationBrief,
     OperationBrief,
     OperationCommand,
@@ -59,6 +60,7 @@ from agent_operator.runtime import (
     resolve_project_run_config,
     write_project_profile,
 )
+from agent_operator.runtime.events import parse_event_file_line
 from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
 
 
@@ -218,6 +220,15 @@ def test_jsonl_event_sink_reads_written_events(tmp_path: Path) -> None:
     assert len(loaded) == 1
     assert loaded[0].event_type == "operation.started"
 
+    raw_payload = json.loads((tmp_path / "events.jsonl").read_text(encoding="utf-8").strip())
+    assert raw_payload["schema_version"] == 1
+    assert raw_payload["event_type"] == "operation.started"
+    assert raw_payload["operation_id"] == "op-1"
+    assert raw_payload["iteration"] == 0
+    assert raw_payload["kind"] == "trace"
+    assert raw_payload["category"] == "trace"
+    assert raw_payload["payload"] == {}
+
 
 def test_jsonl_event_sink_can_follow_appended_events(tmp_path: Path) -> None:
     sink = JsonlEventSink(tmp_path / "events.jsonl")
@@ -254,6 +265,41 @@ def test_jsonl_event_sink_can_follow_appended_events(tmp_path: Path) -> None:
 
     assert loaded_first.event_type == "operation.started"
     assert loaded_second.event_type == "evaluation.completed"
+
+
+def test_event_file_record_round_trips_run_event() -> None:
+    event = RunEvent(
+        event_id="evt-1",
+        event_type="agent.invocation.completed",
+        operation_id="op-1",
+        iteration=3,
+        task_id="task-1",
+        session_id="session-1",
+        category="trace",
+        payload={"status": "success"},
+    )
+
+    record = event.to_event_file_record()
+
+    assert isinstance(record, EventFileRecord)
+    assert record.schema_version == 1
+    assert record.to_run_event() == event
+
+
+def test_parse_event_file_line_accepts_legacy_run_event_payload() -> None:
+    legacy_line = RunEvent(
+        event_type="operation.started",
+        operation_id="op-legacy",
+        iteration=0,
+        category="trace",
+        payload={"objective": "Inspect"},
+    ).model_dump_json()
+
+    parsed = parse_event_file_line(legacy_line)
+
+    assert parsed.event_type == "operation.started"
+    assert parsed.operation_id == "op-legacy"
+    assert parsed.payload == {"objective": "Inspect"}
 
 
 def test_trace_record_refs_accepts_typed_refs() -> None:
