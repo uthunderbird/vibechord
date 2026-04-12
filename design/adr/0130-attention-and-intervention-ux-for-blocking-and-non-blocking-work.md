@@ -8,21 +8,30 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
-Skim-safe current truth on 2026-04-10:
+Skim-safe current truth on 2026-04-12:
 
 - `implemented`: TUI workbench surfaces blocking and non-blocking attention as distinct selectable
   intervention classes
 - `implemented`: `n` answers the oldest non-blocking attention in the current scope
 - `implemented`: `A` opens a compact current-scope attention picker across blocking and
   non-blocking items
-- `implemented`: shared supervisory summaries now expose blocking attention separately from
-  non-blocking review cues, and those cues are rendered in TUI detail panes plus the
-  human-readable `operator session` snapshot
-- `verified`: focused projection, TUI, and session-CLI coverage now checks the review cue path
-- `partial`: broader fleet/status/list family closure for the distinction remains distributed
-  across the newer CLI/TUI ADR wave rather than fully closed here
+- `implemented`: shared supervisory summaries expose blocking attention separately from
+  non-blocking review cues in TUI detail panes and `operator session` snapshot
+- `implemented`: blocking vs non-blocking distinction originates in shared projection/query truth
+  (`open_blocking_attention_count`, `open_nonblocking_attention_count`, `blocking_attention_titles`,
+  `nonblocking_attention_titles`) — CLI and TUI agree on classification
+- `implemented`: Tab navigation skips non-blocking attention items; blocking attention drives
+  primary triage ordering
+- `verified`: `test_fleet_workbench_tab_skips_nonblocking_attention` and
+  `test_operation_view_tab_jumps_to_task_with_blocking_attention` in `tests/test_tui.py`
+- `verified`: `test_fleet_view_n_dispatches_oldest_nonblocking_attention`,
+  `test_fleet_attention_picker_selects_specific_attention_item`, and
+  `test_task_n_nonblocking_answer_chains_within_same_task_scope` in `tests/test_tui.py`
+- `verified`: `test_build_operation_brief_payload_splits_blocking_and_nonblocking_attention` in
+  `tests/test_operation_projections.py`
+- `verified`: non-blocking review cue rendered in CLI session snapshot in `tests/test_cli.py`
 
 ## Context
 
