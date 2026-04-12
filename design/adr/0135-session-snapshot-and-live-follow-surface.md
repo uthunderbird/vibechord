@@ -8,25 +8,30 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
-Skim-safe current truth on 2026-04-10:
+Skim-safe current truth on 2026-04-12:
 
-- `implemented`: the public `operator session OP --task TASK` surface already exists and is
-  task-addressed rather than session-id-addressed
-- `implemented`: the current CLI/test corpus already covers human-readable snapshot output,
-  machine-readable payload output, selected-event detail, and `--follow --once` live rendering
-- `implemented`: current session payloads and output keep transcript escalation explicit rather than
-  collapsing the default surface into transcript body
-- `implemented`: human-readable `session --follow` now stays narrower than snapshot mode by keeping
-  the transcript hint while dropping selected-event detail and trimming the recent-event slice
-- `implemented`: human-readable `session --follow` now points transcript escalation at the live
-  `operator log ... --follow` path instead of reusing the snapshot hint verbatim
-- `verified`: focused CLI coverage now checks that `session --follow --once` stays compact and keeps
-  transcript escalation explicit
-- `partial`: this ADR's full RFC 0014 alignment remains incomplete; the command family exists, but
-  the broader command-family output-contract closure is still tracked in
-  [RFC 0014](../rfc/0014-cli-output-contract-and-example-corpus.md)
+- `implemented`: the public `operator session OP --task TASK` surface exists and is task-addressed
+  rather than session-id-addressed
+- `implemented`: snapshot output covers all RFC 0014 Family A3 required properties — session
+  header, `Now`, `Wait`/`Attention`, `Latest`, recent timeline rows, transcript escalation hint,
+  and optional selected-event detail block
+- `implemented`: `--follow` mode stays narrower than snapshot — drops selected-event detail,
+  trims recent slice to ≤2 rows, keeps transcript hint pointing at live `--follow` path
+- `implemented`: session payloads and output keep transcript escalation explicit; default surface
+  does not absorb transcript body
+- `implemented`: JSON mode emits normalized session payload with `operation_id`, `task`, `session`,
+  `session_brief`, `timeline_events`, and `transcript_hint` keys
+- `verified`: snapshot mode required properties (session header, `Now`, `Wait`/`Attention`,
+  `Latest`, `Recent`, `Event detail`, `Transcript`) checked in
+  `tests/test_cli.py::test_session_command_prints_session_snapshot_for_task_short_id`
+- `verified`: `--follow --once` compactness, `Latest`, absence of event detail, live transcript
+  hint checked in `tests/test_cli.py::test_session_command_follow_once_prints_single_live_snapshot`
+- `verified`: JSON payload structure checked in
+  `tests/test_cli.py::test_session_command_json_emits_machine_readable_payload`
+- `verified`: task-addressed behavior, error on missing session, wait/attention rendering covered
+  across additional tests in `tests/test_cli.py`
 
 ## Commands Covered
 
@@ -113,9 +118,10 @@ Tradeoffs:
 
 Current evidence for the landed slice:
 
-- `verified`: session command snapshot, JSON payload, `--follow --once`, selected-event detail, and
-  task-addressed behavior are covered in `tests/test_cli.py`
-- `not yet verified`: full RFC 0014 closure for the session command family
+- `verified`: session command snapshot, JSON payload, `--follow --once`, selected-event detail,
+  task-addressed behavior, wait/attention rendering, and error-on-missing-session are covered in
+  `tests/test_cli.py`
+- `verified`: RFC 0014 Family A3 required properties confirmed in snapshot and follow modes
 
 When the full ADR is implemented, the repository should preserve these conditions:
 

@@ -2118,6 +2118,7 @@ def test_session_command_prints_session_snapshot_for_task_short_id(
     assert "Session: session-1" in result.stdout
     assert "Now:" in result.stdout
     assert "Wait:" in result.stdout or "Attention:" in result.stdout
+    assert "Latest:" in result.stdout
     assert "Recent:" in result.stdout
     assert "Event detail:" in result.stdout
     assert "Transcript: operator log op-cli-1 --agent codex" in result.stdout
