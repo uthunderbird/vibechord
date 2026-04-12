@@ -154,3 +154,16 @@ Changes touching the CLI should preserve these conditions:
 ## Related
 
 - [ADR 0119](./0119-cli-main-module-decomposition-below-500-lines.md)
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: CLI organized as `cli/app.py` (registration), `cli/commands/` (families),
+  `cli/rendering/` (text rendering), `cli/tui/` (TUI workbench), `cli/workflows/` (control),
+  `cli/helpers/` (utilities)
+- `implemented`: command registration flows through `app.py`; no rogue top-level command modules
+- `implemented`: all legacy flat family modules retired per ADR 0123
+- `verified`: submodule boundary rules tested in `tests/test_application_structure.py`

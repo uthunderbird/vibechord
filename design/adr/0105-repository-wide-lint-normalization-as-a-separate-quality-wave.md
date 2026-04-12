@@ -117,3 +117,13 @@ That would normalize drift between local hygiene expectations and repo-wide qual
 - `implemented`: the repository-wide lint normalization wave is now complete.
 - `verified`: `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` is green.
 - `verified`: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` remains green after the cleanup.
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `ruff` is configured and enforced in pre-commit hooks
+- `implemented`: `uv run ruff check src/` reports zero errors as of 2026-04-12
+- `verified`: all checks pass — legacy import and style debt cleared

@@ -4,8 +4,6 @@ from pathlib import Path
 
 import typer
 
-from agent_operator.domain import InvolvementLevel, OperationCommandType, RunMode
-
 MAX_ITERATIONS_OPTION = typer.Option(None, help="Maximum operator iterations.")
 ALLOWED_AGENT_OPTION = typer.Option(None, help="Allowed adapter keys.")
 RUN_AGENT_OPTION = typer.Option(

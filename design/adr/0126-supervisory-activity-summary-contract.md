@@ -8,9 +8,9 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
-Skim-safe current truth on 2026-04-10:
+Skim-safe current truth on 2026-04-12:
 
 - `implemented`: the repository now has one shared supervisory activity summary contract in
   `OperationProjectionService` rather than separate ad hoc fleet/operation/session brief dict
@@ -23,8 +23,11 @@ Skim-safe current truth on 2026-04-10:
 - `verified`: focused projection, dashboard-query, and TUI coverage exists in
   `tests/test_operation_projections.py`, `tests/test_operation_dashboard_queries.py`, and
   `tests/test_tui.py`
-- `planned`: stronger plurality cues and richer operator-state signals still need more runtime
-  evidence before they can be surfaced as stable product truth across all supervisory surfaces
+- `implemented`: `agent_activity` and `operator_state` are now populated across fleet, operation,
+  and session projections with real runtime signals (e.g. `"codex_acp active session"`,
+  `"observing"`, `"draining"`, `"pause requested"`)
+- `verified`: `agent_activity` and `operator_state` assertions in `tests/test_operation_projections.py`
+  and `tests/test_tui.py`
 
 ## Context
 
