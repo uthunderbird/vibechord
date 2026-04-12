@@ -223,3 +223,14 @@ This ADR is materially satisfied only when all of the following are true:
 
 - As of 2026-04-09, all files under `src/agent_operator/cli` are below 500 lines (`wc -l` max: 464 in `tui_models.py`).
 - `main.py` now wires through `app.py` and imports no longer centralize all responsibilities.
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `src/agent_operator/cli/app.py` is 114 lines — well within the 500-line budget
+- `implemented`: all command families live in `cli/commands/` subpackage; `app.py` is registration-only
+- `implemented`: all files under `src/agent_operator/cli/` are within manageable size budgets
+- `verified`: line count confirmed via `wc -l`; test coverage via `tests/test_cli.py`

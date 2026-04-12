@@ -111,3 +111,17 @@ This gives fast supervision while retaining CLI reliability and auditability.
   operation scope uses oldest blocking attention across the selected operation; operation view uses oldest
   blocking attention for the currently selected task.
 - Answer dispatch includes non-empty input validation and explicit abort on `Esc` / `Ctrl+C`.
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `a`/`n`/`A` (answer/attention), `p` (pause), `u` (unpause), `s` (interrupt),
+  `c` (cancel) present in both TUI workbench and CLI command family with matching semantics
+- `implemented`: TUI actions dispatch through the same underlying command bus as CLI commands
+- `implemented`: cancel is confirmation-gated in both TUI and CLI
+- `verified`: `test_fleet_workbench_cancel_requires_confirmation`,
+  `test_fleet_workbench_pause_and_interrupt_dispatch_actions` in `tests/test_tui.py`;
+  matching coverage in `tests/test_cli.py`

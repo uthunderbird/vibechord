@@ -174,3 +174,15 @@ It is explanation-heavy and design-history-heavy instead.
 - `implemented`: the public docs surface now has a minimal quickstart/how-to/reference structure.
 - `partial`: some historical design-process artifacts still mention old `docs/` paths in prose,
   but active repository guidance has been rewired to the new structure.
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `docs/` contains only public-facing documentation (quickstart, reference, how-to,
+  TUI guides, integrations)
+- `implemented`: `design/` contains ADRs, RFCs, and internal corpus — not surfaced as product docs
+- `implemented`: no design-process artifacts in `docs/` polluting the public surface
+- `verified`: directory structure confirmed; `docs/` and `design/` are cleanly separated

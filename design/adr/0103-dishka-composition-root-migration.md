@@ -167,3 +167,14 @@ but it should not replace the broader composition-root migration decision.
   distinction between composition leakage and legitimate local mechanism creation.
 - The migration remains intentionally bounded: `dishka` is still an outer assembly concern rather
   than an application-core dependency.
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `dishka` is the composition root; `bootstrap.py` owns `AsyncContainer` construction
+- `implemented`: CLI workflows resolve dependencies through dishka; no manual construction leaking
+- `implemented`: `dishka` remains an outer assembly concern — not an application-core dependency
+- `verified`: `tests/test_bootstrap.py` confirms the container assembles cleanly

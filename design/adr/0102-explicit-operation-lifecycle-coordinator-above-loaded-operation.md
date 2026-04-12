@@ -238,3 +238,14 @@ context object.
     coordination
   - `implemented`: supervisor/runtime-side terminal-finalization mechanics remain in
     reconciliation/runtime layers by design rather than as an unresolved lifecycle-coordinator gap
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `OperationLifecycleCoordinator` is the explicit authority for all lifecycle
+  transitions — used across `service.py`, `drive/`, `commands/`, `runtime/`, `reconciliation/`
+- `implemented`: reconcile-driven lifecycle sequencing is consolidated through the coordinator
+- `verified`: lifecycle transitions covered in `tests/test_operation_lifecycle.py` and related suites

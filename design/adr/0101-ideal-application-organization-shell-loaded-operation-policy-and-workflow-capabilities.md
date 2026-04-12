@@ -241,3 +241,15 @@ Later ADRs refine and operationalize parts of this target rather than replacing 
   clarifies the remaining top-layer completion route
 - [ADR 0121](./0121-application-submodule-organization-and-boundary-rules.md)
   defines the submodule-family organization that this application shape should converge toward
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: application layer matches the ideal organization — `service.py` (thin shell),
+  `drive/` (workflow authority), `commands/`, `queries/`, `runtime/`, `event_sourcing/`
+- `implemented`: `LoadedOperation` is the central domain-boundary object; `OperatorPolicy` is the
+  policy seam; `OperationDriveService` owns the operator loop
+- `verified`: `tests/test_application_structure.py` enforces package boundary rules; full suite green

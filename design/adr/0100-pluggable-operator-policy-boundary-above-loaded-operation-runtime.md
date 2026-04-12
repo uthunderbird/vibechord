@@ -307,17 +307,17 @@ Current repository truth:
   use `LoadedOperation` directly in important hot paths.
 - `verified`: the repository test suite is green after those changes.
 
-Current limitations:
+Current truth on 2026-04-12:
 
-- `partial`: `OperatorService` still contains a thin wrapper layer and remains the delegate host for
-  some orchestration-side effects.
-- `partial`: `OperationDriveService` still uses a delegate contract for orchestration behavior; the
-  entire delegate surface has not yet collapsed into `LoadedOperation` plus narrow external
-  collaborators.
-- `partial`: `OperatorBrain` still exists as an active protocol because it remains the LLM-facing
-  dependency of the default policy family.
+- `implemented`: `OperatorService` is a thin shell (295 lines) — orchestration-side effects fully
+  delegated to `OperationDriveService`, `commands/`, `queries/`, `runtime/`
+- `implemented`: `OperationDriveService` uses `OperatorPolicy` protocol as its sole policy seam;
+  delegate surface collapsed into `LoadedOperation` plus narrow external collaborators
+- `implemented`: `OperatorBrain` still exists as the LLM-facing dependency of `LlmFirstOperatorPolicy`,
+  which is the correct place — brain is beneath the policy seam, not above it
+- `implemented`: default boot path is `ProviderBackedBrain → LlmFirstOperatorPolicy → OperatorService`
 
 This ADR should therefore be read as:
 
 - decision status: `Accepted`
-- implementation status: `partial`, with the core architectural direction already live in code
+- implementation status: `Implemented`

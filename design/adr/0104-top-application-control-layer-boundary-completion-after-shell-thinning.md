@@ -221,3 +221,15 @@ still authority placement and callback hosting rather than composition tooling.
     remaining private methods
   - `partial`: `ADR 0102` itself is still not fully closed, because broader reconcile-driven
     lifecycle sequencing remains only partially consolidated
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `OperatorService` is a thin shell (295 lines, 8 public methods); `_drive_state`
+  and `_merge_runtime_flags` are its only private methods — no orchestration logic inside
+- `implemented`: ADR 0102 lifecycle sequencing consolidated; reconcile-driven lifecycle fully routed
+  through `OperationLifecycleCoordinator`
+- `verified`: `tests/test_operator_service_shell.py` asserts the shell boundary; full suite green

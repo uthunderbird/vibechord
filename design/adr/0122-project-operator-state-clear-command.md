@@ -290,3 +290,16 @@ Current repository truth now includes a first implementation tranche:
 
 This satisfies the ADR's P0 contract without adding a broader forced-clear or alternate retention
 mode.
+
+## Implementation Status
+
+Implemented
+
+Skim-safe current truth on 2026-04-12:
+
+- `implemented`: `operator clear` exists, is confirmation-gated (`--yes`), and refuses when active
+  or recoverable operations are present
+- `implemented`: clears runtime state while preserving committed profiles
+- `verified`: `test_clear_yes_removes_runtime_state_and_preserves_profiles`,
+  `test_clear_refuses_when_running_operation_exists`,
+  `test_clear_without_yes_prompts_and_can_cancel` in `tests/test_cli.py`

@@ -8,7 +8,9 @@ Accepted
 
 ## Implementation Status
 
-Current repository truth on 2026-04-10:
+Implemented
+
+Skim-safe current truth on 2026-04-12:
 
 - `implemented`: `cli/commands/` now exists as a real package and owns the command-family
   implementation
