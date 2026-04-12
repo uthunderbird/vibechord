@@ -4219,9 +4219,9 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
         result.stdout
     )
     assert "Operation op-watch-live [RUNNING]" in result.stdout
-    assert "Session: session-watch-1 via codex_acp" in result.stdout
+    assert "Agent: codex_acp | session-watch-1" in result.stdout
     assert "Wait: Inspecting the repository layout." in result.stdout
-    assert "Latest:" in result.stdout
+    assert "Attention: none" in result.stdout
     assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
     assert "completed: Live attached watch completed." in result.stdout
 
@@ -4308,6 +4308,11 @@ def test_render_watch_snapshot_keeps_compact_live_summary() -> None:
         "focus": "Implement the operation watch live surface.",
         "session_id": "session-1",
         "adapter_key": "codex_acp",
+        "latest_turn": {
+            "agent_key": "codex_acp",
+            "session_display_name": "repo-audit",
+            "assignment_brief": "editing watch formatting and focused tests",
+        },
         "waiting_reason": "Waiting for the current agent turn to finish.",
         "open_attention_count": 0,
         "summary": {
@@ -4321,7 +4326,8 @@ def test_render_watch_snapshot_keeps_compact_live_summary() -> None:
     )
 
     assert "Operation op-watch-1 [RUNNING]" in rendered
-    assert "Session: session-1 via codex_acp" in rendered
+    assert "Agent: codex_acp | repo-audit" in rendered
+    assert "Task: editing watch formatting and focused tests" in rendered
     assert "Attention: none" in rendered
     assert "Recent: [iter 4] agent completed: success | Updated watch rendering." in rendered
     assert "scheduler=" not in rendered

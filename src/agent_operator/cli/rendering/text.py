@@ -84,13 +84,39 @@ def format_live_snapshot(
 
     session_id = snapshot.get("session_id")
     adapter_key = snapshot.get("adapter_key")
-    session_bits: list[str] = []
-    if isinstance(session_id, str) and session_id:
-        session_bits.append(session_id)
-    if isinstance(adapter_key, str) and adapter_key:
-        session_bits.append(adapter_key)
-    if session_bits:
-        lines.append(f"Session: {' via '.join(session_bits)}")
+    latest_turn = snapshot.get("latest_turn")
+    latest_turn_agent = (
+        latest_turn.get("agent_key")
+        if isinstance(latest_turn, dict) and isinstance(latest_turn.get("agent_key"), str)
+        else None
+    )
+    latest_turn_session = None
+    if isinstance(latest_turn, dict):
+        session_display = latest_turn.get("session_display_name")
+        if isinstance(session_display, str) and session_display.strip():
+            latest_turn_session = session_display.strip()
+        else:
+            session_value = latest_turn.get("session_id")
+            if isinstance(session_value, str) and session_value.strip():
+                latest_turn_session = session_value.strip()
+    agent_bits: list[str] = []
+    if isinstance(latest_turn_agent, str) and latest_turn_agent:
+        agent_bits.append(latest_turn_agent)
+    elif isinstance(adapter_key, str) and adapter_key:
+        agent_bits.append(adapter_key)
+    if latest_turn_session:
+        agent_bits.append(latest_turn_session)
+    elif isinstance(session_id, str) and session_id:
+        agent_bits.append(session_id)
+    if agent_bits:
+        lines.append(f"Agent: {' | '.join(agent_bits)}")
+    assignment_brief = shorten_live_text(
+        str(latest_turn.get("assignment_brief"))
+        if isinstance(latest_turn, dict) and latest_turn.get("assignment_brief") is not None
+        else None
+    )
+    if assignment_brief is not None:
+        lines.append(f"Task: {assignment_brief}")
 
     waiting_reason_raw = snapshot.get("waiting_reason")
     waiting_reason = shorten_live_text(
@@ -149,6 +175,13 @@ def render_watch_snapshot(
         shorten_live_text=shorten_live_text,
     ).splitlines()
     recent = shorten_live_text(latest_update)
+    if recent is not None:
+        latest_index = next(
+            (idx for idx, line in enumerate(lines) if line.startswith("Latest: ")),
+            None,
+        )
+        if latest_index is not None and lines[latest_index] == f"Latest: {recent}":
+            lines.pop(latest_index)
     if recent is not None:
         lines.append(f"Recent: {recent}")
     return "\n".join(lines)
