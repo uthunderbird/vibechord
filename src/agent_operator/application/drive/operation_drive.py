@@ -241,7 +241,7 @@ class OperationDriveService:
                 await self._advance_checkpoint(state)
                 await anyio.sleep(1.0)
                 continue
-            consumed_triggers = await self._control._drain_pending_planning_triggers(
+            await self._control._drain_pending_planning_triggers(
                 state,
                 iteration=len(state.iterations),
             )
@@ -282,8 +282,7 @@ class OperationDriveService:
                 task_id=iteration.task_id,
             )
             await self._trace._record_decision_memo(state, iteration, task)
-            if consumed_triggers:
-                await self._control._finalize_pending_attention_resolutions(state)
+            await self._control._finalize_pending_attention_resolutions(state)
 
             if decision.blocking_focus is not None:
                 state.current_focus = FocusState(

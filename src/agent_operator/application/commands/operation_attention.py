@@ -48,7 +48,7 @@ class OperationAttentionCoordinator:
             (
                 item
                 for item in state.attention_requests
-                if item.status in {AttentionStatus.OPEN, AttentionStatus.ANSWERED}
+                if item.status is AttentionStatus.OPEN
                 and item.attention_type is attention_type
                 and item.target_scope is target_scope
                 and item.target_id == target_id
