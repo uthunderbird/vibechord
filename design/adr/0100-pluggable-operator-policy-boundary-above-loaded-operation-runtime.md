@@ -291,7 +291,9 @@ This ordering keeps runtime invariants stable while opening the operator-variati
 
 ## Implementation Status
 
-Current repository truth:
+Implemented
+
+Historical truth on 2026-04-10:
 
 - `implemented`: the top-level application seam has moved from direct `OperatorBrain` wiring to
   `OperatorPolicy`.
