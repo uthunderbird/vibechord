@@ -5,6 +5,8 @@ from pathlib import Path
 
 from agent_operator.application import OperationProjectionService
 from agent_operator.domain import (
+    AgentArtifact,
+    AgentResultStatus,
     AgentSessionHandle,
     AgentTurnBrief,
     AgentTurnSummary,
@@ -22,6 +24,8 @@ from agent_operator.domain import (
     OperationStatus,
     OperationSummary,
     ProjectProfile,
+    RunEvent,
+    RunEventKind,
     RuntimeHints,
     SchedulerState,
     SessionRecord,
@@ -218,6 +222,56 @@ def test_build_fleet_payload_returns_actions() -> None:
 
     assert payload["mix"]["bucket_counts"]["active"] == 1
     assert any(action["cli_command"] == "operator watch op-1" for action in payload["actions"])
+
+
+def test_build_session_view_payload_includes_selected_event_details() -> None:
+    operation = _operation_with_task_session()
+    service = OperationProjectionService()
+    event = RunEvent(
+        event_type="agent.invocation.completed",
+        kind=RunEventKind.TRACE,
+        category="domain",
+        operation_id="op-1",
+        iteration=3,
+        task_id="task-1",
+        session_id="session-1",
+        timestamp=datetime(2026, 4, 12, 9, 30, 0, tzinfo=UTC),
+        payload={
+            "status": AgentResultStatus.SUCCESS.value,
+            "output_text": "Implemented the session detail projection and verified the output.",
+            "artifacts": [
+                AgentArtifact(
+                    name="session-note.md",
+                    kind="note",
+                    content="Captured the session rendering decision and next steps.",
+                ).model_dump(mode="json")
+            ],
+        },
+    )
+
+    payload = service.build_session_view_payload(
+        operation_id="op-1",
+        task=operation.tasks[0],
+        session=operation.sessions[0],
+        events=[event],
+        open_attention=[],
+    )
+
+    selected_event = payload["selected_event"]
+    assert selected_event["timestamp"] == "2026-04-12T09:30:00+00:00"
+    assert selected_event["detail"]["status"] == "success"
+    assert (
+        selected_event["detail"]["output_text"]
+        == "Implemented the session detail projection and verified the output."
+    )
+    assert selected_event["detail"]["artifacts"] == [
+        {
+            "name": "session-note.md",
+            "kind": "note",
+            "uri": None,
+            "content": "Captured the session rendering decision and next steps.",
+        }
+    ]
 
 
 def test_build_fleet_workbench_payload_normalizes_rows_and_header() -> None:

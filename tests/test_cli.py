@@ -2239,7 +2239,19 @@ def test_session_command_prints_selected_event_summary_when_present(
                             "iteration": 1,
                             "task_id": "task-1",
                             "session_id": "session-1",
+                            "timestamp": "2026-04-12T09:30:00+00:00",
                             "summary": "[iter 1] agent completed: success",
+                            "detail": {
+                                "status": "success",
+                                "output_text": "Implemented the task board migration.",
+                                "artifacts": [
+                                    {
+                                        "name": "task-board-plan.md",
+                                        "kind": "note",
+                                        "content": "Captured the migration notes.",
+                                    }
+                                ],
+                            },
                         },
                         "transcript_hint": {"command": "operator log op-cli-1 --agent codex"},
                     }
@@ -2255,7 +2267,12 @@ def test_session_command_prints_selected_event_summary_when_present(
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
 
     assert result.exit_code == 0
+    assert "time: 2026-04-12T09:30:00+00:00" in result.stdout
     assert "summary: [iter 1] agent completed: success" in result.stdout
+    assert "status: success" in result.stdout
+    assert "output: Implemented the task board migration." in result.stdout
+    assert "artifacts:" in result.stdout
+    assert "task-board-plan.md [note]: Captured the migration notes." in result.stdout
     assert "Review: Review the non-blocking note" in result.stdout
 
 

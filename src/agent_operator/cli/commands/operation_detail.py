@@ -99,6 +99,21 @@ def _selected_event_summary(event: object) -> str | None:
     return shorten_live_text(stripped, limit=160) or stripped
 
 
+def _selected_event_detail(event: object, key: str) -> str | None:
+    if not isinstance(event, dict):
+        return None
+    detail = event.get("detail")
+    if not isinstance(detail, dict):
+        return None
+    value = detail.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return shorten_live_text(stripped, limit=180) or stripped
+
+
 async def _load_session_snapshot(
     *,
     queries,
@@ -178,12 +193,34 @@ def _render_session_snapshot_text(
         lines.append("  - none")
     if not follow and latest_event is not None:
         lines.append(f"Selected event: {latest_event.get('event_type', '-')}")
+        if isinstance(latest_event.get("timestamp"), str) and latest_event.get("timestamp"):
+            lines.append(f"  time: {latest_event.get('timestamp')}")
         lines.append(f"  iteration: {latest_event.get('iteration', '-')}")
         lines.append(f"  task: {latest_event.get('task_id', '-')}")
         lines.append(f"  session: {latest_event.get('session_id', '-')}")
         event_summary = _selected_event_summary(latest_event)
         if event_summary is not None:
             lines.append(f"  summary: {event_summary}")
+        event_status = _selected_event_detail(latest_event, "status")
+        if event_status is not None:
+            lines.append(f"  status: {event_status}")
+        event_output = _selected_event_detail(latest_event, "output_text")
+        if event_output is not None:
+            lines.append(f"  output: {event_output}")
+        detail = latest_event.get("detail") if isinstance(latest_event, dict) else None
+        artifacts = detail.get("artifacts") if isinstance(detail, dict) else None
+        if isinstance(artifacts, list) and artifacts:
+            lines.append("  artifacts:")
+            for artifact in artifacts[:3]:
+                if not isinstance(artifact, dict):
+                    continue
+                artifact_name = str(artifact.get("name") or "-")
+                artifact_kind = str(artifact.get("kind") or "-")
+                artifact_content = _shorten(artifact.get("content"))
+                artifact_line = f"    - {artifact_name} [{artifact_kind}]"
+                if artifact_content != "-":
+                    artifact_line += f": {artifact_content}"
+                lines.append(artifact_line)
     elif not follow:
         lines.append("Selected event: none")
     lines.append(f"Transcript: {transcript_command}")
