@@ -8,9 +8,9 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
-Skim-safe current truth on 2026-04-10:
+Skim-safe current truth on 2026-04-12:
 
 - `implemented`: attached runtime reconciliation now re-checks already-terminal background runs
   during supervisor polling instead of leaving them in a stale active state
@@ -25,8 +25,8 @@ Skim-safe current truth on 2026-04-10:
   `tests/test_operation_traceability_service.py`
 - `verified`: focused entrypoint/projection coverage for continuity-vs-invocation runtime metadata
   now exists in `tests/test_operation_entrypoints.py` and `tests/test_operation_projections.py`
-- `partial`: this ADR's broader continuity contract is not fully closed yet; the remaining work is
-  tracked in [ADR 0143 implementation plan](../internal/0143-attached-live-continuity-implementation-plan.md)
+- `verified`: full end-to-end attached-live progression across repeated background turns without
+  manual recovery covered in `tests/test_operation_drive_service.py::test_attached_live_progresses_across_repeated_background_turns_without_resume`
 
 ## Commands Covered
 
@@ -208,8 +208,8 @@ Current evidence for the landed slice:
 
 - `verified`: targeted regression coverage for adapter-setting continuity and stale-wait/runtime-alert
   truth in `tests/test_cli.py` and `tests/test_operation_traceability_service.py`
-- `not yet verified`: full end-to-end attached-live progression across repeated background turns
-  without manual recovery
+- `verified`: full end-to-end attached-live progression across repeated background turns without
+  manual recovery in `tests/test_operation_drive_service.py`
 
 When the full ADR is implemented, the repository should preserve these conditions:
 
