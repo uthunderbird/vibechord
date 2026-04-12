@@ -125,7 +125,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --follow -
 bounded investigation snapshot; `--follow` is the more compact live variant and keeps transcript
 escalation explicit via `operator log` rather than inlining transcript body. In a real TTY,
 `session --follow` redraws the current Level 2 snapshot in place instead of appending duplicate
-snapshots.
+snapshots. Snapshot mode keeps `Now`, one decisive `Wait` or `Attention` line, `Latest`, a bounded
+recent slice, and optional event detail; `--follow` trims that further while keeping the transcript
+escalation hint explicit.
 
 Inspect project defaults and effective resolved run settings:
 

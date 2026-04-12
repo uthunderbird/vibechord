@@ -99,6 +99,21 @@ def _selected_event_summary(event: object) -> str | None:
     return shorten_live_text(stripped, limit=160) or stripped
 
 
+def _selected_event_detail(event: object, key: str) -> str | None:
+    if not isinstance(event, dict):
+        return None
+    detail = event.get("detail")
+    if not isinstance(detail, dict):
+        return None
+    value = detail.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return shorten_live_text(stripped, limit=180) or stripped
+
+
 async def _load_session_snapshot(
     *,
     queries,
@@ -144,9 +159,7 @@ def _render_session_snapshot_text(
         task_line = task_record.task_id
     adapter_key = str(session_payload_data.get("adapter_key") or "-")
     session_status = str(session_payload_data.get("status") or "-")
-    bound_tasks = ", ".join(task_id for task_id in session_payload_data.get("bound_task_ids", []))
-    if not bound_tasks:
-        bound_tasks = "-"
+    bound_task_ids = session_payload_data.get("bound_task_ids", [])
     session_display_id = session_payload_data.get("session_id") or task_record.linked_session_id
     transcript_command = (
         transcript_hint.get("command") if isinstance(transcript_hint, dict) else None
@@ -155,20 +168,26 @@ def _render_session_snapshot_text(
         transcript_command = f"operator log {operation_id}"
     if follow and " --follow" not in transcript_command:
         transcript_command = f"{transcript_command} --follow"
-    lines.append(f"Session scope for {task_line}")
+    lines.append(f"Session for {task_line}")
     lines.append(f"Operation: {operation_id}")
+    lines.append(f"Task: {task_record.task_id}")
     lines.append(f"Session: {session_display_id} [{adapter_key}] state={session_status}")
-    lines.append(f"Bound tasks: {bound_tasks}")
+    if isinstance(bound_task_ids, list) and len(bound_task_ids) > 1:
+        lines.append(f"Bound tasks: {', '.join(str(task_id) for task_id in bound_task_ids)}")
     lines.append(f"Now: {_shorten(session_brief.get('now'))}")
-    lines.append(f"Wait: {_shorten(session_brief.get('wait'))}")
-    lines.append(f"Attention: {_shorten(session_brief.get('attention'))}")
+    attention_text = _shorten(session_brief.get("attention"))
+    wait_text = _shorten(session_brief.get("wait"))
+    if attention_text != "-":
+        lines.append(f"Attention: {attention_text}")
+    else:
+        lines.append(f"Wait: {wait_text}")
     if _shorten(session_brief.get("review")) != "-":
         lines.append(f"Review: {_shorten(session_brief.get('review'))}")
-    lines.append(f"Latest output: {_shorten(session_brief.get('latest_output'))}")
-    lines.append("Recent events:")
-    event_limit = 2 if follow else 4
+    lines.append(f"Latest: {_shorten(session_brief.get('latest_output'))}")
+    lines.append("Recent:")
+    event_limit = 2 if follow else 3
     if session_events:
-        for event in session_events[-event_limit:]:
+        for event in session_events[-event_limit:][::-1]:
             event_line = f"  - iter={event.get('iteration', '-')}: {event.get('event_type', '-')}"
             summary = event.get("summary")
             if isinstance(summary, str) and summary:
@@ -177,15 +196,35 @@ def _render_session_snapshot_text(
     else:
         lines.append("  - none")
     if not follow and latest_event is not None:
-        lines.append(f"Selected event: {latest_event.get('event_type', '-')}")
+        lines.append(f"Event detail: {latest_event.get('event_type', '-')}")
+        if isinstance(latest_event.get("timestamp"), str) and latest_event.get("timestamp"):
+            lines.append(f"  time: {latest_event.get('timestamp')}")
         lines.append(f"  iteration: {latest_event.get('iteration', '-')}")
         lines.append(f"  task: {latest_event.get('task_id', '-')}")
         lines.append(f"  session: {latest_event.get('session_id', '-')}")
         event_summary = _selected_event_summary(latest_event)
         if event_summary is not None:
             lines.append(f"  summary: {event_summary}")
-    elif not follow:
-        lines.append("Selected event: none")
+        event_status = _selected_event_detail(latest_event, "status")
+        if event_status is not None:
+            lines.append(f"  status: {event_status}")
+        event_output = _selected_event_detail(latest_event, "output_text")
+        if event_output is not None:
+            lines.append(f"  output: {event_output}")
+        detail = latest_event.get("detail") if isinstance(latest_event, dict) else None
+        artifacts = detail.get("artifacts") if isinstance(detail, dict) else None
+        if isinstance(artifacts, list) and artifacts:
+            lines.append("  artifacts:")
+            for artifact in artifacts[:3]:
+                if not isinstance(artifact, dict):
+                    continue
+                artifact_name = str(artifact.get("name") or "-")
+                artifact_kind = str(artifact.get("kind") or "-")
+                artifact_content = _shorten(artifact.get("content"))
+                artifact_line = f"    - {artifact_name} [{artifact_kind}]"
+                if artifact_content != "-":
+                    artifact_line += f": {artifact_content}"
+                lines.append(artifact_line)
     lines.append(f"Transcript: {transcript_command}")
     return "\n".join(lines)
 

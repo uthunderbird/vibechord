@@ -2112,11 +2112,14 @@ def test_session_command_prints_session_snapshot_for_task_short_id(
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
 
     assert result.exit_code == 0
-    assert "Session scope for Primary objective" in result.stdout
+    assert "Session for Primary objective" in result.stdout
     assert "Operation: op-cli-1" in result.stdout
+    assert "Task: task-1" in result.stdout
     assert "Session: session-1" in result.stdout
-    assert "Recent events:" in result.stdout
-    assert "Selected event:" in result.stdout
+    assert "Now:" in result.stdout
+    assert "Wait:" in result.stdout or "Attention:" in result.stdout
+    assert "Recent:" in result.stdout
+    assert "Event detail:" in result.stdout
     assert "Transcript: operator log op-cli-1 --agent codex" in result.stdout
 
 
@@ -2145,9 +2148,9 @@ def test_session_command_follow_once_prints_single_live_snapshot(
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--follow", "--once"])
 
     assert result.exit_code == 0
-    assert result.stdout.count("Session scope for Primary objective") == 1
-    assert "Latest output:" in result.stdout
-    assert "Selected event:" not in result.stdout
+    assert result.stdout.count("Session for Primary objective") == 1
+    assert "Latest:" in result.stdout
+    assert "Event detail:" not in result.stdout
     assert "Transcript: operator log op-cli-1 --agent codex --follow" in result.stdout
     assert result.stdout.count("  - iter=") <= 2
 
@@ -2193,7 +2196,7 @@ def test_session_command_follow_uses_live_redraw_in_tty(
     assert captured["entered"] is True
     assert captured["exited"] is True
     assert captured["refresh_per_second"] == 4
-    assert "Session scope for Primary objective" in str(captured["initial_renderable"])
+    assert "Session for Primary objective" in str(captured["initial_renderable"])
     assert "Transcript: operator log op-cli-1 --agent codex --follow" in str(
         captured["initial_renderable"]
     )
@@ -2239,7 +2242,19 @@ def test_session_command_prints_selected_event_summary_when_present(
                             "iteration": 1,
                             "task_id": "task-1",
                             "session_id": "session-1",
+                            "timestamp": "2026-04-12T09:30:00+00:00",
                             "summary": "[iter 1] agent completed: success",
+                            "detail": {
+                                "status": "success",
+                                "output_text": "Implemented the task board migration.",
+                                "artifacts": [
+                                    {
+                                        "name": "task-board-plan.md",
+                                        "kind": "note",
+                                        "content": "Captured the migration notes.",
+                                    }
+                                ],
+                            },
                         },
                         "transcript_hint": {"command": "operator log op-cli-1 --agent codex"},
                     }
@@ -2255,8 +2270,59 @@ def test_session_command_prints_selected_event_summary_when_present(
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
 
     assert result.exit_code == 0
+    assert "Attention: -" not in result.stdout
+    assert "Wait: waiting for review" in result.stdout
+    assert "time: 2026-04-12T09:30:00+00:00" in result.stdout
     assert "summary: [iter 1] agent completed: success" in result.stdout
+    assert "status: success" in result.stdout
+    assert "output: Implemented the task board migration." in result.stdout
+    assert "artifacts:" in result.stdout
+    assert "task-board-plan.md [note]: Captured the migration notes." in result.stdout
     assert "Review: Review the non-blocking note" in result.stdout
+
+
+def test_session_command_prefers_attention_over_wait_when_attention_is_present(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class _FakeDashboardQueries:
+        async def load_payload(self, operation_id: str) -> dict[str, object]:
+            return {
+                "session_views": [
+                    {
+                        "task_id": "task-1",
+                        "session": {
+                            "session_id": "session-1",
+                            "adapter_key": "codex_acp",
+                            "status": "running",
+                            "bound_task_ids": ["task-1"],
+                        },
+                        "session_brief": {
+                            "now": "Waiting on operator guidance",
+                            "wait": "waiting for a policy answer",
+                            "attention": "Need approval for the generated migration plan",
+                            "latest_output": "Plan draft is ready for review",
+                        },
+                        "timeline": [],
+                        "selected_event": None,
+                        "transcript_hint": {"command": "operator log op-cli-1 --agent codex"},
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(
+        commands_operation_detail,
+        "build_operation_dashboard_query_service",
+        lambda settings, operation_id, codex_home: _FakeDashboardQueries(),
+    )
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--once"])
+
+    assert result.exit_code == 0
+    assert "Attention: Need approval for the generated migration plan" in result.stdout
+    assert "Wait:" not in result.stdout
 
 
 def test_session_command_errors_when_task_has_no_linked_session(
@@ -2339,10 +2405,11 @@ def test_status_command_prints_human_readable_summary(tmp_path: Path, monkeypatc
     result = runner.invoke(app, ["status", operation_id])
 
     assert result.exit_code == 0
-    assert "status: completed" in result.stdout
-    assert "objective: Test objective" in result.stdout
-    assert "Open Attention" in result.stdout
-    assert "- none" in result.stdout
+    assert "COMPLETED · iter 0/100" in result.stdout
+    assert "Operation\n- op-cli-1 · Test objective" in result.stdout
+    assert "Now\n- Completed successfully." in result.stdout
+    assert "Attention\n- none" in result.stdout
+    assert "Progress\n- Done: Completed successfully." in result.stdout
 
 
 def test_status_brief_prints_single_line_summary(tmp_path: Path, monkeypatch) -> None:
@@ -2363,10 +2430,8 @@ def test_status_shows_action_line_when_attention_is_open(tmp_path: Path, monkeyp
     result = runner.invoke(app, ["status", operation_id])
 
     assert result.exit_code == 0
-    assert (
-        f"→ Action required: operator answer {operation_id} {attention_id} --text '...'"
-        in result.stdout
-    )
+    assert "Action" in result.stdout
+    assert f"- operator answer {operation_id} {attention_id} --text '...'" in result.stdout
 
 
 def test_status_open_attention_section_uses_positional_answer_syntax(
@@ -2378,7 +2443,9 @@ def test_status_open_attention_section_uses_positional_answer_syntax(
     result = runner.invoke(app, ["status", operation_id])
 
     assert result.exit_code == 0
-    assert f"  → operator answer {operation_id} {attention_id} --text '...'" in result.stdout
+    assert "Attention" in result.stdout
+    assert "[!!1] [question] Clarification required" in result.stdout
+    assert f"- operator answer {operation_id} {attention_id} --text '...'" in result.stdout
     assert "--attention" not in result.stdout
 
 
@@ -4219,9 +4286,9 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
         result.stdout
     )
     assert "Operation op-watch-live [RUNNING]" in result.stdout
-    assert "Session: session-watch-1 via codex_acp" in result.stdout
+    assert "Agent: codex_acp | session-watch-1" in result.stdout
     assert "Wait: Inspecting the repository layout." in result.stdout
-    assert "Latest:" in result.stdout
+    assert "Attention: none" in result.stdout
     assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
     assert "completed: Live attached watch completed." in result.stdout
 
@@ -4308,6 +4375,11 @@ def test_render_watch_snapshot_keeps_compact_live_summary() -> None:
         "focus": "Implement the operation watch live surface.",
         "session_id": "session-1",
         "adapter_key": "codex_acp",
+        "latest_turn": {
+            "agent_key": "codex_acp",
+            "session_display_name": "repo-audit",
+            "assignment_brief": "editing watch formatting and focused tests",
+        },
         "waiting_reason": "Waiting for the current agent turn to finish.",
         "open_attention_count": 0,
         "summary": {
@@ -4321,7 +4393,8 @@ def test_render_watch_snapshot_keeps_compact_live_summary() -> None:
     )
 
     assert "Operation op-watch-1 [RUNNING]" in rendered
-    assert "Session: session-1 via codex_acp" in rendered
+    assert "Agent: codex_acp | repo-audit" in rendered
+    assert "Task: editing watch formatting and focused tests" in rendered
     assert "Attention: none" in rendered
     assert "Recent: [iter 4] agent completed: success | Updated watch rendering." in rendered
     assert "scheduler=" not in rendered

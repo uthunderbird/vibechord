@@ -13,6 +13,7 @@ from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,
     BackgroundRunStatus,
+    ExecutionState,
     FocusKind,
     FocusMode,
     FocusState,
@@ -115,16 +116,21 @@ class OperationRuntimeReconciliationService:
             for event in claimed
         ]
         ack_ids: list[str] = []
+        release_ids: list[str] = []
         for event in claimed:
-            await self.apply_wakeup_event(state, event)
-            ack_ids.append(event.event_id)
+            if await self.apply_wakeup_event(state, event):
+                ack_ids.append(event.event_id)
+            else:
+                release_ids.append(event.event_id)
         if ack_ids:
             await self._wakeup_inbox.ack(ack_ids)
             for ref in state.pending_wakeups:
                 if ref.event_id in ack_ids:
                     ref.acked_at = datetime.now(UTC)
+        if release_ids:
+            await self._wakeup_inbox.release(release_ids)
         state.pending_wakeups = [
-            ref for ref in state.pending_wakeups if ref.event_id not in ack_ids
+            ref for ref in state.pending_wakeups if ref.event_id not in {*ack_ids, *release_ids}
         ]
 
     async def reconcile_stale_background_runs(self, state: OperationState) -> None:
@@ -263,7 +269,7 @@ class OperationRuntimeReconciliationService:
     async def reconcile_terminal_background_run_from_supervisor(
         self,
         state: OperationState,
-        run,
+        run: ExecutionState,
         *,
         session_id: str | None,
         task_id: str | None,
@@ -331,7 +337,12 @@ class OperationRuntimeReconciliationService:
                 error=f"state_reconciled_{existing.status.value}",
             )
 
-    async def handle_stale_background_run(self, state: OperationState, run, now: datetime) -> None:
+    async def handle_stale_background_run(
+        self,
+        state: OperationState,
+        run: ExecutionState,
+        now: datetime,
+    ) -> None:
         record = self._loaded_operation.find_session_record(state, run.session_id)
         if record is None or not self._loaded_operation.session_has_pending_result_slot(record):
             return
@@ -413,20 +424,20 @@ class OperationRuntimeReconciliationService:
             session_id=run.session_id,
         )
 
-    def background_run_is_stale(self, run, now: datetime) -> bool:
+    def background_run_is_stale(self, run: ExecutionState, now: datetime) -> bool:
         if run.status not in {BackgroundRunStatus.PENDING, BackgroundRunStatus.RUNNING}:
             return False
         if run.last_heartbeat_at is None:
             return False
         return now - run.last_heartbeat_at > self._stale_background_run_threshold
 
-    async def apply_wakeup_event(self, state: OperationState, event: RunEvent) -> None:
+    async def apply_wakeup_event(self, state: OperationState, event: RunEvent) -> bool:
         run_id = event.payload.get("run_id") if isinstance(event.payload, dict) else None
         if not isinstance(run_id, str) or self._operation_runtime is None:
-            return
+            return False
         run = await self._operation_runtime.poll_background_turn(run_id)
         if run is None:
-            return
+            return False
         self._loaded_operation.upsert_background_run(
             state,
             run,
@@ -444,20 +455,20 @@ class OperationRuntimeReconciliationService:
             BackgroundRunStatus.FAILED,
             BackgroundRunStatus.CANCELLED,
         }:
-            return
+            return False
         result = await self._operation_runtime.collect_background_turn(run_id)
         if result is None:
-            return
+            return False
         record = self._loaded_operation.find_session_record(state, event.session_id)
         if record is None or not self._loaded_operation.session_has_pending_result_slot(record):
-            return
+            return False
         iteration = self._loaded_operation.find_iteration_for_session(
             state,
             record.handle.session_id,
             record.latest_iteration,
         )
         if iteration is None:
-            return
+            return False
         task = (
             self._loaded_operation.find_task(state, iteration.task_id)
             if iteration.task_id is not None
@@ -482,6 +493,7 @@ class OperationRuntimeReconciliationService:
             task_id=event.task_id,
             session_id=event.session_id,
         )
+        return True
 
     def focus_should_preempt(self, state: OperationState, event: RunEvent) -> bool:
         focus = state.current_focus

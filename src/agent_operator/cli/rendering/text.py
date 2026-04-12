@@ -84,13 +84,39 @@ def format_live_snapshot(
 
     session_id = snapshot.get("session_id")
     adapter_key = snapshot.get("adapter_key")
-    session_bits: list[str] = []
-    if isinstance(session_id, str) and session_id:
-        session_bits.append(session_id)
-    if isinstance(adapter_key, str) and adapter_key:
-        session_bits.append(adapter_key)
-    if session_bits:
-        lines.append(f"Session: {' via '.join(session_bits)}")
+    latest_turn = snapshot.get("latest_turn")
+    latest_turn_agent = (
+        latest_turn.get("agent_key")
+        if isinstance(latest_turn, dict) and isinstance(latest_turn.get("agent_key"), str)
+        else None
+    )
+    latest_turn_session = None
+    if isinstance(latest_turn, dict):
+        session_display = latest_turn.get("session_display_name")
+        if isinstance(session_display, str) and session_display.strip():
+            latest_turn_session = session_display.strip()
+        else:
+            session_value = latest_turn.get("session_id")
+            if isinstance(session_value, str) and session_value.strip():
+                latest_turn_session = session_value.strip()
+    agent_bits: list[str] = []
+    if isinstance(latest_turn_agent, str) and latest_turn_agent:
+        agent_bits.append(latest_turn_agent)
+    elif isinstance(adapter_key, str) and adapter_key:
+        agent_bits.append(adapter_key)
+    if latest_turn_session:
+        agent_bits.append(latest_turn_session)
+    elif isinstance(session_id, str) and session_id:
+        agent_bits.append(session_id)
+    if agent_bits:
+        lines.append(f"Agent: {' | '.join(agent_bits)}")
+    assignment_brief = shorten_live_text(
+        str(latest_turn.get("assignment_brief"))
+        if isinstance(latest_turn, dict) and latest_turn.get("assignment_brief") is not None
+        else None
+    )
+    if assignment_brief is not None:
+        lines.append(f"Task: {assignment_brief}")
 
     waiting_reason_raw = snapshot.get("waiting_reason")
     waiting_reason = shorten_live_text(
@@ -150,6 +176,13 @@ def render_watch_snapshot(
     ).splitlines()
     recent = shorten_live_text(latest_update)
     if recent is not None:
+        latest_index = next(
+            (idx for idx, line in enumerate(lines) if line.startswith("Latest: ")),
+            None,
+        )
+        if latest_index is not None and lines[latest_index] == f"Latest: {recent}":
+            lines.pop(latest_index)
+    if recent is not None:
         lines.append(f"Recent: {recent}")
     return "\n".join(lines)
 
@@ -166,6 +199,102 @@ def render_status_brief(
         f"tasks={summarize_task_counts(operation) or 'none'} "
         f"att=[!!{open_attention_count}]"
     )
+
+
+def render_status_summary(
+    operation: OperationState,
+    *,
+    summary: dict[str, object],
+    open_attention_requests: Callable[[OperationState], list[AttentionRequest]],
+    shorten_paragraph_text: Callable[[str | None], str | None],
+    action_hint: str | None,
+) -> str:
+    open_attention = open_attention_requests(operation)
+    max_iterations = operation.execution_budget.max_iterations
+    lines = [
+        f"{operation.status.value.upper()} · "
+        f"iter {len(operation.iterations)}/{max_iterations}",
+        "",
+    ]
+    progress_values: set[str] = set()
+    operation_anchor = (
+        shorten_paragraph_text(
+            f"{operation.operation_id} · {operation.objective_state.objective}"
+        )
+        or operation.operation_id
+    )
+
+    lines.extend(
+        [
+            "Operation",
+            f"- {operation_anchor}",
+        ]
+    )
+
+    current_label = "Wait" if summary.get("wait") else "Now"
+    current_value = summary.get("wait") or summary.get("now") or operation.status.value
+    lines.extend(
+        [
+            "",
+            current_label,
+            f"- {shorten_paragraph_text(str(current_value) if current_value else None) or '-'}",
+        ]
+    )
+
+    lines.append("")
+    lines.append("Attention")
+    if not open_attention:
+        lines.append("- none")
+    else:
+        first = open_attention[0]
+        badge = (
+            f"[!!{len(open_attention)}] "
+            if first.blocking
+            else f"[review {len(open_attention)}] "
+        )
+        lines.append(
+            "- "
+            + badge
+            + (
+                shorten_paragraph_text(
+                    f"[{first.attention_type.value}] {first.title}"
+                )
+                or f"[{first.attention_type.value}] {first.title}"
+            )
+        )
+
+    progress_lines: list[str] = []
+    progress = summary.get("progress")
+    if isinstance(progress, dict):
+        done = shorten_paragraph_text(
+            str(progress.get("done")) if progress.get("done") is not None else None
+        )
+        doing = shorten_paragraph_text(
+            str(progress.get("doing")) if progress.get("doing") is not None else None
+        )
+        next_step = shorten_paragraph_text(
+            str(progress.get("next")) if progress.get("next") is not None else None
+        )
+        if done:
+            progress_lines.append(f"- Done: {done}")
+            progress_values.add(done)
+        if doing and doing != done:
+            progress_lines.append(f"- Doing: {doing}")
+            progress_values.add(doing)
+        if next_step and next_step not in {done, doing}:
+            progress_lines.append(f"- Next: {next_step}")
+            progress_values.add(next_step)
+    if progress_lines:
+        lines.extend(["", "Progress", *progress_lines])
+
+    recent = shorten_paragraph_text(str(summary.get("recent")) if summary.get("recent") else None)
+    if recent and recent not in progress_values:
+        lines.extend(["", "Recent", f"- {recent}"])
+
+    if action_hint is not None:
+        lines.extend(["", "Action", f"- {action_hint}"])
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def emit_context_lines(payload: dict[str, object], *, operation_id: str) -> list[str]:

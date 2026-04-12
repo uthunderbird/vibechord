@@ -31,11 +31,12 @@ The workbench keeps a left pane for selection and a right pane for detail:
 - `forensic`: selected event context on the left, focused raw transcript/detail on the right
 
 The header is a compact workbench summary band. It keeps the current breadcrumb on the first line
-as `View: fleet > ...` and adds human-readable scope or situation lines beneath it:
+in human-readable path form such as `Fleet / op-run / operation` and adds scope or situation lines
+beneath it:
 
-- `fleet`: scope plus the shared fleet counts (`Operations / Running / Needs human / Paused`) and a short `Selected / Now / Waiting on` summary for the current row
+- `fleet`: scope plus the shared fleet counts (`Operations / Running / Needs human / Paused`) and a short `Selected / Now / Wait` summary for the current row
 - `operation`: scope plus compact task counts (`Tasks / Running / Blocked`) and a `Now / Wait / Attention` summary for the current operation
-- `session`: scope plus a compact `Now / Wait / Attention` summary for the current task session
+- `session`: scope plus a compact `Now / Wait / Attention / Latest output` summary for the current task session
 - `forensic`: scope plus the currently focused event summary
 
 The footer is the action band for the current state. It shows either:
@@ -48,7 +49,7 @@ The footer is the action band for the current state. It shows either:
 Representative footer copy:
 
 - `fleet`: `Selected op-1. Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q`
-- `session`: `Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?`
+- `session`: `Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q`
 
 At fleet level, each selected operation row is rendered as a compact multi-line summary:
 
@@ -97,9 +98,12 @@ switches between task-focused detail modes for the selected task. The task board
 status lanes in this order: `RUNNING`, `READY`, `BLOCKED`, `COMPLETED`, `FAILED`, `CANCELLED`.
 `BLOCKED` is a display alias for `pending` tasks that still have unresolved dependencies.
 Blocked tasks show a compact dependency continuation line, and tasks with linked session runtime
-state can show a compact session continuation line under the task row.
+state can show a compact session continuation line under the task row, including the adapter,
+session id, status, and waiting reason when available.
 Task rows now include a compact status glyph before the task short id.
-The operation footer uses a short action strip: `Operation: Open session Enter  Open transcript l  Detail i  Decisions d  Events t  Memory m  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?`.
+The selected task detail also includes a compact `Next step` row when a linked session is present,
+rendered as `Open session Enter · Transcript/log l · Report o · Back Esc · Help ?`.
+The operation footer uses a short action strip: `Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q`.
 
 Available keys:
 
@@ -141,11 +145,13 @@ selected task's session timeline, ordered newest-first. The right pane defaults 
 screen:
 
 - a compact session brief with explicit session identity plus `Now`, `Wait`, `Attention`, and `Latest output`
-- a compact `Jump to` row for forensic drill-down, rendered as `Enter event detail; r transcript/log; o retrospective report`
+- a compact `Timeline` summary that shows the current selection position and whether the list is newest-first
+- a compact `Next step` row, rendered as `Open forensic Enter/r · Live detail i · Report o · Back Esc · Help ?`
 - a selected-event detail block for the currently highlighted timeline item
 
 The session header also carries a compact live summary line so you can orient before reading the
-right pane in detail. The session footer stays human-first, but it now includes the direct
+right pane in detail, including the latest output cue from the current task session. The session
+footer stays human-first, keeps `Help ?` visible for discovery, and still includes the direct
 intervention controls as well: `interrupt`, `pause`, `resume`, and `cancel` remain visible without
 reverting to the older raw key-dump style.
 

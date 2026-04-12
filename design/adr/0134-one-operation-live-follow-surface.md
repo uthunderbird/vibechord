@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
 ## Commands Covered
 
@@ -40,8 +40,11 @@ dashboard-era assumptions.
 Current repository truth on 2026-04-10:
 
 - `implemented`: `operator watch` already exists as a public one-operation live-follow command
-- `partial`: the shipped surface is still being tightened toward the compact redraw-oriented
-  contract defined here
+- `implemented`: the shipped surface now stays compact and redraw-oriented, surfacing the current
+  agent cue, task cue, waiting state, attention state, and most recent meaningful update without
+  degrading into an event ledger or transcript tail
+- `verified`: focused CLI coverage for compact watch rendering and live attached follow behavior
+  exists in `tests/test_cli.py`
 
 ## Decision
 
@@ -92,7 +95,13 @@ Tradeoffs:
 
 ## Verification
 
-The repository should continue moving toward and preserve these conditions:
+Current evidence for the landed slice:
+
+- `verified`: `watch` remains compact and redraw-oriented in focused renderer coverage
+- `verified`: live attached watch output preserves event follow behavior while keeping the summary
+  snapshot bounded and operator-facing
+
+The repository should preserve these conditions:
 
 - `watch` remains compact and redraw-oriented
 - `watch` does not become the default status grammar with polling

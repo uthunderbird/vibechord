@@ -469,6 +469,7 @@ class FakeSupervisor:
 class MemoryWakeupInbox:
     def __init__(self) -> None:
         self.pending: list[RunEvent] = []
+        self.claimed: list[RunEvent] = []
         self.acked: list[str] = []
 
     async def enqueue(self, event: RunEvent) -> None:
@@ -477,10 +478,18 @@ class MemoryWakeupInbox:
     async def claim(self, operation_id: str, limit: int = 100) -> list[RunEvent]:
         claimed = [item for item in self.pending if item.operation_id == operation_id][:limit]
         self.pending = [item for item in self.pending if item not in claimed]
+        self.claimed.extend(claimed)
         return claimed
 
     async def ack(self, event_ids: list[str]) -> None:
         self.acked.extend(event_ids)
+        self.claimed = [item for item in self.claimed if item.event_id not in set(event_ids)]
+
+    async def release(self, event_ids: list[str]) -> None:
+        release_ids = set(event_ids)
+        released = [item for item in self.claimed if item.event_id in release_ids]
+        self.claimed = [item for item in self.claimed if item.event_id not in release_ids]
+        self.pending.extend(released)
 
     async def requeue_stale_claims(self) -> int:
         return 0

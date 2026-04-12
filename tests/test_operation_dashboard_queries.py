@@ -117,6 +117,9 @@ def _status_queries(
         build_runtime_alert=lambda **kwargs: None,
         render_status_brief=lambda operation: "",
         render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
     )
 
 

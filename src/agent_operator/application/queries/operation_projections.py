@@ -725,7 +725,9 @@ class OperationProjectionService:
                 "iteration": event.iteration,
                 "task_id": event.task_id,
                 "session_id": event.session_id,
+                "timestamp": event.timestamp.isoformat(),
                 "summary": self._format_live_event(event) or event.event_type,
+                "detail": self._build_session_event_detail(event),
             }
             for event in events
         ]
@@ -768,6 +770,41 @@ class OperationProjectionService:
                 )
             },
         }
+
+    def _build_session_event_detail(self, event: RunEvent) -> dict[str, object]:
+        payload = event.payload
+        if event.event_type == "agent.invocation.completed":
+            artifacts = payload.get("artifacts")
+            artifact_items: list[dict[str, object]] = []
+            if isinstance(artifacts, list):
+                for item in artifacts[:3]:
+                    if not isinstance(item, dict):
+                        continue
+                    artifact_items.append(
+                        {
+                            "name": item.get("name"),
+                            "kind": item.get("kind"),
+                            "uri": item.get("uri"),
+                            "content": self._shorten_text(
+                                self._string_value(item.get("content")),
+                                limit=160,
+                            ),
+                        }
+                    )
+            return {
+                "status": self._string_value(payload.get("status")),
+                "output_text": self._shorten_text(
+                    self._string_value(payload.get("output_text")),
+                    limit=220,
+                ),
+                "artifacts": artifact_items,
+            }
+        if event.event_type == "agent.invocation.started":
+            return {
+                "adapter_key": self._string_value(payload.get("adapter_key")),
+                "session_name": self._string_value(payload.get("session_name")),
+            }
+        return {}
 
     def build_live_snapshot(
         self,
@@ -1423,6 +1460,12 @@ class OperationProjectionService:
         if len(normalized) <= limit:
             return normalized
         return normalized[: max(0, limit - 1)].rstrip() + "…"
+
+    def _string_value(self, value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     def _summarize_task_counts(self, operation: OperationState) -> str:
         counts: dict[str, int] = {}

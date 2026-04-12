@@ -43,11 +43,13 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     ):
         assert section in rendered
 
-    assert "Fleet > op-run > task-1 > session" in rendered
-    assert "Timeline: Selected 1 of 2 events (newest first)" in rendered
-    assert "Open" in rendered
-    assert "Enter event detail; r transcript/log; o retrospective report" in rendered
-    assert "Session: Open event detail Enter  Open transcript r  Live session i  Report o  Answer a/n  Pick A  Filter /  Back Esc  Help ?" in rendered
+    assert "Fleet / op-run / session / task-1" in rendered
+    assert "Timeline       Selected 1 of 2 events (newest first)" in rendered
+    assert "Open forensic Enter/r" in rendered
+    assert (
+        "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
+        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
+    ) in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
@@ -167,6 +169,32 @@ async def test_session_enter_opens_forensic_even_without_raw_transcript() -> Non
     rendered = console.export_text(styles=False)
     assert "Forensic Transcript" in rendered
     assert "No raw transcript available for the selected session." in rendered
+
+
+async def test_session_header_summary_surfaces_latest_output() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("j")
+    await controller.handle_key("\r")
+    await controller.handle_key("\r")
+
+    console = Console(record=True, width=220, markup=False)
+    console.print(controller.render())
+    rendered = console.export_text(styles=False)
+
+    assert (
+        "Now: Working through the board layout.  Wait: Working through the board layout.  "
+        "Attention: Need a layout decision  Latest output: [iter 1] agent started: codex_acp"
+    ) in rendered
 
 
 async def test_forensic_view_renders_richer_session_context_when_available() -> None:
