@@ -51,6 +51,7 @@ LIVE_BACKGROUND_RUN_STATUSES = {
 class ProjectClearResult:
     deleted: tuple[Path, ...]
     preserved: tuple[Path, ...]
+    forced: bool = False
 
 
 def find_project_clear_blockers(data_dir: Path) -> list[str]:
@@ -89,9 +90,14 @@ def find_project_clear_blockers(data_dir: Path) -> list[str]:
     return blockers
 
 
-def clear_project_operator_state(*, workspace_root: Path, data_dir: Path) -> ProjectClearResult:
+def clear_project_operator_state(
+    *,
+    workspace_root: Path,
+    data_dir: Path,
+    force: bool = False,
+) -> ProjectClearResult:
     blockers = find_project_clear_blockers(data_dir)
-    if blockers:
+    if blockers and not force:
         joined = ", ".join(blockers)
         raise RuntimeError(
             "Refusing to clear operator state while active or recoverable operations still exist: "
@@ -123,6 +129,7 @@ def clear_project_operator_state(*, workspace_root: Path, data_dir: Path) -> Pro
     return ProjectClearResult(
         deleted=tuple(sorted(deleted)),
         preserved=tuple(sorted(preserved)),
+        forced=force,
     )
 
 

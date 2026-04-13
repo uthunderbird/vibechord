@@ -1627,6 +1627,62 @@ def test_clear_refuses_when_running_operation_exists(tmp_path: Path, monkeypatch
     assert (data_dir / "runs" / "op-live-1.operation.json").exists()
 
 
+def test_clear_force_yes_discards_blockers_and_preserves_profiles(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "operator"
+    repo_root.mkdir()
+    (repo_root / ".git").mkdir()
+    data_dir = repo_root / ".operator"
+    monkeypatch.chdir(repo_root)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    store = FileOperationStore(data_dir / "runs")
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id="op-live-1",
+            goal=OperationGoal(objective="Keep running", harness_instructions=""),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+    (data_dir / "background" / "runs").mkdir(parents=True, exist_ok=True)
+    (data_dir / "background" / "runs" / "run-1.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-1",
+                "operation_id": "op-live-1",
+                "status": BackgroundRunStatus.RUNNING.value,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (repo_root / "operator-history.jsonl").write_text('{"op_id":"op-live-1"}\n', encoding="utf-8")
+    (repo_root / "operator-profile.yaml").write_text("name: default\n", encoding="utf-8")
+    (repo_root / "operator-profiles").mkdir()
+    (repo_root / "operator-profiles" / "opsbot.yaml").write_text("name: opsbot\n", encoding="utf-8")
+    (data_dir / "profiles").mkdir(parents=True, exist_ok=True)
+    (data_dir / "profiles" / "local.yaml").write_text("name: local\n", encoding="utf-8")
+    (data_dir / "uv-cache").mkdir(parents=True, exist_ok=True)
+    (data_dir / "uv-cache" / "cache.txt").write_text("cached\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["clear", "--force", "--yes"])
+
+    assert result.exit_code == 0
+    assert "Forced clear discarded live or recoverable operator state." in result.stdout
+    assert not (data_dir / "runs").exists()
+    assert not (data_dir / "background").exists()
+    assert not (repo_root / "operator-history.jsonl").exists()
+    assert (repo_root / "operator-profile.yaml").exists()
+    assert (repo_root / "operator-profiles" / "opsbot.yaml").exists()
+    assert (data_dir / "profiles" / "local.yaml").exists()
+    assert (data_dir / "uv-cache" / "cache.txt").exists()
+
+
 def test_clear_without_yes_prompts_and_can_cancel(tmp_path: Path, monkeypatch) -> None:
     repo_root = tmp_path / "operator"
     repo_root.mkdir()
@@ -1641,6 +1697,28 @@ def test_clear_without_yes_prompts_and_can_cancel(tmp_path: Path, monkeypatch) -
     result = runner.invoke(app, ["clear"], input="n\n")
 
     assert result.exit_code == 0
+    assert "cancelled" in result.stdout
+    assert (data_dir / "events" / "event.jsonl").exists()
+
+
+def test_clear_force_without_yes_prompts_with_force_warning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "operator"
+    repo_root.mkdir()
+    (repo_root / ".git").mkdir()
+    data_dir = repo_root / ".operator"
+    monkeypatch.chdir(repo_root)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    (data_dir / "events").mkdir(parents=True)
+    (data_dir / "events" / "event.jsonl").write_text("{}", encoding="utf-8")
+
+    result = runner.invoke(app, ["clear", "--force"], input="n\n")
+
+    assert result.exit_code == 0
+    assert "Force-clear operator runtime state for this workspace?" in result.stdout
     assert "cancelled" in result.stdout
     assert (data_dir / "events" / "event.jsonl").exists()
 

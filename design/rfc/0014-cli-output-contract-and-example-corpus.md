@@ -918,6 +918,12 @@ Confirmation prompt:
 Clear operator runtime state for /path/to/project? [y/N]
 ```
 
+Forced confirmation prompt:
+
+```text
+Force-clear operator runtime state for /path/to/project? [y/N]
+```
+
 Success:
 
 ```text
@@ -927,6 +933,23 @@ Deleted
 - .operator/runs/
 - .operator/operation_events/
 - .operator/operation_checkpoints/
+- operator-history.jsonl
+
+Preserved
+- operator-profile.yaml
+- operator-profiles/
+- .operator/profiles/
+```
+
+Forced success:
+
+```text
+Cleared operator state for /path/to/project
+Forced clear discarded live or recoverable operator state.
+
+Deleted
+- .operator/runs/
+- .operator/background/
 - operator-history.jsonl
 
 Preserved

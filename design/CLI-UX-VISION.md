@@ -211,7 +211,7 @@ Behavior:
 ### `operator clear`
 
 ```
-operator clear [--yes]
+operator clear [--yes] [--force]
 ```
 
 Clears project-local operator runtime and derived state so the workspace behaves as if operator had
@@ -226,6 +226,8 @@ Required semantics:
   - `operator-profiles/`
   - `.operator/profiles/`
 - refuses when active or recoverable operations still exist
+- supports `--force` to discard live or recoverable operator state without expanding the deletion
+  scope beyond operator-owned runtime surfaces
 - requires explicit destructive confirmation, with `--yes` as the non-interactive bypass
 
 This is a workspace lifecycle/reset command, not a one-operation control command and not a generic

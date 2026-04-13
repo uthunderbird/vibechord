@@ -4,11 +4,25 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Verified
+
+Implementation grounding on 2026-04-14:
+
+- `implemented`: `operator clear` now accepts `--force` on the canonical CLI surface in
+  `src/agent_operator/cli/commands/run.py`
+- `implemented`: `clear_async()` threads the force flag through confirmation and output handling in
+  `src/agent_operator/cli/workflows/workspace.py`
+- `implemented`: `clear_project_operator_state(..., force=True)` bypasses blocker refusal while
+  preserving the existing operator-owned deletion set in
+  `src/agent_operator/runtime/project_clear.py`
+- `verified`: refusal, forced deletion, preserved-surface behavior, and forced confirmation/output
+  text are covered in `tests/test_cli.py`
+- `verified`: targeted verification passed for the updated clear-command slice, and full
+  `uv run pytest` passed at current repository truth
 
 ## Context
 

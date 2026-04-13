@@ -901,6 +901,8 @@ The CLI command structure is:
   - `.operator/profiles/`
 - removes the current workspace `operator-history.jsonl`
 - refuses by default when active or recoverable operations still exist
+- supports `--force` to discard live or recoverable operator state while keeping the same
+  operator-owned deletion boundary
 - requires explicit destructive confirmation, with `--yes` as the non-interactive bypass
 - is a workspace lifecycle/reset surface, not a one-operation control surface
 

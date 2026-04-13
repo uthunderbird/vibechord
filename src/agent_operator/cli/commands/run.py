@@ -159,5 +159,10 @@ def init(
 )
 def clear(
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt."),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Discard live or recoverable operator state before clearing workspace runtime data.",
+    ),
 ) -> None:
-    anyio.run(clear_async, yes)
+    anyio.run(clear_async, yes, force)

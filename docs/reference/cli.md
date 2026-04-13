@@ -91,6 +91,7 @@ Clear project-local operator state:
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator clear --yes
+UV_CACHE_DIR=/tmp/uv-cache uv run operator clear --force --yes
 ```
 
 Run an operation:

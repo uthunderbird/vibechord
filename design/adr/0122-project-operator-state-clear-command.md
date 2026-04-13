@@ -288,18 +288,21 @@ Current repository truth now includes a first implementation tranche:
 - the command refuses when persisted non-terminal operations or live background-run records still
   exist for the resolved workspace data dir.
 
-This satisfies the ADR's P0 contract without adding a broader forced-clear or alternate retention
-mode.
+This satisfies the ADR's P0 contract. The broader forced-clear follow-on was later added under
+[ADR 0168](./0168-operator-clear-force-mode.md).
 
 ## Implementation Status
 
 Implemented
 
-Skim-safe current truth on 2026-04-12:
+Skim-safe current truth on 2026-04-14:
 
 - `implemented`: `operator clear` exists, is confirmation-gated (`--yes`), and refuses when active
   or recoverable operations are present
+- `implemented`: `operator clear --force` exists and discards live or recoverable operator state
+  while preserving the same operator-owned deletion boundary
 - `implemented`: clears runtime state while preserving committed profiles
 - `verified`: `test_clear_yes_removes_runtime_state_and_preserves_profiles`,
   `test_clear_refuses_when_running_operation_exists`,
+  `test_clear_force_yes_discards_blockers_and_preserves_profiles`, and
   `test_clear_without_yes_prompts_and_can_cancel` in `tests/test_cli.py`
