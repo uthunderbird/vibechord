@@ -504,9 +504,118 @@ async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced
     assert supervisor.cancelled == ["run-1"]
     assert snapshot_state is not None
     assert snapshot_state.sessions[0].status is SessionStatus.RUNNING
-    assert [event.event_type for event in stored_events][-1] == "session.observed_state.changed"
+    assert [event.event_type for event in stored_events][-2:] == [
+        "session.waiting_reason.updated",
+        "session.observed_state.changed",
+    ]
     assert resumed.sessions[0].status is SessionStatus.CANCELLED
+    assert resumed.sessions[0].waiting_reason == "Cancelled by operator."
     assert resumed.sessions[0].terminal_state is not None
+    assert resumed.sessions[0].current_execution_id is None
+    assert resumed.sessions[0].last_terminal_execution_id == "run-1"
+
+
+@pytest.mark.anyio
+async def test_targeted_cancel_seeds_snapshot_only_session_before_replay_persistence(
+    tmp_path,
+) -> None:
+    store = FileOperationStore(tmp_path / "operations")
+    event_store = FileOperationEventStore(tmp_path / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    supervisor = FakeSupervisor()
+    lifecycle = OperationLifecycleCoordinator(
+        store=store,
+        event_store=event_store,
+        replay_service=replay,
+    )
+    cancellation = OperationCancellationService(
+        store=store,
+        event_sink=None,
+        supervisor=supervisor,
+        lifecycle_coordinator=lifecycle,
+    )
+    entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_replay_service=replay,
+    )
+    state = OperationState(
+        operation_id="op-es-snapshot-session-cancel",
+        goal=OperationGoal(objective="Cancel one snapshot-only running session."),
+        policy=OperationPolicy(),
+    )
+    await birth.birth(state)
+    session = AgentSessionHandle(adapter_key="claude_acp", session_id="session-1")
+    state.sessions.append(
+        SessionState(
+            handle=session,
+            status=SessionStatus.RUNNING,
+            current_execution_id="run-1",
+        )
+    )
+    await store.save_operation(state)
+
+    async def emit(
+        event_type,
+        state,
+        iteration,
+        payload,
+        *,
+        task_id=None,
+        session_id=None,
+        kind=RunEventKind.TRACE,
+    ):
+        return None
+
+    outcome = await cancellation.cancel(
+        operation_id="op-es-snapshot-session-cancel",
+        session_id="session-1",
+        run_id=None,
+        find_background_run=lambda loaded, run_id: next(
+            (run for run in loaded.executions if run.run_id == run_id),
+            None,
+        ),
+        find_session_record=lambda loaded, session_id: next(
+            (record for record in loaded.sessions if record.session_id == session_id),
+            None,
+        ),
+        find_latest_result=lambda _state: AgentResult(
+            session_id="session-1",
+            status=AgentResultStatus.CANCELLED,
+            output_text="",
+            completed_at=datetime.now(UTC),
+        ),
+        emit=emit,
+    )
+
+    resumed = await entrypoints.load_for_resume(
+        operation_id="op-es-snapshot-session-cancel",
+        options=RunOptions(),
+        merge_runtime_flags=lambda budget, _options: budget,
+    )
+    stored_events = await event_store.load_after(
+        "op-es-snapshot-session-cancel",
+        after_sequence=0,
+    )
+
+    assert outcome.summary == "Cancellation requested."
+    assert [event.event_type for event in stored_events][-3:] == [
+        "session.created",
+        "session.waiting_reason.updated",
+        "session.observed_state.changed",
+    ]
+    assert resumed.sessions[0].status is SessionStatus.CANCELLED
+    assert resumed.sessions[0].waiting_reason == "Cancelled by operator."
 
 
 @pytest.mark.anyio
