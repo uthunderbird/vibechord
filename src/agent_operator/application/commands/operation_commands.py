@@ -415,13 +415,21 @@ class OperationCommandService:
             return False
         entry.status = PolicyStatus.REVOKED
         entry.revoked_reason = str(command.payload.get("reason", "")).strip() or None
-        entry.revoked_at = datetime.now(UTC)
+        applied_at = datetime.now(UTC)
+        entry.revoked_at = applied_at
         entry.source_refs.append(PolicySourceRef(kind="command", ref_id=command.command_id))
         await policy_store.save(entry)
         await self.refresh_policy_context(state)
-        self._control_state_coordinator.remember_processed_command(state, command.command_id)
-        applied_at = datetime.now(UTC)
-        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "REVOKE_POLICY_DECISION requires EventSourcedCommandApplicationService."
+            )
+        result = await self._event_sourced_command_service.append_domain_events(
+            state.operation_id,
+            self._policy_context_domain_events(state, command, applied_at=applied_at),
+        )
+        self._control_state_coordinator.refresh_state_from_checkpoint(state, result.checkpoint)
+        await self._control_state_coordinator.persist_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,

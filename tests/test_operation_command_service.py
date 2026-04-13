@@ -32,6 +32,8 @@ from agent_operator.domain import (
     OperatorMessage,
     PolicyApplicability,
     PolicyCategory,
+    PolicyCoverage,
+    PolicyCoverageStatus,
     PolicyEntry,
     PolicyStatus,
     RunMode,
@@ -605,6 +607,146 @@ async def test_revoke_policy_decision_marks_policy_inactive() -> None:
     assert revoked.status is PolicyStatus.REVOKED
     assert revoked.revoked_reason == "Main repo now exists."
     assert inbox.commands[command.command_id].status is CommandStatus.APPLIED
+
+
+@pytest.mark.anyio
+async def test_revoke_policy_decision_command_service_uses_replay_backed_persistence(
+    tmp_path: Path,
+) -> None:
+    store = _CountingMemoryStore()
+    inbox = MemoryCommandInbox()
+    event_sink = MemoryEventSink()
+    policy_store = MemoryPolicyStore()
+    existing = PolicyEntry(
+        project_scope="profile:femtobot",
+        title="Old release rule",
+        category=PolicyCategory.RELEASE,
+        rule_text="Push from a temporary fork.",
+    )
+    await policy_store.save(existing)
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=inbox,
+        policy_store=policy_store,
+        event_sourced_operation_birth_service=birth_service,
+        operation_entrypoint_service=operation_entrypoints,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+    )
+
+    operation = OperationState(
+        operation_id="op-event-revoke-policy",
+        goal=OperationGoal(
+            objective="continue work",
+            metadata={"project_profile_name": "femtobot", "policy_scope": "profile:femtobot"},
+        ),
+        active_policies=[existing.model_copy(deep=True)],
+        policy_coverage=PolicyCoverage(
+            status=PolicyCoverageStatus.COVERED,
+            project_scope="profile:femtobot",
+            scoped_policy_count=1,
+            active_policy_count=1,
+            summary="1 active policy entry applies now.",
+        ),
+        **state_settings(allowed_agents=["claude_acp"]),
+    )
+    await store.save_operation(operation)
+    await event_store.append(
+        operation.operation_id,
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    **operation.objective.model_dump(mode="json"),
+                    "allowed_agents": ["claude_acp"],
+                    "involvement_level": operation.involvement_level.value,
+                    "created_at": operation.created_at.isoformat(),
+                },
+            ),
+            OperationDomainEventDraft(
+                event_type="policy.active_set.updated",
+                payload={
+                    "active_policies": [existing.model_dump(mode="json")],
+                },
+            ),
+            OperationDomainEventDraft(
+                event_type="policy.coverage.updated",
+                payload=operation.policy_coverage.model_dump(mode="json"),
+            ),
+        ],
+    )
+    await replay_service.load(operation.operation_id)
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.REVOKE_POLICY_DECISION,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id=operation.operation_id,
+        payload={"policy_id": existing.policy_id, "reason": "Main repo now exists."},
+    )
+    await inbox.enqueue(command)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=2),
+    )
+    assert outcome.status is OperationStatus.COMPLETED
+
+    updated = await store.load_operation(operation.operation_id)
+    assert updated is not None
+    assert updated.active_policies == []
+    assert updated.policy_coverage.active_policy_count == 0
+    assert inbox.commands[command.command_id].status is CommandStatus.APPLIED
+
+    events = await event_store.load_after(operation.operation_id, after_sequence=0)
+    assert [event.event_type for event in events] == [
+        "operation.created",
+        "policy.active_set.updated",
+        "policy.coverage.updated",
+        "command.accepted",
+        "policy.active_set.updated",
+        "policy.coverage.updated",
+    ]
+
+    stale_snapshot = operation.model_copy(deep=True)
+    replayed = await operation_entrypoints._load_event_sourced(  # noqa: SLF001 - regression check
+        operation.operation_id,
+        fallback_state=stale_snapshot,
+    )
+    assert replayed.active_policies == []
+    assert replayed.policy_coverage.active_policy_count == 0
+    assert command.command_id in replayed.processed_command_ids
+
+    revoked = await policy_store.load(existing.policy_id)
+    assert revoked is not None
+    assert revoked.status is PolicyStatus.REVOKED
+    assert revoked.revoked_reason == "Main repo now exists."
 
 
 @pytest.mark.anyio
