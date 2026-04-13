@@ -1178,6 +1178,7 @@ async def test_answer_attention_request_command_service_uses_replay_backed_persi
         "command.accepted",
         "attention.request.answered",
         "operation.status.changed",
+        "attention.request.resolved",
     ]
 
     stale_snapshot = operation.model_copy(deep=True)
@@ -1185,8 +1186,9 @@ async def test_answer_attention_request_command_service_uses_replay_backed_persi
         operation.operation_id,
         fallback_state=stale_snapshot,
     )
-    assert replayed.attention_requests[0].status is AttentionStatus.ANSWERED
+    assert replayed.attention_requests[0].status is AttentionStatus.RESOLVED
     assert replayed.attention_requests[0].answer_text == "Use staging first."
+    assert replayed.pending_attention_resolution_ids == []
     assert replayed.current_focus is not None
     assert replayed.current_focus.target_id == "attention-1"
     assert command.command_id in replayed.processed_command_ids

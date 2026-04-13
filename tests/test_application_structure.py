@@ -182,6 +182,42 @@ def test_answer_attention_request_command_path_does_not_use_legacy_snapshot_pers
     assert len(runtime_guards) == 1
 
 
+def test_finalize_pending_attention_resolutions_uses_no_legacy_snapshot_persistence() -> None:
+    """ADR 0144: pending attention resolution finalization must replay from canonical events."""
+    command_file = APPLICATION_DIR / "commands" / "operation_commands.py"
+    source = command_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    class_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OperationCommandService"
+    )
+    method = next(
+        node
+        for node in class_node.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "finalize_pending_attention_resolutions"
+    )
+
+    legacy_persist_calls = [
+        child.lineno
+        for child in ast.walk(method)
+        if isinstance(child, ast.Attribute)
+        and child.attr == "persist_legacy_snapshot_command_effect_state"
+    ]
+    append_calls = [
+        child
+        for child in ast.walk(method)
+        if isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "append_domain_events"
+    ]
+
+    assert legacy_persist_calls == []
+    assert len(append_calls) == 1
+
+
 def test_control_state_coordinator_keeps_replay_sync_separate_from_snapshot_writes() -> None:
     """ADR 0144: canonical command-effect sync must not hide snapshot writes behind a flag."""
     control_file = APPLICATION_DIR / "commands" / "operation_control_state.py"

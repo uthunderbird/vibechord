@@ -98,6 +98,27 @@ class EventSourcedCommandApplicationService:
             rejection_reason=rejection_reason,
         )
 
+    async def append_domain_events(
+        self,
+        operation_id: str,
+        drafts: list[OperationDomainEventDraft],
+    ) -> EventSourcedCommandApplicationResult:
+        """Append prevalidated domain events through the canonical replay path."""
+        replay_state = await self._replay.load(operation_id)
+        stored_events = await self._event_store.append(
+            operation_id,
+            replay_state.last_applied_sequence,
+            drafts,
+        )
+        updated_replay_state = self._replay.advance(replay_state, stored_events)
+        await self._replay.materialize(updated_replay_state)
+        return EventSourcedCommandApplicationResult(
+            applied=True,
+            checkpoint=updated_replay_state.checkpoint,
+            stored_events=stored_events,
+            rejection_reason=None,
+        )
+
     async def seed_attention_request_from_state(
         self,
         state: OperationState,

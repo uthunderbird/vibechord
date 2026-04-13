@@ -11,6 +11,7 @@ from agent_operator.application.event_sourcing.event_sourced_replay import Event
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.domain import (
     AgentSessionHandle,
+    AttentionStatus,
     ExecutionBudget,
     OperationGoal,
     OperationPolicy,
@@ -226,9 +227,11 @@ class OperationEntrypointService:
             item.model_copy(deep=True) for item in fallback_state.pending_wakeups
         ]
         state.pending_replan_command_ids = list(fallback_state.pending_replan_command_ids)
-        state.pending_attention_resolution_ids = list(
-            fallback_state.pending_attention_resolution_ids
-        )
+        state.pending_attention_resolution_ids = [
+            attention.attention_id
+            for attention in state.attention_requests
+            if attention.status is AttentionStatus.ANSWERED
+        ]
         state.current_focus = (
             fallback_state.current_focus.model_copy(deep=True)
             if fallback_state.current_focus is not None

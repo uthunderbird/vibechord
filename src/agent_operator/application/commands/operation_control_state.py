@@ -56,10 +56,15 @@ class OperationControlStateCoordinator:
         refreshed.features = [item.model_copy(deep=True) for item in state.features]
         refreshed.memory_entries = [item.model_copy(deep=True) for item in state.memory_entries]
         refreshed.artifacts = [item.model_copy(deep=True) for item in state.artifacts]
+        refreshed.active_policies = [item.model_copy(deep=True) for item in state.active_policies]
+        refreshed.policy_coverage = state.policy_coverage.model_copy(deep=True)
         refreshed.operation_brief = (
             state.operation_brief.model_copy(deep=True)
             if state.operation_brief is not None
             else None
+        )
+        refreshed.processed_command_ids = list(
+            dict.fromkeys([*refreshed.processed_command_ids, *state.processed_command_ids])
         )
         refreshed.pending_replan_command_ids = list(state.pending_replan_command_ids)
         if hasattr(state, "iteration_briefs"):

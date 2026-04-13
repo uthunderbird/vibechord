@@ -35,8 +35,8 @@ from agent_operator.domain import (
     IterationState,
     OperationCommand,
     OperationCommandType,
+    OperationDomainEventDraft,
     OperationState,
-    OperationStatus,
     PermissionRequestSignature,
     PolicyApplicability,
     PolicyCategory,
@@ -468,13 +468,35 @@ class OperationCommandService:
         resolved_at = datetime.now(UTC)
         state.pending_attention_resolution_ids = []
         changed = False
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "Pending attention resolution finalization requires "
+                "EventSourcedCommandApplicationService."
+            )
         for attention_id in pending_ids:
             attention = self.find_attention_request(state, attention_id)
             if attention is None or attention.status is not AttentionStatus.ANSWERED:
                 continue
-            attention.status = AttentionStatus.RESOLVED
-            attention.resolved_at = resolved_at
-            attention.resolution_summary = "Resolved via operator replanning after human answer."
+            resolution_summary = "Resolved via operator replanning after human answer."
+            result = await self._event_sourced_command_service.append_domain_events(
+                state.operation_id,
+                [
+                    OperationDomainEventDraft(
+                        event_type="attention.request.resolved",
+                        payload={
+                            "attention_id": attention.attention_id,
+                            "attention_type": attention.attention_type.value,
+                            "status": AttentionStatus.RESOLVED.value,
+                            "resolution_summary": resolution_summary,
+                            "resolved_at": resolved_at.isoformat(),
+                        },
+                    )
+                ],
+            )
+            self._control_state_coordinator.refresh_state_from_checkpoint(state, result.checkpoint)
+            attention = self.find_attention_request(state, attention_id)
+            if attention is None or attention.status is not AttentionStatus.RESOLVED:
+                continue
             changed = True
             await self._event_relay.emit(
                 "attention.request.resolved",
@@ -493,9 +515,7 @@ class OperationCommandService:
                 if policy_written:
                     changed = True
         if changed:
-            await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(
-                state
-            )
+            await self._control_state_coordinator.persist_command_effect_state(state)
 
     async def auto_record_approval_attention_policy(
         self,
@@ -697,9 +717,11 @@ class OperationCommandService:
             ):
                 snapshot_attention = self.find_attention_request(state, command.target_id)
                 assert snapshot_attention is not None
-                checkpoint = await self._event_sourced_command_service.seed_attention_request_from_state(
-                    state,
-                    snapshot_attention,
+                checkpoint = (
+                    await self._event_sourced_command_service.seed_attention_request_from_state(
+                        state,
+                        snapshot_attention,
+                    )
                 )
                 self._control_state_coordinator.refresh_state_from_checkpoint(state, checkpoint)
                 result = await self._event_sourced_command_service.apply(command)
