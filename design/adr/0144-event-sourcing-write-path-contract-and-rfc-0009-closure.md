@@ -263,12 +263,19 @@ Current blocking evidence:
 
 - `src/agent_operator/application/operation_lifecycle.py`,
   `OperationLifecycleCoordinator.cancel_scoped_execution`, still mutates `record.status` and
-  `record.waiting_reason` directly before calling `self.store.save_operation(state)`.
+  `record.waiting_reason` directly before appending only `session.observed_state.changed`.
+  The direct in-memory write remains load-bearing because no canonical event in that path carries
+  the `waiting_reason` mutation or performs the full session-state transition.
 - `src/agent_operator/application/commands/operation_cancellation.py` still routes targeted
-  cancellation through that method, even though it also emits `session.observed_state.changed`.
+  cancellation through that method, so targeted cancellation still depends on the partial
+  event-sourced persistence described above.
 - `src/agent_operator/application/commands/operation_control_state.py`,
-  `persist_command_effect_state`, still persists post-command mutable state via
-  `self._store.save_operation(state)`.
+  `OperationControlStateCoordinator.persist_legacy_snapshot_command_effect_state`, still persists
+  post-command mutable state via `self._store.save_operation(state)`.
+- `src/agent_operator/application/commands/operation_commands.py`,
+  `OperationCommandService._apply_stop_operation`, still mutates `background_runs`,
+  operation status/final summary, focus, and scheduler state in memory and then persists them
+  through `persist_legacy_snapshot_command_effect_state(state)`.
 
 Because those adjacent mutation paths remain, this ADR does not yet justify promoting RFC 0009
 or treating dependent closure ADRs as advanced by full write-path retirement.

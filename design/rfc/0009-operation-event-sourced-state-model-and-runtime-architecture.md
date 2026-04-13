@@ -17,19 +17,25 @@ Accepted
 - `implemented`: `ADR 0092` has split durable policy, execution budget, and runtime hints in the
   repository data model
 - `implemented`: `ADR 0086` and `ADR 0088` have completed the main entrypoint cutover
-- `implemented`: `ADR 0144` has established and enforced the binding write-path rule:
-  all live mutations go through event-append; `save_operation()` in the drive loop is
-  now exclusively called via `_advance_checkpoint()` (checkpoint helper); new mutation-path
-  callers of `save_operation()` are blocked by a lint assertion in `test_application_structure.py`
+- `partial`: `ADR 0144` has established the binding write-path rule and enforced the
+  drive-loop `_advance_checkpoint()` checkpoint-helper boundary, but the repository has not yet
+  retired all live snapshot-era mutation paths
 - `implemented`: the three concrete resume/reconcile failure modes (session_id lost,
   cooldown_until not cleared, active_session stale) are resolved via events
   `execution.session_linked`, `session.cooldown_cleared`, and `operation.active_session_updated`
   with corresponding projector slices
 - `implemented`: `OperationCheckpoint` is the canonical replay target for live operation truth
-- `verified`: 513 tests pass against the event-sourced runtime
+- `partial`: targeted cancellation and `STOP_OPERATION` still retain snapshot-era mutation
+  persistence at current `HEAD`:
+  `OperationLifecycleCoordinator.cancel_scoped_execution()` mutates `SessionState` before
+  appending only a partial event, and
+  `OperationCommandService._apply_stop_operation()` still persists through
+  `persist_legacy_snapshot_command_effect_state()`
+- `verified`: repository verification currently passes, but that does not close the remaining
+  write-path retirement work
 
-The repository has switched canonical operation truth to the domain-event-plus-checkpoint model
-described here. The RFC is promoted from `Proposed` to `Accepted`.
+The repository has accepted the domain-event-plus-checkpoint architecture described here and has
+implemented substantial portions of it, but full live write-path retirement is still incomplete.
 
 ## Context
 
