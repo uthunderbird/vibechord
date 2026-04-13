@@ -131,7 +131,7 @@ wave and is narrower than the overall command-taxonomy decision.
 
 ### ADR 0097: Forensic log unification and debug-surface relocation → Status: Accepted
 
-**Extends:** ADR 0030, VISION, CLI-UX-VISION
+**Extends:** ADR 0165, VISION, CLI-UX-VISION
 
 **Covers:**
 - unified `log`
