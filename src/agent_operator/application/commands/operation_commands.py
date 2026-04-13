@@ -330,9 +330,17 @@ class OperationCommandService:
         assert policy_store is not None
         await policy_store.save(entry)
         await self.refresh_policy_context(state)
-        self._control_state_coordinator.remember_processed_command(state, command.command_id)
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "RECORD_POLICY_DECISION requires EventSourcedCommandApplicationService."
+            )
         applied_at = datetime.now(UTC)
-        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
+        result = await self._event_sourced_command_service.append_domain_events(
+            state.operation_id,
+            self._policy_context_domain_events(state, command, applied_at=applied_at),
+        )
+        self._control_state_coordinator.refresh_state_from_checkpoint(state, result.checkpoint)
+        await self._control_state_coordinator.persist_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
@@ -662,6 +670,48 @@ class OperationCommandService:
 
     async def refresh_policy_context(self, state: OperationState) -> None:
         await self._policy_context_coordinator.refresh_policy_context(state)
+
+    def _policy_context_domain_events(
+        self,
+        state: OperationState,
+        command: OperationCommand,
+        *,
+        applied_at: datetime,
+    ) -> list[OperationDomainEventDraft]:
+        return [
+            OperationDomainEventDraft(
+                event_type="command.accepted",
+                payload={
+                    "command_id": command.command_id,
+                    "command_type": command.command_type.value,
+                    "target_scope": command.target_scope.value,
+                    "target_id": command.target_id,
+                    "submitted_by": command.submitted_by,
+                    "submitted_at": command.submitted_at.isoformat(),
+                },
+                timestamp=applied_at,
+                causation_id=command.command_id,
+                correlation_id=command.command_id,
+            ),
+            OperationDomainEventDraft(
+                event_type="policy.active_set.updated",
+                payload={
+                    "active_policies": [
+                        policy.model_dump(mode="json") for policy in state.active_policies
+                    ]
+                },
+                timestamp=applied_at,
+                causation_id=command.command_id,
+                correlation_id=command.command_id,
+            ),
+            OperationDomainEventDraft(
+                event_type="policy.coverage.updated",
+                payload=state.policy_coverage.model_dump(mode="json"),
+                timestamp=applied_at,
+                causation_id=command.command_id,
+                correlation_id=command.command_id,
+            ),
+        ]
 
     def resolve_policy_scope(self, state: OperationState) -> str | None:
         return self._policy_context_coordinator.resolve_policy_scope(state)
