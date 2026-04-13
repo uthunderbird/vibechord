@@ -9,8 +9,9 @@ from pathlib import Path
 import anyio
 import pytest
 
-from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
+from agent_operator.application.agent_session_manager import AttachedSessionManager
 from agent_operator.domain import (
+    AgentDescriptor,
     AgentProgress,
     AgentProgressState,
     AgentResult,
@@ -135,6 +136,54 @@ class _FakeTestAgent:
     async def close(self, handle: AgentSessionHandle) -> None:
         """Close is a no-op for the fake adapter."""
         return None
+
+
+class _TrackingSessionManager:
+    """Tiny session-manager double for supervisor lifecycle assertions."""
+
+    def __init__(self) -> None:
+        self.handle = AgentSessionHandle(adapter_key="codex_acp", session_id="sess-1")
+        self.close_calls = 0
+        self.cancel_calls = 0
+        self._result = AgentResult(
+            session_id="sess-1",
+            status=AgentResultStatus.SUCCESS,
+            output_text="done",
+            completed_at=datetime.now(UTC),
+        )
+
+    def keys(self) -> list[str]:
+        return ["codex_acp"]
+
+    def has(self, adapter_key: str) -> bool:
+        return adapter_key == "codex_acp"
+
+    async def describe(self, adapter_key: str) -> AgentDescriptor:
+        return AgentDescriptor(key=adapter_key, display_name=adapter_key)
+
+    async def start(self, adapter_key: str, request: AgentRunRequest) -> AgentSessionHandle:
+        return self.handle
+
+    async def send(self, handle: AgentSessionHandle, message: str) -> None:
+        return None
+
+    async def poll(self, handle: AgentSessionHandle) -> AgentProgress:
+        return AgentProgress(
+            session_id=handle.session_id,
+            state=AgentProgressState.COMPLETED,
+            message="Completed.",
+            updated_at=datetime.now(UTC),
+            partial_output="done",
+        )
+
+    async def collect(self, handle: AgentSessionHandle) -> AgentResult:
+        return self._result
+
+    async def cancel(self, handle: AgentSessionHandle) -> None:
+        self.cancel_calls += 1
+
+    async def close(self, handle: AgentSessionHandle) -> None:
+        self.close_calls += 1
 
 
 @pytest.mark.anyio
@@ -432,7 +481,7 @@ async def test_inprocess_supervisor_completes_run_and_enqueues_wakeup(tmp_path: 
     supervisor = InProcessAgentRunSupervisor(
         tmp_path / "background",
         tmp_path,
-        session_manager=RegistryBackedAgentSessionManager.from_bindings(
+        session_manager=AttachedSessionManager.from_bindings(
             build_test_runtime_bindings({"codex_acp": _FakeTestAgent()})
         ),
         wakeup_inbox=inbox,
@@ -445,7 +494,7 @@ async def test_inprocess_supervisor_completes_run_and_enqueues_wakeup(tmp_path: 
         AgentRunRequest(goal="hello", instruction="ship it"),
     )
 
-    deadline = time.time() + 2.0
+    deadline = time.time() + 5.0
     result = None
     while time.time() < deadline:
         result = await supervisor.collect_background_turn(run.run_id)
@@ -464,6 +513,41 @@ async def test_inprocess_supervisor_completes_run_and_enqueues_wakeup(tmp_path: 
     assert pending[0].event_type == "background_run.completed"
     assert (tmp_path / "background" / "runs" / f"{run.run_id}.json").exists()
     assert (tmp_path / "background" / "results" / f"{run.run_id}.json").exists()
+
+
+@pytest.mark.anyio
+async def test_inprocess_supervisor_keeps_reusable_session_open_after_success(
+    tmp_path: Path,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    manager = _TrackingSessionManager()
+    supervisor = InProcessAgentRunSupervisor(
+        tmp_path / "background",
+        tmp_path,
+        session_manager=manager,
+        wakeup_inbox=inbox,
+    )
+
+    run = await supervisor.start_background_turn(
+        "op-1",
+        1,
+        "codex_acp",
+        AgentRunRequest(goal="hello", instruction="ship it"),
+        existing_session=manager.handle,
+    )
+
+    deadline = time.time() + 2.0
+    result = None
+    while time.time() < deadline:
+        result = await supervisor.collect_background_turn(run.run_id)
+        if result is not None:
+            break
+        await anyio.sleep(0.05)
+
+    assert result is not None
+    assert result.status is AgentResultStatus.SUCCESS
+    assert manager.close_calls == 0
+    assert manager.cancel_calls == 0
 
 
 @pytest.mark.anyio

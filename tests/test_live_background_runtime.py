@@ -8,7 +8,7 @@ import anyio
 import pytest
 
 from agent_operator.adapters import build_agent_runtime_bindings
-from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
+from agent_operator.application.agent_session_manager import AttachedSessionManager
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import AgentSessionHandle
 from agent_operator.dtos import AgentRunRequest
@@ -65,7 +65,7 @@ async def test_background_claude_acp_roundtrip_live(tmp_path: Path, monkeypatch)
     supervisor = InProcessAgentRunSupervisor(
         tmp_path / "background",
         tmp_path,
-        session_manager=RegistryBackedAgentSessionManager.from_bindings(
+        session_manager=AttachedSessionManager.from_bindings(
             build_agent_runtime_bindings(OperatorSettings())
         ),
         wakeup_inbox=inbox,
@@ -111,7 +111,7 @@ async def test_background_codex_acp_continuation_live(tmp_path: Path, monkeypatc
     supervisor = InProcessAgentRunSupervisor(
         tmp_path / "background",
         tmp_path,
-        session_manager=RegistryBackedAgentSessionManager.from_bindings(
+        session_manager=AttachedSessionManager.from_bindings(
             build_agent_runtime_bindings(OperatorSettings())
         ),
         wakeup_inbox=inbox,

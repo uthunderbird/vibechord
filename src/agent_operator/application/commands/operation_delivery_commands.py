@@ -257,10 +257,10 @@ class OperationDeliveryCommandService:
             if max_iterations is not None:
                 raise RuntimeError("--max-iterations is not supported for this command type.")
             if allowed_agents is None:
-                raise RuntimeError("--allowed-agent is required for this command type.")
+                raise RuntimeError("--agent is required for this command type.")
             allowed_agents_payload = [item.strip() for item in allowed_agents if item.strip()]
             if not allowed_agents_payload:
-                raise RuntimeError("--allowed-agent cannot be empty.")
+                raise RuntimeError("--agent cannot be empty.")
             return {"allowed_agents": allowed_agents_payload}
         if command_type is OperationCommandType.SET_INVOLVEMENT_LEVEL:
             if text is None or not text.strip():

@@ -3492,7 +3492,7 @@ def test_command_requires_allowed_agent_for_set_allowed_agents(tmp_path: Path, m
 
     assert result.exit_code != 0
     rendered = result.stdout + result.stderr
-    assert "--allowed-agent is required" in rendered
+    assert "--agent is required" in rendered
 
 
 def test_command_enqueues_set_allowed_agents(tmp_path: Path, monkeypatch) -> None:
@@ -3506,9 +3506,9 @@ def test_command_enqueues_set_allowed_agents(tmp_path: Path, monkeypatch) -> Non
             operation_id,
             "--type",
             "set_allowed_agents",
-            "--allowed-agent",
+            "--agent",
             "codex_acp",
-            "--allowed-agent",
+            "--agent",
             "claude_acp",
         ],
     )
@@ -3554,7 +3554,7 @@ def test_command_rejects_mixed_allowed_agents_and_max_iterations(
             operation_id,
             "--type",
             "set_allowed_agents",
-            "--allowed-agent",
+            "--agent",
             "codex_acp",
             "--max-iterations",
             "14",

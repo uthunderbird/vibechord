@@ -10,6 +10,7 @@ class AgentSessionCommandType(str):
 
     START_SESSION = "start_session"
     SEND_MESSAGE = "send_message"
+    FORK_SESSION = "fork_session"
     REPLACE_SESSION = "replace_session"
 
 
@@ -47,5 +48,9 @@ class AgentSessionCommand(BaseModel):
                 raise ValueError(
                     "Session start/send/replace commands require non-empty instruction."
                 )
+            return self
+        if self.command_type == AgentSessionCommandType.FORK_SESSION:
+            if not isinstance(self.session_id, str) or not self.session_id.strip():
+                raise ValueError("Session fork commands require source session_id.")
             return self
         raise ValueError(f"Unsupported agent session command type: {self.command_type}.")

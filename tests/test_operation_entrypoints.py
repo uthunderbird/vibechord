@@ -10,7 +10,7 @@ from agent_operator.application import (
     OperationEntrypointService,
     OperationLifecycleCoordinator,
 )
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
+from agent_operator.application.attached_session_registry import AttachedSessionManager
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
@@ -311,7 +311,7 @@ async def test_prepare_run_replays_event_sourced_attached_initial_session(tmp_pa
         event_sourced_operation_birth_service=birth,
         event_sourced_replay_service=replay,
     )
-    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionRuntimeRegistry({}))
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionManager({}))
     attached_session = AgentSessionHandle(adapter_key="claude_acp", session_id="session-1")
 
     state = await service.prepare_run(

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import timedelta
 
 from agent_operator.application.agent_results import AgentResultService
-from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
+from agent_operator.application.agent_session_manager import AttachedSessionManager
 from agent_operator.application.attached_session_registry import (
     AttachedRuntimeBinding,
 )
@@ -126,7 +126,7 @@ class OperatorService:
         self._attached_session_registry: AgentSessionManager = (
             session_manager
             if session_manager is not None
-            else RegistryBackedAgentSessionManager.from_bindings(agent_runtime_bindings)
+            else AttachedSessionManager.from_bindings(agent_runtime_bindings)
         )
         self._loaded_operation = LoadedOperation(
             attached_session_registry=self._attached_session_registry

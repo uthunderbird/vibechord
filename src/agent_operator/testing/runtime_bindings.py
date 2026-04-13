@@ -45,6 +45,12 @@ class TestAgentFacade(Protocol):
     async def close(self, handle: AgentSessionHandle) -> None: ...
 
 
+class ForkableTestAgentFacade(TestAgentFacade, Protocol):
+    """Optional fake-agent extension for honest session-fork support."""
+
+    async def fork(self, handle: AgentSessionHandle) -> AgentSessionHandle: ...
+
+
 @dataclass(slots=True)
 class _TurnPollState:
     """Track last-observed partial output during one synthetic runtime turn."""
@@ -83,6 +89,9 @@ class TestAgentSessionRuntime:
         """Send one start or follow-up command through the legacy fake adapter."""
         if command.command_type == AgentSessionCommandType.START_SESSION:
             await self._start_session(command)
+            return
+        if command.command_type == AgentSessionCommandType.FORK_SESSION:
+            await self._fork_session(command)
             return
         if command.command_type == AgentSessionCommandType.SEND_MESSAGE:
             await self._send_message(command)
@@ -181,6 +190,46 @@ class TestAgentSessionRuntime:
         self._turn_state = _TurnPollState()
         if not await self._run_turn_step(handle):
             self._turn_task = asyncio.create_task(self._run_turn(handle))
+
+    async def _fork_session(self, command: AgentSessionCommand) -> None:
+        await self._cancel_turn_task()
+        if not self._descriptor.supports_fork:
+            raise RuntimeError(f"Agent {self._descriptor.key!r} does not support session fork.")
+        fork = getattr(self._adapter, "fork", None)
+        if not callable(fork):
+            raise RuntimeError(
+                f"Agent {self._descriptor.key!r} does not implement session fork support."
+            )
+        source_handle = self._handle
+        if source_handle is None:
+            if not isinstance(command.session_id, str) or not command.session_id:
+                raise RuntimeError("TestAgentSessionRuntime cannot fork without session_id.")
+            source_handle = AgentSessionHandle(
+                adapter_key=self._descriptor.key,
+                session_id=command.session_id,
+                one_shot=False,
+                metadata={
+                    "working_directory": str(self._working_directory),
+                    "log_path": str(self._log_path),
+                },
+            )
+        self._handle = await fork(source_handle)
+        self._turn_state = _TurnPollState()
+        handle_log_path = self._handle.metadata.get("log_path")
+        await self._emit(
+            "session.started",
+            session_id=self._handle.session_id,
+            payload={
+                "session_id": self._handle.session_id,
+                "adapter_key": self._descriptor.key,
+                "forked_from_session_id": source_handle.session_id,
+                "log_path": (
+                    handle_log_path
+                    if isinstance(handle_log_path, str)
+                    else str(self._log_path)
+                ),
+            },
+        )
 
     async def _run_turn(self, handle: AgentSessionHandle) -> None:
         while True:
@@ -325,6 +374,7 @@ def build_test_runtime_bindings(
                 display_name=_coerce_display_name(adapter, agent_key),
                 capabilities=_coerce_capabilities(adapter),
                 supports_follow_up=_coerce_supports_follow_up(adapter),
+                supports_fork=_coerce_supports_fork(adapter),
             ),
             build_adapter_runtime=_unsupported_adapter_runtime_factory,
             build_session_runtime=_build_test_session_runtime_factory(
@@ -345,6 +395,7 @@ def _build_test_session_runtime_factory(
         display_name=_coerce_display_name(adapter, agent_key),
         capabilities=_coerce_capabilities(adapter),
         supports_follow_up=_coerce_supports_follow_up(adapter),
+        supports_fork=_coerce_supports_fork(adapter),
     )
 
     def factory(*, working_directory: Path, log_path: Path) -> AgentSessionRuntime:
@@ -372,6 +423,12 @@ def _coerce_display_name(adapter: TestAgentFacade, fallback: str) -> str:
 
 def _coerce_supports_follow_up(adapter: TestAgentFacade) -> bool:
     return bool(getattr(adapter, "supports_follow_up", True))
+
+
+def _coerce_supports_fork(adapter: TestAgentFacade) -> bool:
+    return bool(getattr(adapter, "supports_fork", False)) and callable(
+        getattr(adapter, "fork", None)
+    )
 
 
 def _coerce_capabilities(adapter: TestAgentFacade) -> list[AgentCapability]:

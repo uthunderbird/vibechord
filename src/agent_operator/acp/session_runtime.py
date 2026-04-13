@@ -105,8 +105,42 @@ class AcpAgentSessionRuntime:
                 await self._configure_loaded(command.session_id)
                 self._live_session_id = command.session_id
             if self._active_prompt_task is not None and not self._active_prompt_task.done():
-                raise RuntimeError("No live session is available for follow-up message.")
+                adapter_name = getattr(self._adapter_runtime, "_adapter_key", "agent")
+                if adapter_name == "codex_acp":
+                    raise RuntimeError(
+                        "Cannot send a follow-up while a Codex ACP turn is still running."
+                    )
+                if adapter_name == "claude_acp":
+                    raise RuntimeError(
+                        "Cannot send a follow-up while a Claude ACP turn is still running."
+                    )
+                if adapter_name == "opencode_acp":
+                    raise RuntimeError(
+                        "Cannot send a follow-up while an OpenCode ACP turn is still running."
+                    )
+                raise RuntimeError("Cannot send a follow-up while the current turn is running.")
             self._start_prompt_task(self._live_session_id, command.instruction or "")
+            return
+        if command.command_type == AgentSessionCommandType.FORK_SESSION:
+            if self._live_session_id is not None:
+                raise RuntimeError("AgentSessionRuntime already has a live session.")
+            source_session_id = command.session_id or ""
+            self._session_name = self._metadata_str(command.metadata, "session_name")
+            self._one_shot = self._metadata_bool(command.metadata, "one_shot")
+            self._session_metadata = self._normalized_session_metadata(command.metadata)
+            self._live_session_id = await self._fork_session(source_session_id)
+            await self._emit_fact(
+                TechnicalFactDraft(
+                    fact_type="session.started",
+                    payload={
+                        "session_id": self._live_session_id,
+                        "working_directory": str(self._working_directory),
+                        "forked_from_session_id": source_session_id,
+                    },
+                    observed_at=datetime.now(UTC),
+                    session_id=self._live_session_id,
+                )
+            )
             return
         if command.command_type == AgentSessionCommandType.REPLACE_SESSION:
             previous_session_id = self._live_session_id
@@ -216,6 +250,23 @@ class AcpAgentSessionRuntime:
         if session_id is None:
             raise RuntimeError("Adapter runtime did not expose a new session identifier.")
         await self._configure_new(session_id)
+        return session_id
+
+    async def _fork_session(self, source_session_id: str) -> str:
+        response = await self._request(
+            "session/fork",
+            {
+                "cwd": str(self._working_directory.resolve()),
+                "sessionId": source_session_id,
+                "mcpServers": list(self._mcp_servers),
+            },
+        )
+        session_id = response.get("sessionId")
+        if not isinstance(session_id, str) or not session_id:
+            session_id = self._extract_latest_session_id()
+        if session_id is None:
+            raise RuntimeError("Adapter runtime did not expose a forked session identifier.")
+        await self._configure_loaded(session_id)
         return session_id
 
     async def _configure_new(self, session_id: str) -> None:

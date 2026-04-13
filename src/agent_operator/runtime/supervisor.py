@@ -345,9 +345,6 @@ class InProcessAgentRunSupervisor:
             await self._persist_failure_result(spec, record, session_handle, exc)
             handshake.set()
         finally:
-            if session_handle is not None:
-                with suppress(Exception):
-                    await self._session_registry.close(session_handle)
             self._tasks.pop(spec.run_id, None)
 
     async def _wait_for_terminal_result(

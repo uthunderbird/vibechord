@@ -30,8 +30,7 @@ from agent_operator.application import (
     OperatorService,
     SupervisorBackedOperationRuntime,
 )
-from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
+from agent_operator.application.agent_session_manager import AttachedSessionManager
 from agent_operator.application.commands.operation_cancellation import OperationCancellationService
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
@@ -633,8 +632,8 @@ class _TestServiceProvider(Provider):
             from datetime import timedelta
 
             attached_turn_timeout = timedelta(minutes=30)
-        attached_session_registry = AttachedSessionRuntimeRegistry(agent_runtime_bindings)
-        session_manager = RegistryBackedAgentSessionManager(attached_session_registry)
+        attached_session_registry = AttachedSessionManager.from_bindings(agent_runtime_bindings)
+        session_manager = attached_session_registry
         loaded_operation = LoadedOperation(attached_session_registry=attached_session_registry)
         runtime_context = OperationRuntimeContext(
             loaded_operation=loaded_operation,

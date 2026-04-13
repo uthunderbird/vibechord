@@ -3,7 +3,7 @@
 ## Status
 
 - Decision Status: Accepted
-- Implementation Status: Partial
+- Implementation Status: Verified
 
 ## Context
 
@@ -138,11 +138,16 @@ The second implementation tranche is now also implemented and verified at reposi
 - targeted verification passed at current repository truth, and full verification passed:
   `610 passed, 11 skipped`
 
-The remaining work should now prefer feature expansion and internal cleanup over boundary repair:
+ADR 0170 is now fully implemented and verified at repository truth:
 
-1. evolve or rename the current registry implementation behind the `AgentSessionManager` contract
-2. add honest capability-gated fork semantics where adapters support them
-3. reduce remaining lifecycle leakage in helper and test-support layers
-4. keep shrinking direct knowledge of transport/runtime details from application services
-
-Fork support should be introduced only where the target adapter can support it honestly.
+- the concrete attached-session implementation now lives as `AttachedSessionManager`, so the
+  application-facing manager contract owns the live-session implementation directly rather than
+  routing through a registry-backed wrapper
+- runtime reconstruction and technical-fact application for attached sessions now sit behind
+  manager-owned helpers instead of leaking inline through the public manager surface
+- ACP fork support now remains capability-gated at runtime-binding truth and reuses loaded-session
+  configuration before exposing a forked session as live
+- runtime-native test bindings now advertise fork support only when the fake adapter actually
+  implements fork behavior, so helper-layer capability claims match executable truth
+- targeted verification passed for the manager/runtime/binding slice, and full verification passed:
+  `622 passed, 11 skipped`

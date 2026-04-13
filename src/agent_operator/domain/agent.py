@@ -19,6 +19,7 @@ class AgentDescriptor(BaseModel):
     capabilities: list[AgentCapability] = Field(default_factory=list)
     supports_follow_up: bool = True
     supports_cancellation: bool = True
+    supports_fork: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

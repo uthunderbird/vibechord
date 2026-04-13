@@ -33,6 +33,8 @@ class FakeAcpConnection:
         self.requests.append((method, payload))
         if method == "session/new":
             return {"sessionId": self.next_session_id}
+        if method == "session/fork":
+            return {"sessionId": "sess-2"}
         if method == "session/load":
             return {"sessionId": payload.get("sessionId", self.next_session_id)}
         if method == "session/prompt":
@@ -239,6 +241,46 @@ async def test_acp_agent_session_runtime_emits_discontinuity_fact_on_replace() -
 
 
 @pytest.mark.anyio
+async def test_acp_agent_session_runtime_configures_loaded_session_after_fork() -> None:
+    connection = FakeAcpConnection()
+    configured_session_ids: list[str] = []
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="codex_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    async def configure_loaded_session(_connection, session_id: str) -> None:
+        configured_session_ids.append(session_id)
+
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+        configure_loaded_session=configure_loaded_session,
+    )
+
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.FORK_SESSION,
+                session_id="sess-1",
+            )
+        )
+        started = await asyncio.wait_for(anext(stream), timeout=1.0)
+
+    assert ("session/fork", {"cwd": str(Path.cwd().resolve()), "sessionId": "sess-1"}) in [
+        (method, {key: value for key, value in payload.items() if key != "mcpServers"})
+        for method, payload in connection.requests
+        if method == "session/fork"
+    ]
+    assert configured_session_ids == ["sess-2"]
+    assert started.fact_type == "session.started"
+    assert started.session_id == "sess-2"
+    assert started.payload["forked_from_session_id"] == "sess-1"
+
+
+@pytest.mark.anyio
 async def test_acp_agent_session_runtime_events_is_single_consumer() -> None:
     connection = FakeAcpConnection()
     adapter_runtime = AcpAdapterRuntime(
@@ -325,6 +367,40 @@ async def test_acp_agent_session_runtime_can_resume_follow_up_for_existing_sessi
         for method, payload in connection.requests
     )
     assert completed.fact_type == "session.completed"
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_reports_running_follow_up_error() -> None:
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="codex_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+    )
+
+    async with runtime:
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+            )
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="Cannot send a follow-up while a Codex ACP turn is still running.",
+        ):
+            await runtime.send(
+                AgentSessionCommand(
+                    command_type=AgentSessionCommandType.SEND_MESSAGE,
+                    instruction="Continue.",
+                    session_id="sess-1",
+                )
+            )
 
 
 @pytest.mark.anyio

@@ -43,6 +43,7 @@ class OperationRuntimeContext:
                     ],
                     "supports_follow_up": descriptor.supports_follow_up,
                     "supports_cancellation": descriptor.supports_cancellation,
+                    "supports_fork": descriptor.supports_fork,
                     "metadata": descriptor.metadata,
                 }
             )

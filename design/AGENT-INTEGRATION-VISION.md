@@ -235,7 +235,7 @@ All `operation_id` parameters accept `last` to refer to the most recently starte
 ### Agent Names
 
 The `agent` parameter in `run_operation` accepts one adapter name as configured in the active
-project profile. Valid values are the same as `--allowed-agent` on the CLI (for example
+project profile. Valid values are the same as `--agent` on the CLI (for example
 `claude_acp`, `codex_acp`). Omit `agent` to use the profile's `default_agents` list. The MCP
 server requires a local `operator-profile.yaml` so the run can resolve project defaults without an
 extra MCP-specific project selector.

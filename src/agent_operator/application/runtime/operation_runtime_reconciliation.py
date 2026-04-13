@@ -23,6 +23,7 @@ from agent_operator.domain import (
     ResumePolicy,
     RunEvent,
     SchedulerState,
+    SessionRecord,
     SessionRecordStatus,
     TaskStatus,
     WakeupRef,
@@ -297,7 +298,9 @@ class OperationRuntimeReconciliationService:
         if result is None:
             return
         record = self._loaded_operation.find_session_record(state, session_id)
-        if record is None or not self._loaded_operation.session_has_pending_result_slot(record):
+        if record is None or self._terminal_run_already_folded(record, run):
+            return
+        if not self._loaded_operation.session_has_pending_result_slot(record):
             return
         iteration = self._loaded_operation.find_iteration_for_session(
             state,
@@ -493,7 +496,9 @@ class OperationRuntimeReconciliationService:
         if result is None:
             return False
         record = self._loaded_operation.find_session_record(state, event.session_id)
-        if record is None or not self._loaded_operation.session_has_pending_result_slot(record):
+        if record is None or self._terminal_run_already_folded(record, run):
+            return False
+        if not self._loaded_operation.session_has_pending_result_slot(record):
             return False
         iteration = self._loaded_operation.find_iteration_for_session(
             state,
@@ -590,7 +595,9 @@ class OperationRuntimeReconciliationService:
                     session_id=run.session_id,
                 )
             record = self._loaded_operation.find_session_record(state, polled.session_id)
-            if record is None or not self._loaded_operation.session_has_pending_result_slot(record):
+            if record is None or self._terminal_run_already_folded(record, polled):
+                continue
+            if not self._loaded_operation.session_has_pending_result_slot(record):
                 continue
             iteration = self._loaded_operation.find_iteration_for_session(
                 state,
@@ -627,3 +634,12 @@ class OperationRuntimeReconciliationService:
                 task_id=task.task_id if task is not None else None,
                 session_id=record.handle.session_id,
             )
+
+    def _terminal_run_already_folded(
+        self,
+        record: SessionRecord,
+        run: ExecutionState,
+    ) -> bool:
+        if run.status is BackgroundRunStatus.CANCELLED:
+            return False
+        return record.last_terminal_execution_id == run.run_id

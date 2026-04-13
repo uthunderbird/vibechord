@@ -193,7 +193,7 @@ operator run [GOAL]
   [--harness TEXT]
   [--success-criterion TEXT]...   repeatable
   [--max-iterations N]
-  [--agent ADAPTER]...            repeatable; replaces --allowed-agent
+  [--agent ADAPTER]...            repeatable public flag for adapter selection
   [--mode attached|background]
   [--involvement auto|minimal|active]
   [--from TICKET]                 PM intake: github:owner/repo#N or linear:ABC-123
@@ -630,7 +630,7 @@ RFC 0014 is the canonical output-contract companion for this section:
 | `stop_turn` | `interrupt` | Clearer intent; hyphen-case; `stop_turn` requires knowing what a "turn" is |
 | `codex-log` | `log --agent codex` | Unified; auto-detects agent by default. *Note: this overrides the deliberate exception in VISION.md §Protocol-oriented integration, which preserved vendor-named forensic commands for transparency. Rationale: `--agent` makes the vendor explicit when required (`operator log --agent claude`); unified `log` is more consistent with P5 (hyphen-case) and P2 (progressive disclosure); auto-detect is unambiguous when one agent session is active; the TUI already uses `log OP --follow` rather than vendor-named commands. VISION.md §Protocol-oriented integration deliberate exception is superseded by this document for the CLI surface.* |
 | `claude-log` | `log --agent claude` | Unified (see `codex-log` note above) |
-| `--allowed-agent` | `--agent` | Shorter, natural |
+| retired `--allowed-agent` | `--agent` | Shorter, natural |
 | `resume` | `debug resume` | Internal; `unpause` is the user-facing resume-from-pause |
 | `tick` | `debug tick` | Internal scheduler operation |
 | `recover` | `debug recover` | Internal recovery operation |
@@ -678,7 +678,7 @@ See [RFC 0011](./rfc/0011-delivery-package-boundary-for-cli-and-tui.md) for the 
 
 | Existing command | Disposition |
 |-----------------|-------------|
-| `run` | Retained; `--allowed-agent` → `--agent`; add `--from` |
+| `run` | Retained; use `--agent`; add `--from` |
 | `fleet` | Retained; becomes default for `operator` with no args + TTY |
 | `status` | Replaces `dashboard --once` as the primary status command |
 | `dashboard` | Deprecated in favor of `status` (human) and `fleet` (live multi-op) |

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
+from agent_operator.application.attached_session_registry import AttachedSessionManager
 from agent_operator.application.loaded_operation import LoadedOperation
 from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
 from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
@@ -52,7 +52,7 @@ from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
 
 
 def _build_service(trace_store: MemoryTraceStore) -> OperationTraceabilityService:
-    registry = AttachedSessionRuntimeRegistry({})
+    registry = AttachedSessionManager({})
     loaded_operation = LoadedOperation(attached_session_registry=registry)
     return OperationTraceabilityService(
         loaded_operation=loaded_operation,

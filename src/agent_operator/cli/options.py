@@ -106,6 +106,7 @@ COMMAND_SUCCESS_CRITERION_OPTION = typer.Option(
 )
 COMMAND_ALLOWED_AGENT_OPTION = typer.Option(
     None,
+    "--agent",
     "--allowed-agent",
     help="Allowed adapter key for set_allowed_agents. Repeat to replace the full list.",
 )

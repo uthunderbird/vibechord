@@ -11,7 +11,7 @@ from agent_operator.application import (
     OperationRuntimeContext,
     OperationTraceabilityService,
 )
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
+from agent_operator.application.attached_session_registry import AttachedSessionManager
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
@@ -55,10 +55,10 @@ async def test_legacy_command_effect_persistence_path_uses_canonical_append(
         checkpoint_store=checkpoint_store,
         projector=projector,
     )
-    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionRuntimeRegistry({}))
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionManager({}))
     runtime_context = OperationRuntimeContext(
         loaded_operation=loaded_operation,
-        attached_session_registry=AttachedSessionRuntimeRegistry({}),
+        attached_session_registry=AttachedSessionManager({}),
     )
     traceability_service = OperationTraceabilityService(
         loaded_operation=loaded_operation,

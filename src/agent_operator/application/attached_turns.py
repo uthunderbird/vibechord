@@ -7,7 +7,6 @@ from pathlib import Path
 
 import anyio
 
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.process_signals import ProcessManagerSignal
 from agent_operator.domain import (
     AgentError,
@@ -25,6 +24,7 @@ from agent_operator.domain import (
     TaskStatus,
 )
 from agent_operator.dtos.requests import AgentRunRequest
+from agent_operator.protocols import AgentSessionManager
 
 
 class AttachedTurnService:
@@ -40,7 +40,7 @@ class AttachedTurnService:
         iteration: IterationState,
         task: TaskState | None,
         adapter_key: str,
-        registry: AttachedSessionRuntimeRegistry,
+        registry: AgentSessionManager,
         resolve_instruction: Callable[[], str],
         resolve_working_directory: Callable[
             [TaskState | None, AgentSessionHandle | None], Path
@@ -99,7 +99,7 @@ class AttachedTurnService:
         iteration: IterationState,
         task: TaskState | None,
         adapter_key: str,
-        registry: AttachedSessionRuntimeRegistry,
+        registry: AgentSessionManager,
         resolve_record: Callable[[str | None, TaskState | None], SessionRecord | None],
         build_restart_instruction: Callable[[str], str],
         resolve_working_directory: Callable[
@@ -202,7 +202,7 @@ class AttachedTurnService:
         state: OperationState,
         iteration: IterationState,
         task: TaskState | None,
-        registry: AttachedSessionRuntimeRegistry,
+        registry: AgentSessionManager,
         session: AgentSessionHandle,
         ensure_session_record: Callable[[OperationState, AgentSessionHandle], SessionRecord],
         sync_traceability_artifacts: Callable[[OperationState], Awaitable[None]],

@@ -10,6 +10,7 @@ from agent_operator.adapters import (
 )
 from agent_operator.application import (
     AgentResultService,
+    AttachedSessionManager,
     AttachedTurnService,
     DecisionExecutionService,
     EventSourcedCommandApplicationService,
@@ -27,10 +28,8 @@ from agent_operator.application import (
     OperationRuntimeReconciliationService,
     OperationTraceabilityService,
     OperatorService,
-    RegistryBackedAgentSessionManager,
     SupervisorBackedOperationRuntime,
 )
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.commands.operation_cancellation import OperationCancellationService
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
@@ -218,15 +217,15 @@ class RuntimeProvider(_BootstrapProviderBase):
     def attached_session_registry(
         self,
         runtime_bindings: dict[str, AgentRuntimeBinding],
-    ) -> AttachedSessionRuntimeRegistry:
-        return AttachedSessionRuntimeRegistry(runtime_bindings)
+    ) -> AttachedSessionManager:
+        return AttachedSessionManager.from_bindings(runtime_bindings)
 
     @provide(scope=Scope.APP)
     def agent_session_manager(
         self,
-        attached_session_registry: AttachedSessionRuntimeRegistry,
+        attached_session_registry: AttachedSessionManager,
     ) -> AgentSessionManager:
-        return RegistryBackedAgentSessionManager(attached_session_registry)
+        return attached_session_registry
 
     @provide(scope=Scope.APP)
     def loaded_operation(

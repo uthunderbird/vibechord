@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -22,7 +22,7 @@ from agent_operator.domain import (
     TechnicalFactDraft,
 )
 from agent_operator.dtos.requests import AgentRunRequest
-from agent_operator.protocols import AgentSessionRuntime
+from agent_operator.protocols import AgentSessionManager, AgentSessionRuntime
 
 
 class AgentSessionRuntimeFactory(Protocol):
@@ -50,6 +50,70 @@ class AttachedRuntimeBinding(Protocol):
     agent_key: str
     descriptor: AgentDescriptor
     build_session_runtime: AgentSessionRuntimeFactory
+
+
+@dataclass(frozen=True, slots=True)
+class _AttachedSessionRuntimeSpec:
+    """Capture the runtime-facing inputs for one logical attached session."""
+
+    adapter_key: str
+    working_directory: Path
+    log_path: Path
+    session_name: str | None
+    one_shot: bool
+    metadata: dict[str, str]
+
+    @classmethod
+    def for_request(
+        cls,
+        *,
+        adapter_key: str,
+        request: AgentRunRequest,
+    ) -> _AttachedSessionRuntimeSpec:
+        session_name = request.session_name
+        return cls(
+            adapter_key=adapter_key,
+            working_directory=request.working_directory,
+            log_path=acp_log_path(
+                request.working_directory,
+                adapter_key=adapter_key,
+                session_token=session_name,
+            ),
+            session_name=session_name,
+            one_shot=request.one_shot,
+            metadata={
+                key: value
+                for key, value in request.metadata.items()
+                if isinstance(key, str) and isinstance(value, str)
+            },
+        )
+
+    @classmethod
+    def for_handle(cls, handle: AgentSessionHandle) -> _AttachedSessionRuntimeSpec:
+        session_name = handle.session_name or cls._payload_str(handle.metadata.get("session_name"))
+        working_directory = Path(
+            cls._payload_str(handle.metadata.get("working_directory")) or str(Path.cwd())
+        )
+        return cls(
+            adapter_key=handle.adapter_key,
+            working_directory=working_directory,
+            log_path=acp_log_path(
+                working_directory,
+                adapter_key=handle.adapter_key,
+                session_token=session_name,
+            ),
+            session_name=session_name,
+            one_shot=handle.one_shot,
+            metadata={
+                key: value
+                for key, value in handle.metadata.items()
+                if isinstance(key, str) and isinstance(value, str)
+            },
+        )
+
+    @staticmethod
+    def _payload_str(value: object) -> str | None:
+        return value if isinstance(value, str) else None
 
 
 @dataclass(slots=True)
@@ -87,6 +151,206 @@ class _LiveAttachedSession:
         self.active_turn = True
 
 
+class _AttachedSessionRuntimeOwner:
+    """Own runtime-specific reconstruction and fact application for one live session."""
+
+    def __init__(self, binding: AttachedRuntimeBinding, spec: _AttachedSessionRuntimeSpec) -> None:
+        self._binding = binding
+        self._spec = spec
+
+    async def open_live_session(
+        self,
+        *,
+        handle: AgentSessionHandle | None = None,
+    ) -> _LiveAttachedSession:
+        runtime = self._binding.build_session_runtime(
+            working_directory=self._spec.working_directory,
+            log_path=self._spec.log_path,
+        )
+        await runtime.__aenter__()
+        return _LiveAttachedSession(
+            binding=self._binding,
+            runtime=runtime,
+            working_directory=self._spec.working_directory,
+            log_path=self._spec.log_path,
+            session_name=self._spec.session_name,
+            one_shot=self._spec.one_shot,
+            metadata=dict(self._spec.metadata),
+            handle=handle.model_copy(deep=True) if handle is not None else None,
+        )
+
+    async def consume_runtime_events(
+        self,
+        live: _LiveAttachedSession,
+        *,
+        on_handle_bound: Callable[[str], None] | None = None,
+    ) -> None:
+        try:
+            async for fact in live.runtime.events():
+                bound_handle = self.apply_fact(live, fact)
+                if bound_handle is not None and on_handle_bound is not None:
+                    on_handle_bound(bound_handle)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            now = datetime.now(UTC)
+            if live.handle is not None and live.result is None:
+                live.result = AgentResult(
+                    session_id=live.handle.session_id,
+                    status=AgentResultStatus.FAILED,
+                    completed_at=now,
+                    error=AgentError(
+                        code="attached_runtime_stream_failed",
+                        message=str(exc),
+                        retryable=False,
+                    ),
+                )
+                live.updated_at = now
+                live.terminal_event.set()
+
+    def apply_fact(
+        self,
+        live: _LiveAttachedSession,
+        fact: TechnicalFactDraft,
+    ) -> str | None:
+        live.updated_at = fact.observed_at
+        live.last_event_at = fact.observed_at
+        if fact.fact_type == "session.started":
+            payload_log_path = self._payload_str(fact.payload.get("log_path"))
+            live.handle = AgentSessionHandle(
+                adapter_key=self._binding.agent_key,
+                session_id=str(fact.payload["session_id"]),
+                session_name=live.session_name,
+                display_name=self._binding.descriptor.display_name,
+                one_shot=live.one_shot,
+                metadata={
+                    **live.metadata,
+                    "working_directory": str(live.working_directory),
+                    "log_path": payload_log_path or str(live.log_path),
+                },
+            )
+            live.started_event.set()
+            return live.handle.session_id
+        if fact.fact_type == "session.output_chunk_observed":
+            text = fact.payload.get("text")
+            if isinstance(text, str) and text:
+                live.output_chunks.append(text)
+            live.progress_message = "Agent session is running."
+            return None
+        if fact.fact_type == "session.waiting_input_observed":
+            waiting_reason = fact.payload.get("message")
+            live.waiting_reason = (
+                waiting_reason
+                if isinstance(waiting_reason, str)
+                else "Agent is waiting for input."
+            )
+            live.progress_message = live.waiting_reason
+            live.active_turn = False
+            assert live.handle is not None
+            raw_payload = self._payload_dict(fact.payload.get("raw")) or {
+                "fact": fact.model_dump(mode="json")
+            }
+            live.result = AgentResult(
+                session_id=live.handle.session_id,
+                status=AgentResultStatus.INCOMPLETE,
+                output_text="".join(live.output_chunks),
+                completed_at=fact.observed_at,
+                error=AgentError(
+                    code="agent_waiting_input",
+                    message=live.waiting_reason,
+                    retryable=False,
+                    raw=raw_payload,
+                ),
+                raw=raw_payload,
+            )
+            live.terminal_event.set()
+            return None
+        terminal_result = self._terminal_result_from_fact(live, fact)
+        if terminal_result is None:
+            return None
+        live.active_turn = False
+        live.waiting_reason = None
+        live.result = terminal_result
+        live.terminal_event.set()
+        return None
+
+    def _terminal_result_from_fact(
+        self,
+        live: _LiveAttachedSession,
+        fact: TechnicalFactDraft,
+    ) -> AgentResult | None:
+        assert live.handle is not None
+        raw_payload = self._payload_dict(fact.payload.get("raw")) or {
+            "fact": fact.model_dump(mode="json")
+        }
+        if fact.fact_type == "session.completed":
+            output_text = fact.payload.get("output_text")
+            return AgentResult(
+                session_id=live.handle.session_id,
+                status=AgentResultStatus.SUCCESS,
+                output_text=(
+                    output_text if isinstance(output_text, str) else "".join(live.output_chunks)
+                ),
+                completed_at=fact.observed_at,
+                raw=raw_payload,
+            )
+        if fact.fact_type == "session.cancelled":
+            return AgentResult(
+                session_id=live.handle.session_id,
+                status=AgentResultStatus.CANCELLED,
+                completed_at=fact.observed_at,
+                error=AgentError(
+                    code=self._payload_str(fact.payload.get("error_code"))
+                    or "agent_session_cancelled",
+                    message="Agent session cancelled.",
+                    retryable=False,
+                    raw=raw_payload,
+                ),
+                raw=raw_payload,
+            )
+        if fact.fact_type == "session.failed":
+            message = fact.payload.get("message")
+            return AgentResult(
+                session_id=live.handle.session_id,
+                status=AgentResultStatus.FAILED,
+                completed_at=fact.observed_at,
+                error=AgentError(
+                    code=self._payload_str(fact.payload.get("error_code"))
+                    or "agent_session_failed",
+                    message=message if isinstance(message, str) else "Agent session failed.",
+                    retryable=False,
+                    raw=raw_payload,
+                ),
+                raw=raw_payload,
+            )
+        if fact.fact_type == "session.discontinuity_observed":
+            message = fact.payload.get("message")
+            return AgentResult(
+                session_id=live.handle.session_id,
+                status=AgentResultStatus.DISCONNECTED,
+                completed_at=fact.observed_at,
+                error=AgentError(
+                    code=self._payload_str(fact.payload.get("error_code"))
+                    or "agent_session_disconnected",
+                    message=(
+                        message if isinstance(message, str) else "Agent session disconnected."
+                    ),
+                    retryable=True,
+                    raw=raw_payload,
+                ),
+                raw=raw_payload,
+            )
+        return None
+
+    @staticmethod
+    def _payload_dict(value: object) -> dict[str, object]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _payload_str(value: object) -> str | None:
+        return value if isinstance(value, str) else None
+
+
 @dataclass(slots=True)
 class _TerminalAttachedSession:
     """Retain terminal session truth after live runtime disposal."""
@@ -98,15 +362,15 @@ class _TerminalAttachedSession:
     log_path: Path
 
 
-class AttachedSessionRuntimeRegistry:
-    """Runtime-backed registry for attached and in-process session execution.
+class AttachedSessionManager(AgentSessionManager):
+    """Concrete live-session manager for attached and in-process execution.
 
-    The registry owns one `AgentSessionRuntime` instance per live operator session and
-    synthesizes the old `start/send/poll/collect/cancel` surface from runtime facts.
+    This manager owns one `AgentSessionRuntime` instance per live operator session and
+    synthesizes the app-facing session lifecycle from runtime facts.
 
     Examples:
-        >>> registry = AttachedSessionRuntimeRegistry({})
-        >>> registry.keys()
+        >>> manager = AttachedSessionManager({})
+        >>> manager.keys()
         []
     """
 
@@ -114,6 +378,14 @@ class AttachedSessionRuntimeRegistry:
         self._bindings = dict(bindings)
         self._sessions: dict[str, _LiveAttachedSession] = {}
         self._terminal_sessions: dict[str, _TerminalAttachedSession] = {}
+
+    @classmethod
+    def from_bindings(
+        cls,
+        bindings: Mapping[str, AttachedRuntimeBinding],
+    ) -> AttachedSessionManager:
+        """Build one concrete session manager from attached runtime bindings."""
+        return cls(bindings)
 
     def keys(self) -> list[str]:
         """Return configured agent keys."""
@@ -143,29 +415,18 @@ class AttachedSessionRuntimeRegistry:
         """
 
         binding = self._bindings[adapter_key]
-        log_path = acp_log_path(
-            request.working_directory,
-            adapter_key=adapter_key,
-            session_token=request.session_name,
+        owner = _AttachedSessionRuntimeOwner(
+            binding,
+            _AttachedSessionRuntimeSpec.for_request(
+                adapter_key=adapter_key,
+                request=request,
+            ),
         )
-        runtime = binding.build_session_runtime(
-            working_directory=request.working_directory,
-            log_path=log_path,
-        )
-        await runtime.__aenter__()
-        live = _LiveAttachedSession(
-            binding=binding,
-            runtime=runtime,
-            working_directory=request.working_directory,
-            log_path=log_path,
-            session_name=request.session_name,
-            one_shot=request.one_shot,
-            metadata=dict(request.metadata),
-        )
+        live = await owner.open_live_session()
         live.reset_for_turn()
-        live.consumer_task = asyncio.create_task(self._consume_runtime_events(live))
+        live.consumer_task = asyncio.create_task(self._consume_runtime_events(live, owner))
         try:
-            await runtime.send(
+            await live.runtime.send(
                 AgentSessionCommand(
                     command_type=AgentSessionCommandType.START_SESSION,
                     instruction=request.instruction,
@@ -174,6 +435,42 @@ class AttachedSessionRuntimeRegistry:
                         "goal": request.goal,
                         "session_name": request.session_name,
                         "one_shot": request.one_shot,
+                    },
+                )
+            )
+            await asyncio.wait_for(live.started_event.wait(), timeout=10.0)
+            assert live.handle is not None
+            return live.handle.model_copy(deep=True)
+        except Exception:
+            await self._dispose_runtime(live)
+            raise
+
+    async def fork(self, handle: AgentSessionHandle) -> AgentSessionHandle:
+        """Fork one existing session when the configured adapter supports it."""
+        binding = self._bindings.get(handle.adapter_key)
+        if binding is None:
+            raise RuntimeError(f"Unknown attached session: {handle.session_id}")
+        if not binding.descriptor.supports_fork:
+            raise RuntimeError(
+                f"Agent {binding.descriptor.key!r} does not support session fork."
+            )
+        owner = _AttachedSessionRuntimeOwner(
+            binding,
+            _AttachedSessionRuntimeSpec.for_handle(handle),
+        )
+        live = await owner.open_live_session()
+        live.progress_message = "Agent session forked and waiting for the next message."
+        live.waiting_reason = live.progress_message
+        live.consumer_task = asyncio.create_task(self._consume_runtime_events(live, owner))
+        try:
+            await live.runtime.send(
+                AgentSessionCommand(
+                    command_type=AgentSessionCommandType.FORK_SESSION,
+                    session_id=handle.session_id,
+                    metadata={
+                        **live.metadata,
+                        "session_name": live.session_name,
+                        "one_shot": live.one_shot,
                     },
                 )
             )
@@ -276,12 +573,6 @@ class AttachedSessionRuntimeRegistry:
         self._terminal_sessions.pop(handle.session_id, None)
         await self._dispose_by_session_id(handle.session_id)
 
-    def _require_session(self, handle: AgentSessionHandle) -> _LiveAttachedSession:
-        try:
-            return self._sessions[handle.session_id]
-        except KeyError as exc:
-            raise RuntimeError(f"Unknown attached session: {handle.session_id}") from exc
-
     async def _ensure_live_session(self, handle: AgentSessionHandle) -> _LiveAttachedSession:
         if handle.session_id in self._terminal_sessions:
             raise RuntimeError(
@@ -293,35 +584,12 @@ class AttachedSessionRuntimeRegistry:
         binding = self._bindings.get(handle.adapter_key)
         if binding is None:
             raise RuntimeError(f"Unknown attached session: {handle.session_id}")
-        working_directory = Path(
-            str(handle.metadata.get("working_directory", Path.cwd()))
+        owner = _AttachedSessionRuntimeOwner(
+            binding,
+            _AttachedSessionRuntimeSpec.for_handle(handle),
         )
-        session_name = handle.session_name or handle.metadata.get("session_name")
-        log_path = acp_log_path(
-            working_directory,
-            adapter_key=handle.adapter_key,
-            session_token=session_name if isinstance(session_name, str) else None,
-        )
-        runtime = binding.build_session_runtime(
-            working_directory=working_directory,
-            log_path=log_path,
-        )
-        await runtime.__aenter__()
-        live = _LiveAttachedSession(
-            binding=binding,
-            runtime=runtime,
-            working_directory=working_directory,
-            log_path=log_path,
-            session_name=session_name if isinstance(session_name, str) else None,
-            one_shot=handle.one_shot,
-            metadata={
-                key: value
-                for key, value in handle.metadata.items()
-                if isinstance(key, str) and isinstance(value, str)
-            },
-            handle=handle.model_copy(deep=True),
-        )
-        live.consumer_task = asyncio.create_task(self._consume_runtime_events(live))
+        live = await owner.open_live_session(handle=handle)
+        live.consumer_task = asyncio.create_task(self._consume_runtime_events(live, owner))
         self._sessions[handle.session_id] = live
         return live
 
@@ -340,177 +608,15 @@ class AttachedSessionRuntimeRegistry:
             with suppress(asyncio.CancelledError):
                 await task
 
-    async def _consume_runtime_events(self, live: _LiveAttachedSession) -> None:
-        try:
-            async for fact in live.runtime.events():
-                self._apply_fact(live, fact)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            now = datetime.now(UTC)
-            if live.handle is not None and live.result is None:
-                live.result = AgentResult(
-                    session_id=live.handle.session_id,
-                    status=AgentResultStatus.FAILED,
-                    completed_at=now,
-                    error=AgentError(
-                        code="attached_runtime_stream_failed",
-                        message=str(exc),
-                        retryable=False,
-                    ),
-                )
-                live.updated_at = now
-                live.terminal_event.set()
-
-    def _apply_fact(self, live: _LiveAttachedSession, fact: TechnicalFactDraft) -> None:
-        live.updated_at = fact.observed_at
-        live.last_event_at = fact.observed_at
-        if fact.fact_type == "session.started":
-            payload_log_path = self._payload_str(fact.payload.get("log_path"))
-            handle = AgentSessionHandle(
-                adapter_key=live.binding.agent_key,
-                session_id=str(fact.payload["session_id"]),
-                session_name=live.session_name,
-                display_name=live.binding.descriptor.display_name,
-                one_shot=live.one_shot,
-                metadata={
-                    **live.metadata,
-                    "working_directory": str(live.working_directory),
-                    "log_path": payload_log_path or str(live.log_path),
-                },
-            )
-            live.handle = handle
-            self._sessions[handle.session_id] = live
-            live.started_event.set()
-            return
-        if fact.fact_type == "session.output_chunk_observed":
-            text = fact.payload.get("text")
-            if isinstance(text, str) and text:
-                live.output_chunks.append(text)
-            live.progress_message = "Agent session is running."
-            return
-        if fact.fact_type == "session.waiting_input_observed":
-            message = fact.payload.get("message")
-            live.waiting_reason = (
-                message if isinstance(message, str) else "Agent is waiting for input."
-            )
-            live.progress_message = live.waiting_reason
-            live.active_turn = False
-            assert live.handle is not None
-            raw_payload = self._payload_dict(fact.payload.get("raw")) or {
-                "fact": fact.model_dump(mode="json")
-            }
-            live.result = AgentResult(
-                session_id=live.handle.session_id,
-                status=AgentResultStatus.INCOMPLETE,
-                output_text="".join(live.output_chunks),
-                completed_at=fact.observed_at,
-                error=AgentError(
-                    code="agent_waiting_input",
-                    message=live.waiting_reason,
-                    retryable=False,
-                    raw=raw_payload,
-                ),
-                raw=raw_payload,
-            )
-            live.terminal_event.set()
-            return
-        if fact.fact_type == "session.completed":
-            assert live.handle is not None
-            live.active_turn = False
-            live.waiting_reason = None
-            output_text = fact.payload.get("output_text")
-            raw_payload = self._payload_dict(fact.payload.get("raw")) or {
-                "fact": fact.model_dump(mode="json")
-            }
-            live.result = AgentResult(
-                session_id=live.handle.session_id,
-                status=AgentResultStatus.SUCCESS,
-                output_text=(
-                    output_text
-                    if isinstance(output_text, str)
-                    else "".join(live.output_chunks)
-                ),
-                completed_at=fact.observed_at,
-                raw=raw_payload,
-            )
-            live.terminal_event.set()
-            return
-        if fact.fact_type == "session.cancelled":
-            assert live.handle is not None
-            live.active_turn = False
-            live.waiting_reason = None
-            raw_payload = self._payload_dict(fact.payload.get("raw")) or {
-                "fact": fact.model_dump(mode="json")
-            }
-            live.result = AgentResult(
-                session_id=live.handle.session_id,
-                status=AgentResultStatus.CANCELLED,
-                completed_at=fact.observed_at,
-                error=AgentError(
-                    code=self._payload_str(fact.payload.get("error_code"))
-                    or "agent_session_cancelled",
-                    message="Agent session cancelled.",
-                    retryable=False,
-                    raw=raw_payload,
-                ),
-                raw=raw_payload,
-            )
-            live.terminal_event.set()
-            return
-        if fact.fact_type == "session.failed":
-            assert live.handle is not None
-            live.active_turn = False
-            live.waiting_reason = None
-            message = fact.payload.get("message")
-            raw_payload = self._payload_dict(fact.payload.get("raw")) or {
-                "fact": fact.model_dump(mode="json")
-            }
-            live.result = AgentResult(
-                session_id=live.handle.session_id,
-                status=AgentResultStatus.FAILED,
-                completed_at=fact.observed_at,
-                error=AgentError(
-                    code=self._payload_str(fact.payload.get("error_code"))
-                    or "agent_session_failed",
-                    message=message if isinstance(message, str) else "Agent session failed.",
-                    retryable=False,
-                    raw=raw_payload,
-                ),
-                raw=raw_payload,
-            )
-            live.terminal_event.set()
-            return
-        if fact.fact_type == "session.discontinuity_observed":
-            assert live.handle is not None
-            live.active_turn = False
-            live.waiting_reason = None
-            message = fact.payload.get("message")
-            raw_payload = self._payload_dict(fact.payload.get("raw")) or {
-                "fact": fact.model_dump(mode="json")
-            }
-            live.result = AgentResult(
-                session_id=live.handle.session_id,
-                status=AgentResultStatus.DISCONNECTED,
-                completed_at=fact.observed_at,
-                error=AgentError(
-                    code=self._payload_str(fact.payload.get("error_code"))
-                    or "agent_session_disconnected",
-                    message=message if isinstance(message, str) else "Agent session disconnected.",
-                    retryable=True,
-                    raw=raw_payload,
-                ),
-                raw=raw_payload,
-            )
-            live.terminal_event.set()
-
-    @staticmethod
-    def _payload_dict(value: object) -> dict[str, object]:
-        return dict(value) if isinstance(value, dict) else {}
-
-    @staticmethod
-    def _payload_str(value: object) -> str | None:
-        return value if isinstance(value, str) else None
+    async def _consume_runtime_events(
+        self,
+        live: _LiveAttachedSession,
+        owner: _AttachedSessionRuntimeOwner,
+    ) -> None:
+        await owner.consume_runtime_events(
+            live,
+            on_handle_bound=lambda session_id: self._sessions.__setitem__(session_id, live),
+        )
 
     def _progress_from_terminal_session(
         self,

@@ -45,10 +45,12 @@ from agent_operator.domain import (
     PolicySourceRef,
     PolicyStatus,
     ResumePolicy,
+    RunMode,
     SchedulerState,
     TraceRecord,
 )
 from agent_operator.protocols import (
+    AgentSessionManager,
     OperationCommandInbox,
     OperationRuntime,
     TraceStore,
@@ -64,7 +66,7 @@ class OperationCommandService:
         trace_store: TraceStore,
         policy_context_coordinator: OperationPolicyContextCoordinator,
         attention_coordinator: OperationAttentionCoordinator,
-        attached_session_registry: object,
+        attached_session_registry: AgentSessionManager,
         operation_runtime: OperationRuntime | None,
         event_sourced_command_service: EventSourcedCommandApplicationService | None,
         event_relay: OperationEventRelay,
@@ -524,7 +526,11 @@ class OperationCommandService:
                     "attention_type": attention.attention_type.value,
                     "status": attention.status.value,
                     "resolution_summary": attention.resolution_summary,
-                    "resolved_at": attention.resolved_at.isoformat(),
+                    "resolved_at": (
+                        attention.resolved_at.isoformat()
+                        if attention.resolved_at is not None
+                        else None
+                    ),
                 },
             )
             if attention.attention_type.value == "approval_request":
@@ -564,10 +570,11 @@ class OperationCommandService:
                 )
                 if key in raw_signature
             }
-            if isinstance(signature_payload.get("command"), list) and all(
-                isinstance(item, str) for item in signature_payload["command"]
+            raw_command = signature_payload.get("command")
+            if isinstance(raw_command, list) and all(
+                isinstance(item, str) for item in raw_command
             ):
-                signature_payload["command"] = list(signature_payload["command"])
+                signature_payload["command"] = list(raw_command)
             try:
                 signature = PermissionRequestSignature.model_validate(signature_payload)
             except Exception:
@@ -738,7 +745,7 @@ class OperationCommandService:
     def _normalize_policy_strings(self, raw_value: object) -> list[str]:
         return self._policy_context_coordinator.normalize_policy_strings(raw_value)
 
-    def _parse_policy_run_modes(self, raw_value: object) -> list[object]:
+    def _parse_policy_run_modes(self, raw_value: object) -> list[RunMode]:
         return self._policy_context_coordinator.parse_policy_run_modes(raw_value)
 
     def _parse_policy_involvement_levels(self, raw_value: object) -> list[InvolvementLevel]:

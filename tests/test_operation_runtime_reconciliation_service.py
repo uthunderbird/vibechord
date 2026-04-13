@@ -160,6 +160,66 @@ async def test_operator_service_reconciles_background_wakeup_on_resume() -> None
 
 
 @pytest.mark.anyio
+async def test_duplicate_terminal_wakeups_do_not_refold_same_background_run() -> None:
+    store = MemoryStore()
+    trace_store = MemoryTraceStore()
+    inbox = MemoryWakeupInbox()
+    supervisor = FakeSupervisor()
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=trace_store,
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        wakeup_inbox=inbox,
+        supervisor=supervisor,
+    )
+
+    first = await service.run(
+        OperationGoal(objective="background task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(first.operation_id)
+    assert operation is not None
+    run_id = operation.background_runs[0].run_id
+    session_id = operation.sessions[0].session_id
+    task_id = operation.tasks[0].task_id
+    for event_id in ("wakeup-1", "wakeup-2"):
+        await inbox.enqueue(
+            RunEvent(
+                event_type="background_run.completed",
+                kind=RunEventKind.WAKEUP,
+                operation_id=operation.operation_id,
+                iteration=1,
+                task_id=task_id,
+                session_id=session_id,
+                dedupe_key=f"{run_id}:completed",
+                event_id=event_id,
+                payload={"run_id": run_id},
+            )
+        )
+
+    resumed = await service.resume(
+        operation.operation_id,
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(resumed.operation_id)
+    assert operation is not None
+    assert operation.iterations[0].result is not None
+    assert operation.iterations[0].result.output_text == "completed by fake background agent"
+    assert len(operation.artifacts) == 1
+    assert len(trace_store.bundle.agent_turn_briefs) == 1
+    assert operation.sessions[0].last_terminal_execution_id == run_id
+
+
+@pytest.mark.anyio
 async def test_resume_reconciles_completed_background_run_without_wakeup() -> None:
     store = MemoryStore()
     trace_store = MemoryTraceStore()

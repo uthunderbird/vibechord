@@ -29,6 +29,7 @@ from agent_operator.domain import (
     TaskState,
     TaskStatus,
 )
+from agent_operator.protocols import AgentSessionManager
 
 
 class DecisionExecutionService:
@@ -36,7 +37,7 @@ class DecisionExecutionService:
         self,
         *,
         loaded_operation: LoadedOperation,
-        attached_session_registry: object,
+        attached_session_registry: AgentSessionManager,
         attention_coordinator: OperationAttentionCoordinator,
         event_relay: OperationEventRelay,
         lifecycle_coordinator: OperationLifecycleCoordinator,
@@ -257,13 +258,15 @@ class DecisionExecutionService:
             self._loaded_operation.resolved_session_reuse_policy(state)
             is SessionReusePolicy.REUSE_IF_IDLE
         ):
+            decision = iteration.decision
+            assert decision is not None
             reusable_record = self._loaded_operation.resolve_reusable_idle_session(
                 state,
                 adapter_key,
                 task,
             )
             if reusable_record is not None:
-                iteration.decision = iteration.decision.model_copy(
+                iteration.decision = decision.model_copy(
                     update={"session_id": reusable_record.session_id}
                 )
                 return await self._execute_continue_agent(

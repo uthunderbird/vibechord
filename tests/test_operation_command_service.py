@@ -16,7 +16,7 @@ from agent_operator.application import (
     OperationRuntimeContext,
     OperationTraceabilityService,
 )
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
+from agent_operator.application.attached_session_registry import AttachedSessionManager
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
@@ -1519,10 +1519,10 @@ async def test_stop_agent_turn_command_service_uses_replay_backed_persistence(
         event_sourced_operation_birth_service=birth_service,
         event_sourced_replay_service=replay_service,
     )
-    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionRuntimeRegistry({}))
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionManager({}))
     runtime_context = OperationRuntimeContext(
         loaded_operation=loaded_operation,
-        attached_session_registry=AttachedSessionRuntimeRegistry({}),
+        attached_session_registry=AttachedSessionManager({}),
     )
     traceability_service = OperationTraceabilityService(
         loaded_operation=loaded_operation,
@@ -1664,10 +1664,10 @@ async def test_stop_operation_command_service_uses_replay_backed_persistence(
         event_sourced_operation_birth_service=birth_service,
         event_sourced_replay_service=replay_service,
     )
-    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionRuntimeRegistry({}))
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionManager({}))
     runtime_context = OperationRuntimeContext(
         loaded_operation=loaded_operation,
-        attached_session_registry=AttachedSessionRuntimeRegistry({}),
+        attached_session_registry=AttachedSessionManager({}),
     )
     traceability_service = OperationTraceabilityService(
         loaded_operation=loaded_operation,

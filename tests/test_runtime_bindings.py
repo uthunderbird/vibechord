@@ -7,12 +7,15 @@ from agent_operator.acp import AcpSdkConnection, AcpSubprocessConnection
 from agent_operator.acp.adapter_runtime import AcpAdapterRuntime
 from agent_operator.acp.session_runtime import AcpAgentSessionRuntime
 from agent_operator.adapters import build_agent_runtime_bindings
+from agent_operator.adapters.runtime_bindings import _supports_session_fork
 from agent_operator.config import (
     ClaudeAcpAdapterSettings,
     CodexAcpAdapterSettings,
     OpencodeAcpAdapterSettings,
     OperatorSettings,
 )
+from agent_operator.testing.operator_service_support import FakeAgent
+from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
 
 
 def test_build_agent_runtime_bindings_exposes_runtime_factories_and_descriptors() -> None:
@@ -38,6 +41,12 @@ def test_build_agent_runtime_bindings_exposes_runtime_factories_and_descriptors(
     assert claude_binding.descriptor.supports_follow_up is True
     assert codex_binding.descriptor.supports_follow_up is True
     assert opencode_binding.descriptor.supports_follow_up is True
+    assert claude_binding.descriptor.supports_fork is True
+    assert codex_binding.descriptor.supports_fork is True
+    assert opencode_binding.descriptor.supports_fork is True
+    assert "fork" in [item.name for item in claude_binding.descriptor.capabilities]
+    assert "fork" in [item.name for item in codex_binding.descriptor.capabilities]
+    assert "fork" in [item.name for item in opencode_binding.descriptor.capabilities]
 
     claude_adapter_runtime = claude_binding.build_adapter_runtime(
         working_directory=Path("/tmp/claude"),
@@ -77,3 +86,25 @@ def test_protocols_package_exposes_runtime_contracts_not_agentadapter() -> None:
     assert hasattr(protocols, "AgentSessionRuntime")
     assert hasattr(protocols, "OperationRuntime")
     assert not hasattr(protocols, "AgentAdapter")
+
+
+def test_supports_session_fork_requires_loaded_session_configuration_hook() -> None:
+    class _Hooks:
+        configure_loaded_session = None
+
+    class _Runner:
+        _hooks = _Hooks()
+
+    class _Adapter:
+        _runner = _Runner()
+
+    assert _supports_session_fork(_Adapter()) is False
+
+
+def test_build_test_runtime_bindings_only_advertises_fork_when_agent_implements_it() -> None:
+    fake_agent = FakeAgent()
+    fake_agent.supports_fork = True  # type: ignore[attr-defined]
+
+    bindings = build_test_runtime_bindings({"claude_acp": fake_agent})
+
+    assert bindings["claude_acp"].descriptor.supports_fork is False

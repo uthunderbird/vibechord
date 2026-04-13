@@ -96,10 +96,13 @@ def build_agent_runtime_bindings(
         working_directory=settings.opencode_acp.working_directory,
         permission_evaluator=permission_evaluator,
     )
+    claude_supports_fork = _supports_session_fork(claude_adapter)
+    codex_supports_fork = _supports_session_fork(codex_adapter)
+    opencode_supports_fork = _supports_session_fork(opencode_adapter)
     return {
         "claude_acp": AgentRuntimeBinding(
             agent_key="claude_acp",
-            descriptor=_claude_descriptor(),
+            descriptor=_claude_descriptor(supports_fork=claude_supports_fork),
             build_adapter_runtime=_build_adapter_runtime_factory(
                 adapter_key="claude_acp",
                 adapter=claude_adapter,
@@ -111,7 +114,7 @@ def build_agent_runtime_bindings(
         ),
         "codex_acp": AgentRuntimeBinding(
             agent_key="codex_acp",
-            descriptor=_codex_descriptor(),
+            descriptor=_codex_descriptor(supports_fork=codex_supports_fork),
             build_adapter_runtime=_build_adapter_runtime_factory(
                 adapter_key="codex_acp",
                 adapter=codex_adapter,
@@ -123,7 +126,7 @@ def build_agent_runtime_bindings(
         ),
         "opencode_acp": AgentRuntimeBinding(
             agent_key="opencode_acp",
-            descriptor=_opencode_descriptor(),
+            descriptor=_opencode_descriptor(supports_fork=opencode_supports_fork),
             build_adapter_runtime=_build_adapter_runtime_factory(
                 adapter_key="opencode_acp",
                 adapter=opencode_adapter,
@@ -178,45 +181,67 @@ def _build_session_runtime_factory(
     return factory
 
 
-def _claude_descriptor() -> AgentDescriptor:
+def _supports_session_fork(adapter: object) -> bool:
+    hooks = getattr(getattr(adapter, "_runner", None), "_hooks", None)
+    return callable(getattr(hooks, "configure_loaded_session", None))
+
+
+def _capabilities_for_acp_agent(
+    *,
+    follow_up_description: str,
+    supports_fork: bool,
+) -> list[AgentCapability]:
+    capabilities = [
+        AgentCapability(name="acp", description="ACP session over stdio"),
+        AgentCapability(name="follow_up", description=follow_up_description),
+    ]
+    if supports_fork:
+        capabilities.append(
+            AgentCapability(name="fork", description="Can fork an existing ACP session")
+        )
+    capabilities.extend(standard_coding_agent_capabilities())
+    return capabilities
+
+
+def _claude_descriptor(*, supports_fork: bool) -> AgentDescriptor:
     return AgentDescriptor(
         key="claude_acp",
         display_name="Claude Code via ACP",
-        capabilities=[
-            AgentCapability(name="acp", description="ACP session over stdio"),
-            AgentCapability(name="follow_up", description="Can resume Claude ACP sessions"),
-            *standard_coding_agent_capabilities(),
-        ],
+        capabilities=_capabilities_for_acp_agent(
+            follow_up_description="Can resume Claude ACP sessions",
+            supports_fork=supports_fork,
+        ),
         supports_follow_up=True,
         supports_cancellation=True,
+        supports_fork=supports_fork,
     )
 
 
-def _codex_descriptor() -> AgentDescriptor:
+def _codex_descriptor(*, supports_fork: bool) -> AgentDescriptor:
     return AgentDescriptor(
         key="codex_acp",
         display_name="Codex via ACP",
-        capabilities=[
-            AgentCapability(name="acp", description="ACP session over stdio"),
-            AgentCapability(name="follow_up", description="Can resume prior Codex sessions"),
-            *standard_coding_agent_capabilities(),
-        ],
+        capabilities=_capabilities_for_acp_agent(
+            follow_up_description="Can resume prior Codex sessions",
+            supports_fork=supports_fork,
+        ),
         supports_follow_up=True,
         supports_cancellation=True,
+        supports_fork=supports_fork,
     )
 
 
-def _opencode_descriptor() -> AgentDescriptor:
+def _opencode_descriptor(*, supports_fork: bool) -> AgentDescriptor:
     return AgentDescriptor(
         key="opencode_acp",
         display_name="OpenCode via ACP",
-        capabilities=[
-            AgentCapability(name="acp", description="ACP session over stdio"),
-            AgentCapability(name="follow_up", description="Can resume prior OpenCode sessions"),
-            *standard_coding_agent_capabilities(),
-        ],
+        capabilities=_capabilities_for_acp_agent(
+            follow_up_description="Can resume prior OpenCode sessions",
+            supports_fork=supports_fork,
+        ),
         supports_follow_up=True,
         supports_cancellation=True,
+        supports_fork=supports_fork,
     )
 
 
