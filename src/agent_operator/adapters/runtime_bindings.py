@@ -172,6 +172,7 @@ def _build_session_runtime_factory(
             mcp_servers=list(getattr(adapter, "_mcp_servers", [])),
             configure_new_session=hooks.configure_new_session,
             configure_loaded_session=hooks.configure_loaded_session,
+            handle_server_request=hooks.handle_server_request,
         )
 
     return factory

@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 ## Context
 
@@ -195,7 +195,7 @@ than per-command records that never establish the principle.
 
 ## Implementation record
 
-This ADR is only partially implemented at current repository truth.
+This ADR is implemented and verified at current repository truth.
 
 ### Stage 1 — Quickfix (three new events)
 
@@ -251,34 +251,38 @@ Verification evidence for this tranche:
 - `tests/test_application_structure.py::test_drive_loop_save_operation_only_via_advance_checkpoint`
   guards the drive loop against new direct mutation-path `save_operation()` calls
 - targeted verification passed at current repository truth:
-  `71 passed` across the tranche-focused suite
+  `27 passed` across the cancellation / attached-turn / command / structure tranche suite
 - full repository verification also passed at current repository truth:
-  `580 passed, 11 skipped`
+  `608 passed, 11 skipped`
 
-### Remaining work blocking full closure
+### Final closure tranche
 
-The retirement condition for `save_operation()` is not yet fully met.
+The final blocking write paths were retired in one closure wave:
 
-Current blocking evidence:
+- `OperationLifecycleCoordinator.cancel_operation()` and
+  `OperationLifecycleCoordinator.cancel_scoped_execution()` now persist the cancellation transition
+  canonically through event append + checkpoint materialization, including session waiting/terminal
+  state, execution cancellation state, focus clearing, and active-session clearing where relevant.
+- `OperationCancellationService.cancel()` now cancels live background executions before handing off
+  to lifecycle persistence for whole-operation cancellation.
+- `OperationCommandService._apply_stop_operation()` now clears `active_session` via canonical
+  `operation.active_session_updated` rather than leaving snapshot-only session truth behind.
+- `AttachedTurnService.record_turn_started()` and `AttachedTurnService.collect_turn()` no longer
+  call `save_operation()` during live attached-turn startup or polling; traceability updates remain,
+  but durable business truth is now folded only through canonical events and terminal result paths.
+- `OperationEntrypointService._load_event_sourced()` no longer resurrects snapshot-only
+  `current_focus` when canonical replay has already reached a terminal operation status.
 
-- `src/agent_operator/application/operation_lifecycle.py`,
-  `OperationLifecycleCoordinator.cancel_scoped_execution`, still mutates `record.status` and
-  `record.waiting_reason` directly before appending only `session.observed_state.changed`.
-  The direct in-memory write remains load-bearing because no canonical event in that path carries
-  the `waiting_reason` mutation or performs the full session-state transition.
-- `src/agent_operator/application/commands/operation_cancellation.py` still routes targeted
-  cancellation through that method, so targeted cancellation still depends on the partial
-  event-sourced persistence described above.
-- `src/agent_operator/application/commands/operation_control_state.py`,
-  `OperationControlStateCoordinator.persist_legacy_snapshot_command_effect_state`, still persists
-  post-command mutable state via `self._store.save_operation(state)`.
-- `src/agent_operator/application/commands/operation_commands.py`,
-  `OperationCommandService._apply_stop_operation`, still mutates `background_runs`,
-  operation status/final summary, focus, and scheduler state in memory and then persists them
-  through `persist_legacy_snapshot_command_effect_state(state)`.
+Additional verification added for this closure wave:
 
-Because those adjacent mutation paths remain, this ADR does not yet justify promoting RFC 0009
-or treating dependent closure ADRs as advanced by full write-path retirement.
+- `tests/test_operation_entrypoints.py` now covers replay-backed whole-operation cancellation,
+  snapshot-seeded targeted cancellation, and canonical terminal state restoration after resume
+- `tests/test_operation_command_service.py` now covers replay-backed `STOP_OPERATION` state,
+  including canonical active-session clearing
+- `tests/test_application_structure.py::test_attached_turns_use_no_direct_snapshot_writes`
+  guards attached-turn polling against reintroducing `save_operation()` as a live business write path
+
+With these changes, the retirement condition defined by this ADR is met at repository truth.
 
 ### Remaining follow-up (not blocking acceptance)
 

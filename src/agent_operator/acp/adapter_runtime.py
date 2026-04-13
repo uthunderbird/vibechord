@@ -96,11 +96,15 @@ class AcpAdapterRuntime:
                 await asyncio.sleep(self._poll_interval_seconds)
 
     def _normalize_payload(self, payload: dict[str, Any]) -> dict[str, object]:
-        return {
+        normalized: dict[str, object] = {
             "method": payload.get("method"),
             "params": payload.get("params", {}),
             "cwd": str(self._working_directory),
         }
+        request_id = payload.get("id")
+        if isinstance(request_id, int):
+            normalized["id"] = request_id
+        return normalized
 
     def _extract_session_id(self, payload: dict[str, Any]) -> str | None:
         params = payload.get("params")

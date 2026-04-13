@@ -755,6 +755,15 @@ class OperationCommandService:
             raise RuntimeError(
                 "ANSWER_ATTENTION_REQUEST requires EventSourcedCommandApplicationService."
             )
+        snapshot_attention = self.find_attention_request(state, command.target_id)
+        if snapshot_attention is not None:
+            checkpoint = (
+                await self._event_sourced_command_service.seed_attention_request_from_state(
+                    state,
+                    snapshot_attention,
+                )
+            )
+            self._control_state_coordinator.refresh_state_from_checkpoint(state, checkpoint)
         result = await self._event_sourced_command_service.apply(command)
         replayed_attention = next(
             (
@@ -1073,6 +1082,13 @@ class OperationCommandService:
                     correlation_id=command.command_id,
                 ),
                 OperationDomainEventDraft(
+                    event_type="operation.active_session_updated",
+                    payload={"session_id": None},
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+                OperationDomainEventDraft(
                     event_type="scheduler.state.changed",
                     payload={"scheduler_state": SchedulerState.ACTIVE.value},
                     timestamp=applied_at,
@@ -1089,6 +1105,7 @@ class OperationCommandService:
         if state.objective is not None:
             state.objective.summary = result.checkpoint.final_summary
         state.current_focus = None
+        state.active_session = None
         state.scheduler_state = result.checkpoint.scheduler_state
         state.processed_command_ids = list(result.checkpoint.processed_command_ids)
         await self._control_state_coordinator.persist_command_effect_state(state)

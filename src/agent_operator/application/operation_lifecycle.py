@@ -131,17 +131,9 @@ class OperationLifecycleCoordinator:
         final_result: AgentResult | None = None,
         summary: str = "Operation cancelled.",
     ) -> OperationOutcome:
-        state.current_focus = None
-        state.active_session = None
-        for record in state.sessions:
-            if record.status not in {
-                SessionStatus.COMPLETED,
-                SessionStatus.FAILED,
-                SessionStatus.CANCELLED,
-            }:
-                record.status = SessionStatus.CANCELLED
-                record.waiting_reason = "Cancelled by operator."
-                record.updated_at = state.updated_at
+        state.updated_at = datetime.now(UTC)
+        checkpoint = await self._persist_operation_cancellation(state, summary=summary)
+        self._apply_checkpoint_state(state, checkpoint)
         self.mark_cancelled(state, summary=summary)
         return await self.finalize_outcome(
             state,
@@ -165,7 +157,7 @@ class OperationLifecycleCoordinator:
             await emit_session_cancelled()
         if record is not None:
             checkpoint = await self._persist_scoped_cancellation(record, state, run_id=run_id)
-            self._apply_checkpoint_sessions(state, checkpoint)
+            self._apply_checkpoint_state(state, checkpoint)
         return OperationOutcome(
             operation_id=state.operation_id,
             status=state.status,
@@ -173,6 +165,95 @@ class OperationLifecycleCoordinator:
             ended_at=datetime.now(UTC),
             final_result=final_result,
         )
+
+    async def _persist_operation_cancellation(
+        self,
+        state: OperationState,
+        *,
+        summary: str,
+    ) -> OperationCheckpoint | None:
+        if (
+            state.canonical_persistence_mode is not CanonicalPersistenceMode.EVENT_SOURCED
+            or self.event_store is None
+            or self.replay_service is None
+        ):
+            self._apply_snapshot_operation_cancellation(state)
+            return None
+        replay_state = await self.replay_service.load(state.operation_id)
+        drafts = self._seed_missing_runtime_records(state, replay_state.checkpoint)
+        for record in state.sessions:
+            if record.status in {
+                SessionStatus.COMPLETED,
+                SessionStatus.FAILED,
+                SessionStatus.CANCELLED,
+            }:
+                continue
+            drafts.extend(
+                [
+                    OperationDomainEventDraft(
+                        event_type="session.waiting_reason.updated",
+                        payload={
+                            "session_id": record.session_id,
+                            "waiting_reason": "Cancelled by operator.",
+                            "updated_at": state.updated_at.isoformat(),
+                        },
+                    ),
+                    OperationDomainEventDraft(
+                        event_type="session.observed_state.changed",
+                        payload={
+                            "session_id": record.session_id,
+                            "observed_state": SessionObservedState.TERMINAL.value,
+                            "terminal_state": SessionTerminalState.CANCELLED.value,
+                            "current_execution_id": None,
+                            "last_terminal_execution_id": record.current_execution_id,
+                            "updated_at": state.updated_at.isoformat(),
+                        },
+                    ),
+                ]
+            )
+        drafts.extend(
+            [
+                OperationDomainEventDraft(
+                    event_type="execution.observed_state.changed",
+                    payload={
+                        "execution_id": execution.execution_id,
+                        "observed_state": "cancelled",
+                        "completed_at": state.updated_at.isoformat(),
+                        "updated_at": state.updated_at.isoformat(),
+                    },
+                )
+                for execution in state.executions
+                if execution.observed_state.value
+                not in {"completed", "failed", "cancelled", "lost"}
+            ]
+        )
+        drafts.extend(
+            [
+                OperationDomainEventDraft(
+                    event_type="operation.active_session_updated",
+                    payload={"session_id": None},
+                ),
+                OperationDomainEventDraft(
+                    event_type="operation.focus.updated",
+                    payload={"focus": None},
+                ),
+                OperationDomainEventDraft(
+                    event_type="operation.status.changed",
+                    payload={
+                        "status": OperationStatus.CANCELLED.value,
+                        "final_summary": summary,
+                    },
+                ),
+            ]
+        )
+        stored_events = await self.event_store.append(
+            state.operation_id,
+            replay_state.last_applied_sequence,
+            drafts,
+        )
+        updated_replay_state = self.replay_service.advance(replay_state, stored_events)
+        await self.replay_service.materialize(updated_replay_state)
+        return updated_replay_state.checkpoint
 
     async def _persist_scoped_cancellation(
         self,
@@ -188,17 +269,10 @@ class OperationLifecycleCoordinator:
         ):
             return None
         replay_state = await self.replay_service.load(state.operation_id)
-        drafts: list[OperationDomainEventDraft] = []
-        if not any(
-            item.session_id == record.session_id
-            for item in replay_state.checkpoint.sessions
-        ):
-            drafts.append(
-                OperationDomainEventDraft(
-                    event_type="session.created",
-                    payload=record.model_dump(mode="json"),
-                )
-            )
+        drafts = self._seed_missing_runtime_records(state, replay_state.checkpoint)
+        known_execution_ids = {
+            item.execution_id for item in replay_state.checkpoint.executions
+        } | {item.execution_id for item in state.executions}
         drafts.extend(
             [
                 OperationDomainEventDraft(
@@ -222,6 +296,18 @@ class OperationLifecycleCoordinator:
                 ),
             ]
         )
+        if run_id is not None and run_id in known_execution_ids:
+            drafts.append(
+                OperationDomainEventDraft(
+                    event_type="execution.observed_state.changed",
+                    payload={
+                        "execution_id": run_id,
+                        "observed_state": "cancelled",
+                        "completed_at": state.updated_at.isoformat(),
+                        "updated_at": state.updated_at.isoformat(),
+                    },
+                )
+            )
         stored_events = await self.event_store.append(
             state.operation_id,
             replay_state.last_applied_sequence,
@@ -266,7 +352,7 @@ class OperationLifecycleCoordinator:
         await self.replay_service.materialize(updated_replay_state)
         return updated_replay_state.checkpoint
 
-    def _apply_checkpoint_sessions(
+    def _apply_checkpoint_state(
         self,
         state: OperationState,
         checkpoint: OperationCheckpoint | None,
@@ -274,6 +360,62 @@ class OperationLifecycleCoordinator:
         if checkpoint is None:
             return
         state.sessions = [item.model_copy(deep=True) for item in checkpoint.sessions]
+        state.executions = [item.model_copy(deep=True) for item in checkpoint.executions]
+        state.active_session = (
+            checkpoint.active_session.model_copy(deep=True)
+            if checkpoint.active_session is not None
+            else None
+        )
+        state.current_focus = (
+            checkpoint.current_focus.model_copy(deep=True)
+            if checkpoint.current_focus is not None
+            else None
+        )
+        state.status = checkpoint.status
+        state.final_summary = checkpoint.final_summary
+        state.scheduler_state = checkpoint.scheduler_state
+
+    def _seed_missing_runtime_records(
+        self,
+        state: OperationState,
+        checkpoint: OperationCheckpoint,
+    ) -> list[OperationDomainEventDraft]:
+        drafts: list[OperationDomainEventDraft] = []
+        checkpoint_session_ids = {item.session_id for item in checkpoint.sessions}
+        for record in state.sessions:
+            if record.session_id in checkpoint_session_ids:
+                continue
+            drafts.append(
+                OperationDomainEventDraft(
+                    event_type="session.created",
+                    payload=record.model_dump(mode="json"),
+                )
+            )
+        checkpoint_execution_ids = {item.execution_id for item in checkpoint.executions}
+        for execution in state.executions:
+            if execution.execution_id in checkpoint_execution_ids:
+                continue
+            drafts.append(
+                OperationDomainEventDraft(
+                    event_type="execution.registered",
+                    payload=execution.model_dump(mode="json"),
+                )
+            )
+        return drafts
+
+    def _apply_snapshot_operation_cancellation(self, state: OperationState) -> None:
+        state.current_focus = None
+        state.active_session = None
+        for record in state.sessions:
+            if record.status in {
+                SessionStatus.COMPLETED,
+                SessionStatus.FAILED,
+                SessionStatus.CANCELLED,
+            }:
+                continue
+            record.status = SessionStatus.CANCELLED
+            record.waiting_reason = "Cancelled by operator."
+            record.updated_at = state.updated_at
 
     async def fold_reconciled_terminal_result(
         self,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shlex
+import subprocess
 from pathlib import Path
 from typing import Literal
 
@@ -120,6 +122,84 @@ def load_global_config(path: Path | None = None) -> GlobalUserConfig:
     if not isinstance(payload, dict):
         raise RuntimeError(f"Global config {candidate} must deserialize to a mapping.")
     return GlobalUserConfig.model_validate(payload)
+
+
+def write_global_config(config: GlobalUserConfig, path: Path | None = None) -> Path:
+    """Persist global user config to disk.
+
+    Args:
+        config: Global config payload to write.
+        path: Explicit config path override.
+
+    Returns:
+        The path written to disk.
+    """
+
+    candidate = (path or global_config_path()).expanduser()
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    payload = config.model_dump(mode="json", exclude_none=True)
+    candidate.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return candidate
+
+
+def redacted_global_config_payload(config: GlobalUserConfig) -> dict[str, object]:
+    """Return a JSON-safe global config payload with secret values redacted."""
+
+    payload = config.model_dump(mode="json", exclude_none=True)
+    providers = payload.get("providers")
+    if not isinstance(providers, dict):
+        return payload
+    github = providers.get("github")
+    if isinstance(github, dict) and isinstance(github.get("token"), str):
+        github["token"] = "[REDACTED]"
+    return payload
+
+
+def ensure_global_config_exists(path: Path | None = None) -> Path:
+    """Create an empty global config file when absent and return its path."""
+
+    candidate = (path or global_config_path()).expanduser()
+    if candidate.exists():
+        return candidate
+    write_global_config(GlobalUserConfig(), candidate)
+    return candidate
+
+
+def open_global_config_in_editor(path: Path | None = None, *, editor: str | None = None) -> Path:
+    """Open the global config in the configured editor.
+
+    Args:
+        path: Explicit config path override.
+        editor: Explicit editor override. Defaults to `$EDITOR`.
+
+    Returns:
+        The config path opened in the editor.
+    """
+
+    candidate = ensure_global_config_exists(path)
+    selected_editor = editor or os.environ.get("EDITOR")
+    if not selected_editor:
+        raise RuntimeError("$EDITOR is not set.")
+    command = [*shlex.split(selected_editor), str(candidate)]
+    completed = subprocess.run(command, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"Editor exited with status {completed.returncode}.")
+    return candidate
+
+
+def add_global_project_root(root: Path, path: Path | None = None) -> tuple[GlobalUserConfig, bool]:
+    """Append a project root to global config when it is not already present."""
+
+    config = load_global_config(path)
+    normalized = root.expanduser().resolve()
+    if normalized not in config.project_roots:
+        config.project_roots.append(normalized)
+        write_global_config(config, path)
+        return config, True
+    return config, False
 
 
 def apply_global_user_defaults(

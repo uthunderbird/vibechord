@@ -2,6 +2,7 @@
 
 __all__ = [
     "agent",
+    "config",
     "debug",
     "fleet",
     "mcp",

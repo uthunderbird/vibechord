@@ -6,6 +6,7 @@ from typing import Protocol
 
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
 from agent_operator.domain import (
+    ExecutionObservedState,
     ExecutionState,
     OperationOutcome,
     OperationState,
@@ -112,6 +113,13 @@ class OperationCancellationService:
                 await self.supervisor.cancel_background_turn(record.current_execution_id)
                 run_id = record.current_execution_id
         else:
+            if self.supervisor is not None:
+                for execution in state.executions:
+                    if execution.observed_state in {
+                        ExecutionObservedState.STARTING,
+                        ExecutionObservedState.RUNNING,
+                    }:
+                        await self.supervisor.cancel_background_turn(execution.run_id)
             coordinator = self.lifecycle_coordinator or OperationLifecycleCoordinator(
                 store=self.store,
                 history_ledger=self.history_ledger,

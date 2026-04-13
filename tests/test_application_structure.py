@@ -441,6 +441,23 @@ def test_operation_lifecycle_uses_no_direct_snapshot_writes() -> None:
     assert direct_save_callers == []
 
 
+def test_attached_turns_use_no_direct_snapshot_writes() -> None:
+    """ADR 0144: attached-turn live polling must not persist business state via save_operation()."""
+    attached_turns_file = APPLICATION_DIR / "attached_turns.py"
+    source = attached_turns_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    direct_save_callers = sorted(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        for child in ast.walk(node)
+        if isinstance(child, ast.Attribute) and child.attr == "save_operation"
+    )
+
+    assert direct_save_callers == []
+
+
 def test_queries_do_not_import_commands_family() -> None:
     offenders: list[str] = []
     queries_dir = APPLICATION_DIR / "queries"

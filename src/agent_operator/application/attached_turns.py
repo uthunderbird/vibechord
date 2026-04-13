@@ -199,7 +199,6 @@ class AttachedTurnService:
             [OperationState, IterationState, TaskState | None], Awaitable[None]
         ],
         sync_traceability_artifacts: Callable[[OperationState], Awaitable[None]],
-        save_operation: Callable[[OperationState], Awaitable[None]],
     ) -> None:
         """Persist trace artifacts for a newly started attached turn."""
         await record_agent_turn_brief(
@@ -212,7 +211,6 @@ class AttachedTurnService:
         )
         await record_iteration_brief(state, iteration, task)
         await sync_traceability_artifacts(state)
-        await save_operation(state)
 
     async def collect_turn(
         self,
@@ -223,7 +221,6 @@ class AttachedTurnService:
         registry: AttachedSessionRuntimeRegistry,
         session: AgentSessionHandle,
         ensure_session_record: Callable[[OperationState, AgentSessionHandle], SessionRecord],
-        save_operation: Callable[[OperationState], Awaitable[None]],
         sync_traceability_artifacts: Callable[[OperationState], Awaitable[None]],
         drain_commands: Callable[
             [OperationState, IterationState, AgentSessionHandle], Awaitable[None]
@@ -263,7 +260,6 @@ class AttachedTurnService:
                         progress,
                     )
                 record.status = SessionRecordStatus.RUNNING
-                await save_operation(state)
                 await sync_traceability_artifacts(state)
                 await drain_commands(state, iteration, session)
                 await anyio.sleep(1.0)

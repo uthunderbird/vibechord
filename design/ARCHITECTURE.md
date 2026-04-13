@@ -1136,14 +1136,15 @@ The following named items are known tech debt — a contributor encountering the
   misclassifies the run as stale; (2) `SessionState.cooldown_until` cleared via direct mutation is
   restored on resume — session appears still in cooldown. The fix path is in ADR 0144: emit events
   for these mutations so checkpoint reconstruction is complete.
-- **`SessionState` tracks too much operator-side agent-session state.** `SessionState` has 12+
-  fields including `desired_state`, `observed_state`, `recovery_count`, and `cooldown_until` that
-  represent the operator's attempt to mirror agent-side session state without a consistency
-  guarantee. `recovery_count` is incremented but never used for any decision. The minimum
-  operator-owned surface needed for correct resume is `session_id` (to continue the right ACP
-  session) and `cooldown_until` (to avoid premature restart). A `SessionState` simplification
-  pass, reducing it toward `{session_id, adapter_key, failed_at}`, is the correct long-term
-  direction. This is tracked in ADR 0144 migration direction.
+- **Live session ownership is at the wrong architectural layer.** The operator currently mixes
+  durable session truth (`linked_session_id`, canonical session records, execution lineage,
+  cooldown/attention/cancellation targeting) with live runtime ownership concerns
+  (open/load/reuse/dispose/cancel of ACP-backed sessions). This causes bugs where normal runtime
+  disposal is misinterpreted as semantic session cancellation and where session lifecycle semantics
+  are split across operator, registry, supervisor, and adapter runtime. The correct long-term
+  direction is not "remove sessions from operator entirely." The correct direction is to keep only
+  thin durable session truth in operator and move live-session lifecycle ownership behind an
+  explicit `AgentSessionManager` boundary below it. This is tracked in ADR 0170.
 - **`active_session` pointer is dual-write debt.** `OperationState.active_session` is the
   "currently preferred session" pointer. It is set via direct mutation in 8 places and persisted
   via `save_operation()`, but is not emitted as an event and is absent from the checkpoint. On
@@ -1151,7 +1152,9 @@ The following named items are known tech debt — a contributor encountering the
   derives it from the `sessions` list. If the sessions list is itself stale (see Failure 1 above),
   the recovery produces incorrect results. Fix path: either emit `ActiveSessionUpdated` events, or
   remove `active_session` from persisted state and always derive it on demand once the sessions
-  list is event-sourced. Tracked in ADR 0144.
+  list is event-sourced. Under ADR 0170 this is part of the broader move toward durable
+  session truth in operator plus live-session ownership in `AgentSessionManager`. Tracked in ADR 0144
+  and ADR 0170.
 - **`ObjectiveState.status` is a redundant synchronized copy of `OperationState.status`.**
   `ObjectiveState` carries a `status: OperationStatus` field kept in sync via `sync_derived_state()`
   and the checkpoint projector. This is the only status that should be read from `OperationState.status`
@@ -1194,6 +1197,49 @@ This adapter is more protocol-heavy than Claude ACP, but the complexity remains 
 The rest of the system interacts with it through the runtime-contract layer.
 
 See VISION.md Agent Adapter Contract for the normative capability table.
+
+## Session Ownership Boundary
+
+The operator must distinguish:
+
+- durable session truth used for coordination
+- live session lifecycle used for transport/runtime control
+
+Durable session truth belongs in the operator domain and application layers. This includes:
+
+- task-to-session linkage
+- canonical session status records
+- execution lineage
+- attention, cooldown, recovery, and cancellation targeting
+
+Live session lifecycle does not belong directly in operator orchestration. It belongs under an
+explicit `AgentSessionManager` boundary responsible for:
+
+- guaranteeing at most one live runtime instance per logical session identity
+- ensuring one usable live session exists when the operator requests continuation
+- reattach/load/reuse rules
+- quiet runtime disposal versus semantic cancel
+- fork behavior where the selected adapter supports it honestly
+
+This means the operator should request semantic actions such as:
+
+- continue this session
+- fork this session
+- cancel this session or execution
+- report whether this session is running, waiting, recoverable, or terminal
+
+The operator should not directly own transport-lifecycle details such as:
+
+- whether ACP session context remains open
+- whether a follow-up requires reattach/load
+- whether runtime disposal should emit cancellation
+
+`AgentSessionManager` should sit above `AgentSessionRuntime`: the runtime owns one live session per
+runtime instance, while the manager owns semantic session orchestration across runtimes and logical
+session identities.
+
+The current attached-session registry is the likely migration point for this boundary rather than
+the basis for an additional parallel subsystem. See ADR 0170.
 
 ## Composition And DI
 

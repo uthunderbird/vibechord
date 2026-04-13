@@ -1,6 +1,15 @@
 name: operator
 cwd: .
 history_ledger: true
+default_objective: |
+  Bring all ADRs to Accepted and Implemented status strictly according to the ADR lifecycle
+  described in AGENTS.md and the project harness instructions. For each ADR, follow the required
+  reading, ground every status change in code evidence, implement any missing work before updating
+  status, and do not advance Decision Status or Implementation Status beyond what repository truth
+  supports.
+adapter_settings:
+  codex_acp:
+    command: /Users/thunderbird/.npm/_npx/e3854e347c184741/node_modules/.bin/codex-acp
 default_harness_instructions: |
   You are working on the `operator` codebase — a Python library and CLI that acts as an
   operator (supervisor) for other AI agents.

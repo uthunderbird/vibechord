@@ -37,18 +37,23 @@ class AcpAgentSessionRuntime:
         mcp_servers: list[McpServerPayload] | None = None,
         configure_new_session: Any | None = None,
         configure_loaded_session: Any | None = None,
+        handle_server_request: Any | None = None,
     ) -> None:
         self._adapter_runtime = adapter_runtime
         self._working_directory = working_directory
         self._mcp_servers = list(mcp_servers or [])
         self._configure_new_session = configure_new_session
         self._configure_loaded_session = configure_loaded_session
+        self._handle_server_request = handle_server_request
         self._live_session_id: str | None = None
         self._events_claimed = False
         self._event_queue: asyncio.Queue[TechnicalFactDraft | None] = asyncio.Queue()
         self._adapter_events_task: asyncio.Task[None] | None = None
         self._active_prompt_task: asyncio.Task[None] | None = None
         self._closed = False
+        self._session_name: str | None = None
+        self._one_shot = False
+        self._session_metadata: dict[str, str] = {}
 
     async def __aenter__(self) -> AcpAgentSessionRuntime:
         await self._adapter_runtime.__aenter__()
@@ -65,6 +70,9 @@ class AcpAgentSessionRuntime:
         if command.command_type == AgentSessionCommandType.START_SESSION:
             if self._live_session_id is not None:
                 raise RuntimeError("AgentSessionRuntime already has a live session.")
+            self._session_name = self._metadata_str(command.metadata, "session_name")
+            self._one_shot = self._metadata_bool(command.metadata, "one_shot")
+            self._session_metadata = self._normalized_session_metadata(command.metadata)
             self._live_session_id = await self._start_new_session(command.instruction or "")
             await self._emit_fact(
                 TechnicalFactDraft(
@@ -83,6 +91,9 @@ class AcpAgentSessionRuntime:
             if self._live_session_id is None:
                 if not isinstance(command.session_id, str) or not command.session_id:
                     raise RuntimeError("No live session is available for follow-up message.")
+                self._session_name = self._metadata_str(command.metadata, "session_name")
+                self._one_shot = self._metadata_bool(command.metadata, "one_shot")
+                self._session_metadata = self._normalized_session_metadata(command.metadata)
                 await self._request(
                     "session/load",
                     {
@@ -99,6 +110,9 @@ class AcpAgentSessionRuntime:
             return
         if command.command_type == AgentSessionCommandType.REPLACE_SESSION:
             previous_session_id = self._live_session_id
+            self._session_name = self._metadata_str(command.metadata, "session_name")
+            self._one_shot = self._metadata_bool(command.metadata, "one_shot")
+            self._session_metadata = self._normalized_session_metadata(command.metadata)
             self._live_session_id = await self._start_new_session(command.instruction or "")
             await self._emit_fact(
                 TechnicalFactDraft(
@@ -263,6 +277,9 @@ class AcpAgentSessionRuntime:
     async def _forward_adapter_events(self) -> None:
         try:
             async for fact in self._adapter_runtime.events():
+                handled = await self._handle_server_request_fact(fact)
+                if handled:
+                    continue
                 translated = self._translate_adapter_fact(fact)
                 if translated is not None:
                     await self._emit_fact(translated)
@@ -320,6 +337,96 @@ class AcpAgentSessionRuntime:
             source_fact_ids=[],
             session_id=fact.session_id,
         )
+
+    async def _handle_server_request_fact(self, fact: AdapterFactDraft) -> bool:
+        if self._handle_server_request is None:
+            return False
+        method = fact.payload.get("method")
+        if not isinstance(method, str) or method == "session/update":
+            return False
+        session_id = fact.session_id or self._live_session_id
+        if not isinstance(session_id, str) or not session_id:
+            return False
+        from agent_operator.acp.session_runner import AcpSessionState
+        from agent_operator.domain import AgentSessionHandle
+
+        handle = AgentSessionHandle(
+            adapter_key=str(getattr(self._adapter_runtime, "_adapter_key", "")),
+            session_id=session_id,
+            session_name=self._session_name,
+            one_shot=self._one_shot,
+            metadata={
+                **self._session_metadata,
+                "working_directory": str(self._working_directory),
+            },
+        )
+        session = AcpSessionState(
+            handle=handle,
+            working_directory=self._working_directory,
+            acp_session_id=session_id,
+            connection=self._connection(),
+            active_prompt=self._active_prompt_task,
+        )
+        await self._handle_server_request(session, dict(fact.payload))
+        if session.pending_input_message is not None:
+            if self._active_prompt_task is not None and not self._active_prompt_task.done():
+                self._active_prompt_task.cancel()
+            await self._emit_fact(
+                TechnicalFactDraft(
+                    fact_type="session.waiting_input_observed",
+                    payload={
+                        "message": session.pending_input_message,
+                        "raw": session.pending_input_raw,
+                    },
+                    observed_at=datetime.now(UTC),
+                    source_fact_ids=[],
+                    session_id=session_id,
+                )
+            )
+            return True
+        if session.last_error is not None:
+            if self._active_prompt_task is not None and not self._active_prompt_task.done():
+                self._active_prompt_task.cancel()
+            await self._emit_fact(
+                TechnicalFactDraft(
+                    fact_type="session.failed",
+                    payload={
+                        "message": session.last_error,
+                        "error_code": "agent_permission_rejected",
+                        "raw": {"payload": fact.payload},
+                    },
+                    observed_at=datetime.now(UTC),
+                    source_fact_ids=[],
+                    session_id=session_id,
+                )
+            )
+            return True
+        return method in {
+            "session/request_permission",
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+            "item/tool/requestUserInput",
+        }
+
+    def _normalized_session_metadata(self, metadata: object) -> dict[str, str]:
+        if not isinstance(metadata, dict):
+            return {}
+        return {
+            str(key): str(value)
+            for key, value in metadata.items()
+            if isinstance(key, str) and isinstance(value, str)
+        }
+
+    def _metadata_str(self, metadata: object, key: str) -> str | None:
+        if not isinstance(metadata, dict):
+            return None
+        value = metadata.get(key)
+        return value if isinstance(value, str) else None
+
+    def _metadata_bool(self, metadata: object, key: str) -> bool:
+        if not isinstance(metadata, dict):
+            return False
+        return bool(metadata.get(key))
 
     def _extract_text(self, content: object) -> str:
         if isinstance(content, dict):

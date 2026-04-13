@@ -89,7 +89,6 @@ class OperationTurnExecutionService:
             registry=self._attached_session_registry,
             session=session,
             ensure_session_record=self._loaded_operation.ensure_session_record,
-            save_operation=self._store.save_operation,
             sync_traceability_artifacts=self._traceability_service.sync_traceability_artifacts,
             drain_commands=lambda operation_state, active_iteration, active_session: (
                 self._command_service.drain_commands(
@@ -137,7 +136,6 @@ class OperationTurnExecutionService:
             record_agent_turn_brief=self._traceability_service.record_agent_turn_brief,
             record_iteration_brief=self._traceability_service.record_iteration_brief,
             sync_traceability_artifacts=self._traceability_service.sync_traceability_artifacts,
-            save_operation=self._store.save_operation,
         )
 
     async def start_agent_turn(

@@ -64,5 +64,5 @@ env OPERATOR_CODEX_ACP__COMMAND='npx @zed-industries/codex-acp --' \
     OPERATOR_CODEX_ACP__MODEL='gpt-5.4' \
     OPERATOR_CODEX_ACP__EFFORT='low' \
     UV_CACHE_DIR=/tmp/uv-cache \
-    uv run operator run --mode attached --allowed-agent codex_acp --max-iterations 100 "<objective>"
+    uv run operator run --mode attached --agent codex_acp --max-iterations 100 "<objective>"
 ```

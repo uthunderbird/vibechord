@@ -16,6 +16,7 @@ from agent_operator.domain import (
     OperationGoal,
     OperationPolicy,
     OperationState,
+    OperationStatus,
     RunOptions,
     RuntimeHints,
 )
@@ -226,13 +227,29 @@ class OperationEntrypointService:
         state.pending_wakeups = [
             item.model_copy(deep=True) for item in fallback_state.pending_wakeups
         ]
+        existing_attention_ids = {
+            attention.attention_id for attention in state.attention_requests
+        }
+        for attention in fallback_state.attention_requests:
+            if attention.attention_id in existing_attention_ids:
+                continue
+            state.attention_requests.append(attention.model_copy(deep=True))
         state.pending_replan_command_ids = list(fallback_state.pending_replan_command_ids)
         state.pending_attention_resolution_ids = [
             attention.attention_id
             for attention in state.attention_requests
             if attention.status is AttentionStatus.ANSWERED
         ]
-        if state.current_focus is None and fallback_state.current_focus is not None:
+        if (
+            state.current_focus is None
+            and fallback_state.current_focus is not None
+            and state.status
+            not in {
+                OperationStatus.COMPLETED,
+                OperationStatus.FAILED,
+                OperationStatus.CANCELLED,
+            }
+        ):
             state.current_focus = fallback_state.current_focus.model_copy(deep=True)
         return state
 

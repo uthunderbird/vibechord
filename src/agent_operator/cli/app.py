@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 import anyio
 import typer
@@ -20,12 +21,14 @@ debug_app = typer.Typer(no_args_is_help=False)
 project_app = typer.Typer(no_args_is_help=True)
 policy_app = typer.Typer(no_args_is_help=True)
 agent_app = typer.Typer(no_args_is_help=True)
+config_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(smoke_app, name="smoke")
 app.add_typer(debug_app, name="debug")
 app.add_typer(project_app, name="project")
 app.add_typer(policy_app, name="policy")
 app.add_typer(agent_app, name="agent")
+app.add_typer(config_app, name="config")
 
 
 @debug_app.callback(invoke_without_command=True)
@@ -36,7 +39,7 @@ def debug_main(ctx: typer.Context) -> None:
     raise typer.Exit()
 
 
-def _iter_click_commands(command) -> list[object]:
+def _iter_click_commands(command: Any) -> list[Any]:
     commands = [command]
     nested = getattr(command, "commands", None)
     if isinstance(nested, dict):
@@ -48,7 +51,7 @@ def _iter_click_commands(command) -> list[object]:
 def _emit_help(*, show_all: bool) -> None:
     click_command = typer_get_command(app)
     commands = _iter_click_commands(click_command)
-    previous_hidden: list[tuple[object, bool]] = []
+    previous_hidden: list[tuple[Any, bool]] = []
     for command in commands:
         hidden = getattr(command, "hidden", None)
         if not isinstance(hidden, bool):
@@ -104,6 +107,7 @@ def main(
 
 
 from .commands import agent as _commands_agent  # noqa: E402,F401
+from .commands import config as _commands_config  # noqa: E402,F401
 from .commands import debug as _commands_debug  # noqa: E402,F401
 from .commands import fleet as _commands_fleet  # noqa: E402,F401
 from .commands import mcp as _commands_mcp  # noqa: E402,F401

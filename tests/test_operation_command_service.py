@@ -1365,6 +1365,127 @@ async def test_answer_attention_request_command_service_uses_replay_backed_persi
 
 
 @pytest.mark.anyio
+async def test_answer_attention_request_seeds_snapshot_only_attention_before_answering(
+    tmp_path: Path,
+) -> None:
+    store = _CountingMemoryStore()
+    inbox = MemoryCommandInbox()
+    event_sink = MemoryEventSink()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=inbox,
+        event_sourced_operation_birth_service=birth_service,
+        operation_entrypoint_service=operation_entrypoints,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+    )
+
+    operation = OperationState(
+        operation_id="op-snapshot-only-attention-answer",
+        goal=OperationGoal(objective="resolve a snapshot-only approval request"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        status=OperationStatus.NEEDS_HUMAN,
+        current_focus=FocusState(
+            kind=FocusKind.ATTENTION_REQUEST,
+            target_id="attention-1",
+            mode=FocusMode.BLOCKING,
+        ),
+        attention_requests=[
+            AttentionRequest(
+                operation_id="op-snapshot-only-attention-answer",
+                attention_id="attention-1",
+                attention_type=AttentionType.APPROVAL_REQUEST,
+                target_scope=CommandTargetScope.SESSION,
+                target_id="session-1",
+                title="Agent is waiting for approval",
+                question="Approve this exact edit?",
+                context_brief="Session session-1 for task Primary objective",
+                blocking=True,
+                status=AttentionStatus.OPEN,
+            )
+        ],
+    )
+    await store.save_operation(operation)
+    await event_store.append(
+        operation.operation_id,
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    **operation.objective.model_dump(mode="json"),
+                    "allowed_agents": ["claude_acp"],
+                    "involvement_level": operation.involvement_level.value,
+                    "created_at": operation.created_at.isoformat(),
+                },
+            ),
+            OperationDomainEventDraft(
+                event_type="operation.status.changed",
+                payload={"status": OperationStatus.NEEDS_HUMAN.value},
+            ),
+        ],
+    )
+    await replay_service.load(operation.operation_id)
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
+        target_scope=CommandTargetScope.ATTENTION_REQUEST,
+        target_id="attention-1",
+        payload={"text": "Decision: approve."},
+    )
+    await inbox.enqueue(command)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=2),
+    )
+
+    updated = await store.load_operation(operation.operation_id)
+    assert updated is not None
+    assert outcome.status is OperationStatus.COMPLETED
+    assert updated.attention_requests[0].status is AttentionStatus.RESOLVED
+    assert updated.attention_requests[0].answer_text == "Decision: approve."
+    assert inbox.commands[command.command_id].status is CommandStatus.APPLIED
+
+    events = await event_store.load_after(operation.operation_id, after_sequence=0)
+    assert [event.event_type for event in events] == [
+        "operation.created",
+        "operation.status.changed",
+        "attention.request.created",
+        "command.accepted",
+        "attention.request.answered",
+        "operation.status.changed",
+        "attention.request.resolved",
+    ]
+
+
+@pytest.mark.anyio
 async def test_stop_agent_turn_command_service_uses_replay_backed_persistence(
     tmp_path: Path,
 ) -> None:
@@ -1650,11 +1771,12 @@ async def test_stop_operation_command_service_uses_replay_backed_persistence(
     assert command.command_id in operation.processed_command_ids
 
     events = await event_store.load_after(operation.operation_id, after_sequence=0)
-    assert [event.event_type for event in events][-5:] == [
+    assert [event.event_type for event in events][-6:] == [
         "command.accepted",
         "execution.observed_state.changed",
         "operation.status.changed",
         "operation.focus.updated",
+        "operation.active_session_updated",
         "scheduler.state.changed",
     ]
 
@@ -1665,6 +1787,7 @@ async def test_stop_operation_command_service_uses_replay_backed_persistence(
     assert replayed.status is OperationStatus.CANCELLED
     assert replayed.final_summary == "Operation cancelled."
     assert replayed.current_focus is None
+    assert replayed.active_session is None
     assert replayed.scheduler_state is SchedulerState.ACTIVE
     assert replayed.background_runs[0].status is BackgroundRunStatus.CANCELLED
     assert command.command_id in replayed.processed_command_ids

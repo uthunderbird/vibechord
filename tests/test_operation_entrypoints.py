@@ -24,10 +24,15 @@ from agent_operator.domain import (
     CanonicalPersistenceMode,
     ExecutionBudget,
     ExecutionState,
+    FocusKind,
+    FocusMode,
+    FocusState,
+    InterruptPolicy,
     OperationGoal,
     OperationPolicy,
     OperationState,
     OperationStatus,
+    ResumePolicy,
     RunEventKind,
     RunMode,
     RunOptions,
@@ -504,9 +509,10 @@ async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced
     assert supervisor.cancelled == ["run-1"]
     assert snapshot_state is not None
     assert snapshot_state.sessions[0].status is SessionStatus.RUNNING
-    assert [event.event_type for event in stored_events][-2:] == [
+    assert [event.event_type for event in stored_events][-3:] == [
         "session.waiting_reason.updated",
         "session.observed_state.changed",
+        "execution.observed_state.changed",
     ]
     assert resumed.sessions[0].status is SessionStatus.CANCELLED
     assert resumed.sessions[0].waiting_reason == "Cancelled by operator."
@@ -616,6 +622,122 @@ async def test_targeted_cancel_seeds_snapshot_only_session_before_replay_persist
     ]
     assert resumed.sessions[0].status is SessionStatus.CANCELLED
     assert resumed.sessions[0].waiting_reason == "Cancelled by operator."
+
+
+@pytest.mark.anyio
+async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced_replay(
+    tmp_path,
+) -> None:
+    store = FileOperationStore(tmp_path / "operations")
+    event_store = FileOperationEventStore(tmp_path / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    supervisor = FakeSupervisor()
+    lifecycle = OperationLifecycleCoordinator(
+        store=store,
+        event_store=event_store,
+        replay_service=replay,
+    )
+    cancellation = OperationCancellationService(
+        store=store,
+        event_sink=None,
+        supervisor=supervisor,
+        lifecycle_coordinator=lifecycle,
+    )
+    entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_replay_service=replay,
+    )
+    session = AgentSessionHandle(adapter_key="claude_acp", session_id="session-1")
+    state = OperationState(
+        operation_id="op-es-whole-cancel",
+        goal=OperationGoal(objective="Cancel the whole operation."),
+        policy=OperationPolicy(),
+        status=OperationStatus.RUNNING,
+        active_session=session,
+        current_focus=FocusState(
+            kind=FocusKind.SESSION,
+            target_id="session-1",
+            mode=FocusMode.BLOCKING,
+            blocking_reason="Waiting for completion.",
+            interrupt_policy=InterruptPolicy.TERMINAL_ONLY,
+            resume_policy=ResumePolicy.REPLAN,
+        ),
+    )
+    state.sessions.append(
+        SessionState(
+            handle=session,
+            status=SessionStatus.RUNNING,
+            current_execution_id="run-1",
+        )
+    )
+    state.executions.append(
+        ExecutionState(
+            run_id="run-1",
+            operation_id=state.operation_id,
+            adapter_key="claude_acp",
+            session_id="session-1",
+            status=BackgroundRunStatus.RUNNING,
+        )
+    )
+    await birth.birth(state)
+    await store.save_operation(state)
+
+    outcome = await cancellation.cancel(
+        operation_id=state.operation_id,
+        session_id=None,
+        run_id=None,
+        find_background_run=lambda loaded, run_id: next(
+            (run for run in loaded.executions if run.run_id == run_id),
+            None,
+        ),
+        find_session_record=lambda loaded, session_id: next(
+            (record for record in loaded.sessions if record.session_id == session_id),
+            None,
+        ),
+        find_latest_result=lambda _state: AgentResult(
+            session_id="session-1",
+            status=AgentResultStatus.CANCELLED,
+            output_text="",
+            completed_at=datetime.now(UTC),
+        ),
+        emit=lambda *args, **kwargs: None,
+    )
+
+    resumed = await entrypoints.load_for_resume(
+        operation_id=state.operation_id,
+        options=RunOptions(),
+        merge_runtime_flags=lambda budget, _options: budget,
+    )
+    stored_events = await event_store.load_after(state.operation_id, after_sequence=0)
+
+    assert outcome.status is OperationStatus.CANCELLED
+    assert supervisor.cancelled == ["run-1"]
+    event_types = [event.event_type for event in stored_events]
+    for event_type in (
+        "session.waiting_reason.updated",
+        "session.observed_state.changed",
+        "execution.observed_state.changed",
+        "operation.active_session_updated",
+        "operation.focus.updated",
+        "operation.status.changed",
+    ):
+        assert event_type in event_types
+    assert resumed.status is OperationStatus.CANCELLED
+    assert resumed.active_session is None
+    assert resumed.current_focus is None
+    assert resumed.sessions[0].status is SessionStatus.CANCELLED
+    assert resumed.background_runs[0].status is BackgroundRunStatus.CANCELLED
 
 
 @pytest.mark.anyio
