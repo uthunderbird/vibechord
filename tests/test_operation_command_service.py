@@ -25,6 +25,7 @@ from agent_operator.domain import (
     InvolvementLevel,
     OperationCommand,
     OperationCommandType,
+    OperationDomainEventDraft,
     OperationGoal,
     OperationState,
     OperationStatus,
@@ -925,6 +926,276 @@ async def test_event_sourced_set_involvement_level_command_updates_runtime_view(
         "command.accepted",
         "operation.involvement_level.updated",
     ]
+
+
+@pytest.mark.anyio
+async def test_event_sourced_answer_attention_replays_canonical_answer(
+    tmp_path: Path,
+) -> None:
+    store = _CountingMemoryStore()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    event_sourced_command_service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+
+    operation = OperationState(
+        operation_id="op-event-answer-attention",
+        goal=OperationGoal(objective="pick a deployment target"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        status=OperationStatus.NEEDS_HUMAN,
+        current_focus=FocusState(
+            kind=FocusKind.ATTENTION_REQUEST,
+            target_id="attention-1",
+            mode=FocusMode.BLOCKING,
+        ),
+        attention_requests=[
+            AttentionRequest(
+                operation_id="op-event-answer-attention",
+                attention_id="attention-1",
+                attention_type=AttentionType.QUESTION,
+                target_scope=CommandTargetScope.OPERATION,
+                target_id="op-event-answer-attention",
+                title="Need direction",
+                question="Which path should the operator take?",
+                status=AttentionStatus.OPEN,
+            )
+        ],
+    )
+    await store.save_operation(operation)
+    await event_store.append(
+        operation.operation_id,
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    **operation.objective.model_dump(mode="json"),
+                    "allowed_agents": ["claude_acp"],
+                    "involvement_level": operation.involvement_level.value,
+                    "created_at": operation.created_at.isoformat(),
+                },
+            ),
+        ],
+    )
+    await event_store.append(
+        operation.operation_id,
+        1,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.status.changed",
+                payload={"status": OperationStatus.NEEDS_HUMAN.value},
+            ),
+            OperationDomainEventDraft(
+                event_type="attention.request.created",
+                payload={
+                    "attention_id": "attention-1",
+                    "operation_id": operation.operation_id,
+                    "attention_type": AttentionType.QUESTION.value,
+                    "target_scope": CommandTargetScope.OPERATION.value,
+                    "target_id": operation.operation_id,
+                    "title": "Need direction",
+                    "question": "Which path should the operator take?",
+                    "blocking": True,
+                    "status": AttentionStatus.OPEN.value,
+                },
+            ),
+        ],
+    )
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
+        target_scope=CommandTargetScope.ATTENTION_REQUEST,
+        target_id="attention-1",
+        payload={"text": "Use staging first."},
+    )
+    result = await event_sourced_command_service.apply(command)
+
+    assert result.applied is True
+    persisted = operation.model_copy(deep=True)
+    persisted.attention_requests[0].status = AttentionStatus.OPEN
+    persisted.attention_requests[0].answer_text = None
+    persisted.attention_requests[0].answer_source_command_id = None
+    persisted.attention_requests[0].answered_at = None
+    persisted.processed_command_ids = []
+
+    replayed = await operation_entrypoints._load_event_sourced(  # noqa: SLF001 - regression check
+        operation.operation_id,
+        fallback_state=persisted,
+    )
+
+    replayed_attention = replayed.attention_requests[0]
+    assert replayed_attention.status is AttentionStatus.ANSWERED
+    assert replayed_attention.answer_text == "Use staging first."
+    assert replayed_attention.answer_source_command_id == command.command_id
+    assert command.command_id in replayed.processed_command_ids
+
+
+@pytest.mark.anyio
+async def test_answer_attention_request_command_service_uses_replay_backed_persistence(
+    tmp_path: Path,
+) -> None:
+    store = _CountingMemoryStore()
+    inbox = MemoryCommandInbox()
+    event_sink = MemoryEventSink()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=inbox,
+        event_sourced_operation_birth_service=birth_service,
+        operation_entrypoint_service=operation_entrypoints,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+    )
+
+    operation = OperationState(
+        operation_id="op-event-answer-command-service",
+        goal=OperationGoal(objective="pick a deployment target"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        status=OperationStatus.NEEDS_HUMAN,
+        current_focus=FocusState(
+            kind=FocusKind.ATTENTION_REQUEST,
+            target_id="attention-1",
+            mode=FocusMode.BLOCKING,
+        ),
+        attention_requests=[
+            AttentionRequest(
+                operation_id="op-event-answer-command-service",
+                attention_id="attention-1",
+                attention_type=AttentionType.QUESTION,
+                target_scope=CommandTargetScope.OPERATION,
+                target_id="op-event-answer-command-service",
+                title="Need direction",
+                question="Which path should the operator take?",
+                status=AttentionStatus.OPEN,
+            )
+        ],
+    )
+    await store.save_operation(operation)
+    await event_store.append(
+        operation.operation_id,
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    **operation.objective.model_dump(mode="json"),
+                    "allowed_agents": ["claude_acp"],
+                    "involvement_level": operation.involvement_level.value,
+                    "created_at": operation.created_at.isoformat(),
+                },
+            ),
+            OperationDomainEventDraft(
+                event_type="operation.status.changed",
+                payload={"status": OperationStatus.NEEDS_HUMAN.value},
+            ),
+            OperationDomainEventDraft(
+                event_type="attention.request.created",
+                payload={
+                    "attention_id": "attention-1",
+                    "operation_id": operation.operation_id,
+                    "attention_type": AttentionType.QUESTION.value,
+                    "target_scope": CommandTargetScope.OPERATION.value,
+                    "target_id": operation.operation_id,
+                    "title": "Need direction",
+                    "question": "Which path should the operator take?",
+                    "blocking": True,
+                    "status": AttentionStatus.OPEN.value,
+                },
+            ),
+        ],
+    )
+    await replay_service.load(operation.operation_id)
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
+        target_scope=CommandTargetScope.ATTENTION_REQUEST,
+        target_id="attention-1",
+        payload={"text": "Use staging first."},
+    )
+    await inbox.enqueue(command)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=2),
+    )
+    assert outcome.status is OperationStatus.COMPLETED
+
+    updated = await store.load_operation(operation.operation_id)
+    assert updated is not None
+    assert updated.attention_requests[0].status is AttentionStatus.RESOLVED
+    assert updated.attention_requests[0].answer_text == "Use staging first."
+    assert inbox.commands[command.command_id].status is CommandStatus.APPLIED
+
+    events = await event_store.load_after(operation.operation_id, after_sequence=0)
+    assert [event.event_type for event in events] == [
+        "operation.created",
+        "operation.status.changed",
+        "attention.request.created",
+        "command.accepted",
+        "attention.request.answered",
+        "operation.status.changed",
+    ]
+
+    stale_snapshot = operation.model_copy(deep=True)
+    replayed = await operation_entrypoints._load_event_sourced(  # noqa: SLF001 - regression check
+        operation.operation_id,
+        fallback_state=stale_snapshot,
+    )
+    assert replayed.attention_requests[0].status is AttentionStatus.ANSWERED
+    assert replayed.attention_requests[0].answer_text == "Use staging first."
+    assert replayed.current_focus is not None
+    assert replayed.current_focus.target_id == "attention-1"
+    assert command.command_id in replayed.processed_command_ids
+    assert [
+        event.event_type
+        for event in event_sink.events
+        if event.event_type.startswith("attention.request.")
+    ] == ["attention.request.resolved"]
 
 
 @pytest.mark.anyio

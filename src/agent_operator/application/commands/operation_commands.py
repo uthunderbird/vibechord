@@ -120,6 +120,12 @@ class OperationCommandService:
             await self.reconcile_single_command_status(command, CommandStatus.APPLIED)
             return False
         if command.command_type is OperationCommandType.ANSWER_ATTENTION_REQUEST:
+            if self._event_sourced_command_service is None:
+                return await self._apply_legacy_answer_attention_request(
+                    state,
+                    command,
+                    trace_iteration=trace_iteration,
+                )
             return await self._apply_answer_attention_request(
                 state,
                 command,
@@ -456,10 +462,16 @@ class OperationCommandService:
         )
 
     async def finalize_pending_attention_resolutions(self, state: OperationState) -> None:
-        if not state.pending_attention_resolution_ids:
+        pending_ids = list(dict.fromkeys(state.pending_attention_resolution_ids))
+        if not pending_ids:
+            pending_ids = [
+                attention.attention_id
+                for attention in state.attention_requests
+                if attention.status is AttentionStatus.ANSWERED
+            ]
+        if not pending_ids:
             return
         resolved_at = datetime.now(UTC)
-        pending_ids = list(dict.fromkeys(state.pending_attention_resolution_ids))
         state.pending_attention_resolution_ids = []
         changed = False
         for attention_id in pending_ids:
@@ -660,6 +672,89 @@ class OperationCommandService:
         return self._policy_context_coordinator.parse_policy_involvement_levels(raw_value)
 
     async def _apply_answer_attention_request(
+        self,
+        state: OperationState,
+        command: OperationCommand,
+        *,
+        trace_iteration: int,
+    ) -> bool:
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "ANSWER_ATTENTION_REQUEST requires EventSourcedCommandApplicationService."
+            )
+        result = await self._event_sourced_command_service.apply(command)
+        replayed_attention = next(
+            (
+                attention
+                for attention in result.checkpoint.attention_requests
+                if attention.attention_id == command.target_id
+            ),
+            None,
+        )
+        if replayed_attention is not None:
+            self._control_state_coordinator.refresh_state_from_checkpoint(
+                state,
+                result.checkpoint,
+            )
+        if not result.applied:
+            if (
+                result.rejection_reason == "Target attention request was not found."
+                and self.find_attention_request(state, command.target_id) is not None
+            ):
+                return await self._apply_legacy_answer_attention_request(
+                    state,
+                    command,
+                    trace_iteration=trace_iteration,
+                )
+            await self.reject_command(
+                state,
+                command,
+                trace_iteration,
+                result.rejection_reason
+                or f"Unsupported command type: {command.command_type.value}.",
+            )
+            return False
+        answered_attention = self.find_attention_request(state, command.target_id)
+        if (
+            answered_attention is not None
+            and answered_attention.status is AttentionStatus.ANSWERED
+            and answered_attention.attention_id not in state.pending_attention_resolution_ids
+        ):
+            state.pending_attention_resolution_ids.append(answered_attention.attention_id)
+        if answered_attention is not None and answered_attention.blocking:
+            has_blocking_open_attention = any(
+                attention.blocking and attention.status is AttentionStatus.OPEN
+                for attention in state.attention_requests
+            )
+            if not has_blocking_open_attention:
+                self._lifecycle_coordinator.mark_running(state)
+        if (
+            state.current_focus is not None
+            and state.current_focus.kind is FocusKind.ATTENTION_REQUEST
+            and state.current_focus.target_id == command.target_id
+        ):
+            state.current_focus = None
+        await self._control_state_coordinator.persist_command_effect_state(state)
+        await self.mark_command_applied(
+            state,
+            command,
+            trace_iteration,
+            "Attention answer recorded via canonical event append.",
+        )
+        if answered_attention is not None:
+            await self._process_signal_dispatcher.dispatch(
+                state,
+                trace_iteration,
+                ProcessManagerSignal(
+                    operation_id=state.operation_id,
+                    signal_type="attention_answer_recorded",
+                    source_command_id=command.command_id,
+                    metadata={"attention_id": answered_attention.attention_id},
+                ),
+            )
+        return True
+
+    async def _apply_legacy_answer_attention_request(
         self,
         state: OperationState,
         command: OperationCommand,

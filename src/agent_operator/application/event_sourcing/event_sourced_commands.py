@@ -5,11 +5,14 @@ from datetime import UTC, datetime
 
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
 from agent_operator.domain import (
+    AttentionRequest,
+    CommandTargetScope,
     InvolvementLevel,
     OperationCheckpoint,
     OperationCommand,
     OperationCommandType,
     OperationDomainEventDraft,
+    OperationState,
     OperationStatus,
     OperatorMessage,
     SchedulerState,
@@ -94,6 +97,52 @@ class EventSourcedCommandApplicationService:
             stored_events=stored_events,
             rejection_reason=rejection_reason,
         )
+
+    async def seed_attention_request_from_state(
+        self,
+        state: OperationState,
+        attention: AttentionRequest,
+    ) -> OperationCheckpoint:
+        """Seed one snapshot-era attention request into canonical event-sourced state."""
+        replay_state = await self._replay.load(state.operation_id)
+        checkpoint = replay_state.checkpoint
+        existing_attention = next(
+            (
+                item
+                for item in checkpoint.attention_requests
+                if item.attention_id == attention.attention_id
+            ),
+            None,
+        )
+        drafts: list[OperationDomainEventDraft] = []
+        if (
+            attention.blocking
+            and state.status is OperationStatus.NEEDS_HUMAN
+            and checkpoint.status is not OperationStatus.NEEDS_HUMAN
+        ):
+            drafts.append(
+                OperationDomainEventDraft(
+                    event_type="operation.status.changed",
+                    payload={"status": OperationStatus.NEEDS_HUMAN.value},
+                )
+            )
+        if existing_attention is None:
+            drafts.append(
+                OperationDomainEventDraft(
+                    event_type="attention.request.created",
+                    payload=attention.model_dump(mode="json"),
+                )
+            )
+        if not drafts:
+            return checkpoint
+        stored_events = await self._event_store.append(
+            state.operation_id,
+            replay_state.last_applied_sequence,
+            drafts,
+        )
+        updated_replay_state = self._replay.advance(replay_state, stored_events)
+        await self._replay.materialize(updated_replay_state)
+        return updated_replay_state.checkpoint
 
     def _build_domain_event_drafts(
         self,
@@ -207,6 +256,65 @@ class EventSourcedCommandApplicationService:
                     payload=message.model_dump(mode="json"),
                 ),
             ], None
+
+        if command.command_type is OperationCommandType.ANSWER_ATTENTION_REQUEST:
+            if command.target_scope is not CommandTargetScope.ATTENTION_REQUEST:
+                reason = (
+                    "ANSWER_ATTENTION_REQUEST requires attention_request target scope."
+                )
+                return [self._rejected_event(command, reason)], reason
+            attention_id = command.target_id
+            attention = next(
+                (
+                    item
+                    for item in checkpoint.attention_requests
+                    if item.attention_id == attention_id
+                ),
+                None,
+            )
+            if attention is None:
+                reason = "Target attention request was not found."
+                return [self._rejected_event(command, reason)], reason
+            if attention.status.value != "open":
+                reason = "Target attention request is not open."
+                return [self._rejected_event(command, reason)], reason
+            text = str(command.payload.get("text", "")).strip()
+            if not text:
+                reason = "ANSWER_ATTENTION_REQUEST requires non-empty payload.text."
+                return [self._rejected_event(command, reason)], reason
+            answered_at = datetime.now(UTC)
+            events = [
+                accepted,
+                OperationDomainEventDraft(
+                    event_type="attention.request.answered",
+                    payload={
+                        "attention_id": attention.attention_id,
+                        "attention_type": attention.attention_type.value,
+                        "status": "answered",
+                        "answer_text": text,
+                        "source_command_id": command.command_id,
+                        "answered_at": answered_at.isoformat(),
+                    },
+                ),
+            ]
+            remaining_blocking_open = any(
+                item.blocking
+                and item.status.value == "open"
+                and item.attention_id != attention.attention_id
+                for item in checkpoint.attention_requests
+            )
+            if (
+                attention.blocking
+                and checkpoint.status is OperationStatus.NEEDS_HUMAN
+                and not remaining_blocking_open
+            ):
+                events.append(
+                    OperationDomainEventDraft(
+                        event_type="operation.status.changed",
+                        payload={"status": OperationStatus.RUNNING.value},
+                    )
+                )
+            return events, None
 
         if command.command_type is OperationCommandType.SET_INVOLVEMENT_LEVEL:
             raw_level = str(command.payload.get("level", "")).strip()

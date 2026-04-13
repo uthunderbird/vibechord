@@ -9,6 +9,8 @@ from agent_operator.application.event_sourcing.event_sourced_commands import (
     EventSourcedCommandApplicationService,
 )
 from agent_operator.domain import (
+    AttentionStatus,
+    AttentionType,
     CommandTargetScope,
     InvolvementLevel,
     ObjectiveState,
@@ -66,6 +68,39 @@ async def _append_operation_status(
                     "final_summary": final_summary,
                 },
             )
+        ],
+    )
+
+
+async def _append_open_attention_request(
+    service: EventSourcedCommandApplicationService,
+    operation_id: str,
+    *,
+    attention_id: str,
+) -> None:
+    """Append one blocking open attention request for command-application tests."""
+    await service._event_store.append(  # noqa: SLF001 - test fixture setup
+        operation_id,
+        1,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.status.changed",
+                payload={"status": OperationStatus.NEEDS_HUMAN.value},
+            ),
+            OperationDomainEventDraft(
+                event_type="attention.request.created",
+                payload={
+                    "attention_id": attention_id,
+                    "operation_id": operation_id,
+                        "attention_type": AttentionType.QUESTION.value,
+                    "target_scope": CommandTargetScope.OPERATION.value,
+                    "target_id": operation_id,
+                    "title": "Need direction",
+                    "question": "Which path should the operator take?",
+                    "blocking": True,
+                    "status": AttentionStatus.OPEN.value,
+                },
+            ),
         ],
     )
 
@@ -210,6 +245,48 @@ async def test_event_sourced_command_application_projects_operator_message_into_
     assert message.text == "Use swarm before choosing the route."
     assert message.source_command_id == command.command_id
     assert message.applied_at is not None
+
+
+@pytest.mark.anyio
+async def test_event_sourced_command_application_answers_attention_via_canonical_events(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-answer-attention"
+    await _seed_created_operation(service, operation_id)
+    await _append_open_attention_request(
+        service,
+        operation_id,
+        attention_id="attention-1",
+    )
+    command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
+        target_scope=CommandTargetScope.ATTENTION_REQUEST,
+        target_id="attention-1",
+        payload={"text": "Use the canonical path."},
+    )
+
+    result = await service.apply(command)
+
+    assert result.applied is True
+    assert [event.event_type for event in result.stored_events] == [
+        "command.accepted",
+        "attention.request.answered",
+        "operation.status.changed",
+    ]
+    assert result.checkpoint.status is OperationStatus.RUNNING
+    assert len(result.checkpoint.attention_requests) == 1
+    attention = result.checkpoint.attention_requests[0]
+    assert attention.status is AttentionStatus.ANSWERED
+    assert attention.answer_text == "Use the canonical path."
 
 
 @pytest.mark.anyio
