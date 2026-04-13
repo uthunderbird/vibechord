@@ -165,10 +165,13 @@ def _build_session_runtime_factory(
             working_directory=working_directory,
             log_path=log_path,
         )
+        hooks = adapter._runner._hooks  # type: ignore[attr-defined]
         return AcpAgentSessionRuntime(
             adapter_runtime=adapter_runtime,
             working_directory=working_directory,
             mcp_servers=list(getattr(adapter, "_mcp_servers", [])),
+            configure_new_session=hooks.configure_new_session,
+            configure_loaded_session=hooks.configure_loaded_session,
         )
 
     return factory

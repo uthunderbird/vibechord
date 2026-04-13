@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_operator.acp.client import AcpConnection
 from agent_operator.domain import (
     AdapterCommand,
     AdapterCommandType,
@@ -18,6 +19,7 @@ from agent_operator.domain import (
 from agent_operator.protocols import AdapterRuntime
 
 McpServerPayload = dict[str, object]
+SessionConfigurator = callable
 
 
 class AcpAgentSessionRuntime:
@@ -33,10 +35,14 @@ class AcpAgentSessionRuntime:
         adapter_runtime: AdapterRuntime,
         working_directory: Path,
         mcp_servers: list[McpServerPayload] | None = None,
+        configure_new_session: Any | None = None,
+        configure_loaded_session: Any | None = None,
     ) -> None:
         self._adapter_runtime = adapter_runtime
         self._working_directory = working_directory
         self._mcp_servers = list(mcp_servers or [])
+        self._configure_new_session = configure_new_session
+        self._configure_loaded_session = configure_loaded_session
         self._live_session_id: str | None = None
         self._events_claimed = False
         self._event_queue: asyncio.Queue[TechnicalFactDraft | None] = asyncio.Queue()
@@ -85,6 +91,7 @@ class AcpAgentSessionRuntime:
                         "mcpServers": list(self._mcp_servers),
                     },
                 )
+                await self._configure_loaded(command.session_id)
                 self._live_session_id = command.session_id
             if self._active_prompt_task is not None and not self._active_prompt_task.done():
                 raise RuntimeError("No live session is available for follow-up message.")
@@ -174,7 +181,24 @@ class AcpAgentSessionRuntime:
             session_id = self._extract_latest_session_id()
         if session_id is None:
             raise RuntimeError("Adapter runtime did not expose a new session identifier.")
+        await self._configure_new(session_id)
         return session_id
+
+    async def _configure_new(self, session_id: str) -> None:
+        if self._configure_new_session is None:
+            return
+        await self._configure_new_session(self._connection(), session_id)
+
+    async def _configure_loaded(self, session_id: str) -> None:
+        if self._configure_loaded_session is None:
+            return
+        await self._configure_loaded_session(self._connection(), session_id)
+
+    def _connection(self) -> AcpConnection:
+        connection = getattr(self._adapter_runtime, "_connection", None)
+        if connection is None:
+            return connection
+        return connection
 
     def _start_prompt_task(self, session_id: str, instruction: str) -> None:
         self._active_prompt_task = asyncio.create_task(self._run_prompt(session_id, instruction))

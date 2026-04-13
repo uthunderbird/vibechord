@@ -95,3 +95,34 @@ def test_render_codex_reject_uses_abort_option() -> None:
         request=request,
         decision=AcpPermissionDecision.REJECT,
     ) == {"outcome": {"outcome": "selected", "optionId": "abort"}}
+
+
+def test_permission_decision_prompt_for_auto_forbids_escalation() -> None:
+    from agent_operator.domain import OperationGoal, OperationState
+    from agent_operator.providers.prompting import build_permission_decision_prompt
+
+    state = OperationState(goal=OperationGoal(objective="continue"))
+    prompt = build_permission_decision_prompt(
+        state,
+        request_payload={"kind": "permission"},
+        active_policy_payload=[],
+    )
+
+    assert "Do not escalate this request to a human." in prompt
+
+
+def test_permission_decision_prompt_for_approval_heavy_allows_escalation() -> None:
+    from agent_operator.domain import InvolvementLevel, OperationGoal, OperationState
+    from agent_operator.providers.prompting import build_permission_decision_prompt
+
+    state = OperationState(
+        goal=OperationGoal(objective="continue"),
+        involvement_level=InvolvementLevel.APPROVAL_HEAVY,
+    )
+    prompt = build_permission_decision_prompt(
+        state,
+        request_payload={"kind": "permission"},
+        active_policy_payload=[],
+    )
+
+    assert "Escalation to a blocking human attention request is allowed" in prompt

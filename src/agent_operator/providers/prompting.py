@@ -279,19 +279,31 @@ def build_permission_decision_prompt(
     request_payload: dict[str, object],
     active_policy_payload: list[dict[str, object]],
 ) -> str:
+    if state.involvement_level.value == "approval_heavy":
+        involvement_instruction = (
+            "Current involvement level is approval_heavy. Escalation to a blocking human "
+            "attention request is allowed when human judgment is genuinely required."
+        )
+    else:
+        involvement_instruction = (
+            f"Current involvement level is {state.involvement_level.value}. Do not escalate "
+            "this request to a human. The operator must decide autonomously by returning "
+            "decision=approve or decision=reject."
+        )
     return (
         "You are the operator's permission evaluator.\n"
         "Decide whether this ACP permission request should be approved now, rejected now, "
         "or escalated to a blocking human attention request.\n\n"
+        f"{involvement_instruction}\n\n"
         "Decision rules:\n"
         "- Be conservative.\n"
-        "- Prefer escalate when risk or uncertainty is meaningful.\n"
         "- Do not approve broad, destructive, or weakly understood requests.\n"
         "- Use active autonomy policies if they clearly support the request.\n"
         "- Return decision=approve only when the request is narrow, understandable, "
         "and safe in context.\n"
         "- Return decision=reject when the request is clearly unsafe or out of policy.\n"
-        "- Return decision=escalate when human judgment is needed.\n"
+        "- Return decision=escalate only when the current involvement level explicitly allows "
+        "human escalation and human judgment is needed.\n"
         "- If you escalate, provide short suggested_options the human can choose from.\n"
         "- If you approve or reject and the rule is reusable, provide a short policy_title and "
         "policy_rule_text suitable for a project autonomy policy.\n\n"

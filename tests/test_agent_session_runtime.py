@@ -298,3 +298,43 @@ async def test_acp_agent_session_runtime_can_resume_follow_up_for_existing_sessi
         for method, payload in connection.requests
     )
     assert completed.fact_type == "session.completed"
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_configures_new_session_before_prompt() -> None:
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="claude_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    configured: list[str] = []
+
+    async def configure_new_session(connection_obj, session_id: str) -> None:
+        configured.append(session_id)
+        await connection_obj.request(
+            "session/set_mode",
+            {"sessionId": session_id, "modeId": "bypassPermissions"},
+        )
+
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+        configure_new_session=configure_new_session,
+    )
+
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+            )
+        )
+        _started = await asyncio.wait_for(anext(stream), timeout=1.0)
+        _completed = await asyncio.wait_for(anext(stream), timeout=1.0)
+
+    assert configured == ["sess-1"]
+    methods = [method for method, _payload in connection.requests]
+    assert methods[:3] == ["session/new", "session/set_mode", "session/prompt"]

@@ -39,12 +39,12 @@ class ProviderBackedPermissionEvaluator:
         state = await self._store.load_operation(operation_id)
         if state is None:
             return PermissionEvaluationResult(
-                decision=AcpPermissionDecision.ESCALATE,
+                decision=AcpPermissionDecision.REJECT,
                 rationale=(
                     "Operation state was unavailable while evaluating the permission "
-                    "request."
+                    "request, so the operator rejected it conservatively."
                 ),
-                suggested_options=("Approve once", "Reject", "Record autonomy rule"),
+                suggested_options=("Reject",),
             )
         active_policies = await self._active_policies_for_operation(state)
         matched_policy = find_matching_permission_policy(request, active_policies=active_policies)
@@ -61,7 +61,10 @@ class ProviderBackedPermissionEvaluator:
             request_payload=serialize_permission_request(request),
             active_policy_payload=[_serialize_policy_entry(item) for item in active_policies],
         )
-        decision = _decision_from_dto(payload.decision)
+        decision = _decision_from_dto(
+            payload.decision,
+            allow_escalation=state.involvement_level.value == "approval_heavy",
+        )
         return PermissionEvaluationResult(
             decision=decision,
             rationale=payload.rationale,
@@ -86,11 +89,13 @@ class ProviderBackedPermissionEvaluator:
         return [item for item in policies if item.category is PolicyCategory.AUTONOMY]
 
 
-def _decision_from_dto(raw: str) -> AcpPermissionDecision:
+def _decision_from_dto(raw: str, *, allow_escalation: bool) -> AcpPermissionDecision:
     normalized = raw.strip().lower()
     if normalized == "approve":
         return AcpPermissionDecision.APPROVE
     if normalized == "reject":
+        return AcpPermissionDecision.REJECT
+    if not allow_escalation:
         return AcpPermissionDecision.REJECT
     return AcpPermissionDecision.ESCALATE
 

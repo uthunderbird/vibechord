@@ -57,6 +57,17 @@ from agent_operator.testing.operator_service_support import (
 from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
 
 
+class _EscalatingPermissionProvider:
+    async def evaluate_permission_request(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        from agent_operator.dtos import PermissionDecisionDTO
+
+        return PermissionDecisionDTO(
+            decision="escalate",
+            rationale="Need human judgment.",
+            suggested_options=["Approve once", "Reject"],
+        )
+
+
 @pytest.mark.anyio
 async def test_answer_attention_request_resolves_after_replan() -> None:
     store = MemoryStore()
@@ -111,6 +122,94 @@ async def test_answer_attention_request_resolves_after_replan() -> None:
         "attention.request.answered",
         "attention.request.resolved",
     ]
+
+
+@pytest.mark.anyio
+async def test_provider_permission_evaluator_rejects_escalation_for_auto_mode() -> None:
+    evaluator = ProviderBackedPermissionEvaluator(
+        _EscalatingPermissionProvider(),
+        store=MemoryStore(),
+    )
+    state = OperationState(
+        goal=OperationGoal(objective="continue work"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        involvement_level=InvolvementLevel.AUTO,
+    )
+    await evaluator._store.save_operation(state)
+    request = normalize_permission_request(
+        adapter_key="claude_acp",
+        working_directory=Path("/tmp/repo"),
+        payload={
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "sess-1",
+                "toolCall": {
+                    "title": "Run git status",
+                    "rawInput": {"command": ["git", "status"]},
+                },
+                "options": [
+                    {"optionId": "allow", "kind": "allow_once"},
+                    {"optionId": "reject", "kind": "reject_once"},
+                ],
+            },
+        },
+    )
+    assert request is not None
+
+    result = await evaluator.evaluate(
+        operation_id=state.operation_id,
+        working_directory=Path("/tmp/repo"),
+        request=request,
+    )
+
+    assert result.decision is not None
+    assert result.decision.value == "reject"
+
+
+@pytest.mark.anyio
+async def test_provider_permission_evaluator_allows_escalation_for_approval_heavy() -> None:
+    evaluator = ProviderBackedPermissionEvaluator(
+        _EscalatingPermissionProvider(),
+        store=MemoryStore(),
+    )
+    state = OperationState(
+        goal=OperationGoal(objective="continue work"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        involvement_level=InvolvementLevel.APPROVAL_HEAVY,
+    )
+    await evaluator._store.save_operation(state)
+    request = normalize_permission_request(
+        adapter_key="claude_acp",
+        working_directory=Path("/tmp/repo"),
+        payload={
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "sess-1",
+                "toolCall": {
+                    "title": "Run git status",
+                    "rawInput": {"command": ["git", "status"]},
+                },
+                "options": [
+                    {"optionId": "allow", "kind": "allow_once"},
+                    {"optionId": "reject", "kind": "reject_once"},
+                ],
+            },
+        },
+    )
+    assert request is not None
+
+    result = await evaluator.evaluate(
+        operation_id=state.operation_id,
+        working_directory=Path("/tmp/repo"),
+        request=request,
+    )
+
+    assert result.decision is not None
+    assert result.decision.value == "escalate"
 
 
 @pytest.mark.anyio

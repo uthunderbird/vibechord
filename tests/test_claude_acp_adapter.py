@@ -325,6 +325,48 @@ async def test_claude_acp_adapter_handles_session_request_permission() -> None:
 
 
 @pytest.mark.anyio
+async def test_claude_acp_adapter_collects_permission_escalation_as_incomplete() -> None:
+    connection = FakeAcpConnection("sess-1")
+
+    adapter = ClaudeAcpAgentAdapter(connection_factory=lambda _cwd, _log_path: connection)
+    handle = await adapter.start(AgentRunRequest(goal="goal", instruction="phase 1"))
+
+    connection.notifications.append(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "sess-1",
+                "options": [
+                    {"kind": "allow_always", "name": "Always Allow", "optionId": "allow_always"},
+                    {"kind": "allow_once", "name": "Allow", "optionId": "allow"},
+                    {"kind": "reject_once", "name": "Reject", "optionId": "reject"},
+                ],
+                "toolCall": {
+                    "toolCallId": "tool-1",
+                    "title": "run bash",
+                    "rawInput": {"command": "git status"},
+                },
+            },
+        }
+    )
+
+    progress = await adapter.poll(handle)
+    assert progress.state is AgentProgressState.WAITING_INPUT
+
+    connection.prompt_future.set_exception(RuntimeError("ACP subprocess closed"))
+    result = await adapter.collect(handle)
+
+    assert result.status is AgentResultStatus.INCOMPLETE
+    assert result.error is not None
+    assert result.error.code == "agent_requested_escalation"
+    assert result.error.message == "Claude ACP turn is waiting for approval."
+    assert isinstance(result.error.raw, dict)
+    assert result.error.raw.get("kind") == "permission_escalation"
+
+
+@pytest.mark.anyio
 async def test_claude_acp_adapter_auto_approves_safe_lake_build_permission_request() -> None:
     connection = FakeAcpConnection("sess-1")
 

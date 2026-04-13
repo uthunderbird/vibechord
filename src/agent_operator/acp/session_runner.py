@@ -237,8 +237,15 @@ class AcpSessionRunner:
                 else AgentResultStatus.SUCCESS
             )
             error = None
+        except asyncio.CancelledError:
+            await self._drain_session_notifications(session)
+            if session.pending_input_message is not None:
+                return self._pending_input_result(handle, session)
+            raise
         except Exception as exc:
             await self._drain_session_notifications(session)
+            if session.pending_input_message is not None:
+                return self._pending_input_result(handle, session)
             session.last_error = str(exc)
             stderr = session.connection.stderr_text() if session.connection is not None else ""
             classification = self._hooks.classify_collect_exception(exc, stderr)
@@ -265,6 +272,45 @@ class AcpSessionRunner:
                 "response": response,
                 "notifications": raw_notifications,
                 "stderr": stderr,
+                "session_snapshot_available": session.session_snapshot is not None,
+            },
+        )
+
+    def _pending_input_result(
+        self,
+        handle: AgentSessionHandle,
+        session: AcpSessionState,
+    ) -> AgentResult:
+        transcript = "".join(session.output_chunks)
+        raw_notifications = list(session.notifications)
+        stderr = session.connection.stderr_text() if session.connection is not None else ""
+        pending_raw = session.pending_input_raw
+        error_code = (
+            "agent_requested_escalation"
+            if isinstance(pending_raw, dict) and pending_raw.get("kind") == "permission_escalation"
+            else "agent_waiting_input"
+        )
+        session.active_prompt = None
+        return AgentResult(
+            session_id=handle.session_id,
+            status=AgentResultStatus.INCOMPLETE,
+            output_text=transcript,
+            error=AgentError(
+                code=error_code,
+                message=session.pending_input_message or "Agent is waiting for input.",
+                retryable=False,
+                raw=pending_raw,
+            ),
+            completed_at=datetime.now(UTC),
+            usage=session.usage,
+            transcript=transcript,
+            raw={
+                "acp_session_id": session.acp_session_id,
+                "stop_reason": session.stop_reason,
+                "notifications": raw_notifications,
+                "stderr": stderr,
+                "pending_input_message": session.pending_input_message,
+                "pending_input_raw": pending_raw,
                 "session_snapshot_available": session.session_snapshot is not None,
             },
         )

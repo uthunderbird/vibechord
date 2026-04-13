@@ -66,6 +66,8 @@ def test_build_agent_runtime_bindings_exposes_runtime_factories_and_descriptors(
         log_path=Path("/tmp/claude-session.jsonl"),
     )
     assert isinstance(session_runtime, AcpAgentSessionRuntime)
+    assert session_runtime._configure_new_session is not None  # type: ignore[attr-defined]
+    assert session_runtime._configure_loaded_session is not None  # type: ignore[attr-defined]
 
 
 def test_protocols_package_exposes_runtime_contracts_not_agentadapter() -> None:

@@ -372,6 +372,37 @@ async def test_session_runner_poll_reports_waiting_input_from_permission_request
 
 
 @pytest.mark.anyio
+async def test_session_runner_collect_returns_incomplete_for_pending_permission_escalation(
+) -> None:
+    connection = FakeAcpConnection()
+    runner = AcpSessionRunner(
+        adapter_key="fake_acp",
+        working_directory=Path.cwd(),
+        connection_factory=lambda _cwd, _log: connection,
+        hooks=FakeHooks(),
+    )
+    handle = await runner.start(AgentRunRequest(goal="goal", instruction="hello"))
+    connection.notifications.append(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/request_permission",
+            "params": {"sessionId": "sess-1"},
+        }
+    )
+
+    progress = await runner.poll(handle)
+    assert progress.state is AgentProgressState.WAITING_INPUT
+
+    result = await runner.collect(handle)
+
+    assert result.status is AgentResultStatus.INCOMPLETE
+    assert result.error is not None
+    assert result.error.code == "agent_waiting_input"
+    assert result.error.message == "Fake ACP turn is waiting for approval."
+
+
+@pytest.mark.anyio
 async def test_session_runner_cancel_notifies_and_closes() -> None:
     connection = FakeAcpConnection()
     runner = AcpSessionRunner(
