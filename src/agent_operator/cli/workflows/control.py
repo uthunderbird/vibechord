@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
@@ -37,6 +38,7 @@ from agent_operator.domain import (
     RunOptions,
     RuntimeHints,
     SchedulerState,
+    TaskStatus,
 )
 from agent_operator.runtime import (
     apply_effective_adapter_settings_snapshot,
@@ -238,30 +240,62 @@ async def run_async(
     if not (wait and json_mode):
         projector.emit_operation(operation_id)
     assert resolved.objective_text is not None
-    outcome = await service.run(
-        OperationGoal(
-            objective=resolved.objective_text,
-            harness_instructions=resolved.harness_instructions,
-            success_criteria=resolved.success_criteria,
-            metadata=goal_metadata,
-        ),
-        policy=OperationPolicy(
-            allowed_agents=resolved.default_agents,
-            involvement_level=resolved.involvement_level,
-        ),
-        budget=ExecutionBudget(max_iterations=resolved.max_iterations),
-        runtime_hints=RuntimeHints(operator_message_window=resolved.message_window),
-        options=RunOptions(
-            run_mode=effective_mode,
-            background_runtime_mode=(
-                BackgroundRuntimeMode.ATTACHED_LIVE
-                if effective_mode is RunMode.ATTACHED
-                else BackgroundRuntimeMode.RESUMABLE_WAKEUP
+    try:
+        outcome = await service.run(
+            OperationGoal(
+                objective=resolved.objective_text,
+                harness_instructions=resolved.harness_instructions,
+                success_criteria=resolved.success_criteria,
+                metadata=goal_metadata,
             ),
-        ),
-        operation_id=operation_id,
-        attached_sessions=attached_sessions or None,
-    )
+            policy=OperationPolicy(
+                allowed_agents=resolved.default_agents,
+                involvement_level=resolved.involvement_level,
+            ),
+            budget=ExecutionBudget(max_iterations=resolved.max_iterations),
+            runtime_hints=RuntimeHints(operator_message_window=resolved.message_window),
+            options=RunOptions(
+                run_mode=effective_mode,
+                background_runtime_mode=(
+                    BackgroundRuntimeMode.ATTACHED_LIVE
+                    if effective_mode is RunMode.ATTACHED
+                    else BackgroundRuntimeMode.RESUMABLE_WAKEUP
+                ),
+            ),
+            operation_id=operation_id,
+            attached_sessions=attached_sessions or None,
+        )
+    except Exception:
+        store = build_store(settings)
+        state = await store.load_operation(operation_id)
+        if state is not None:
+            summary = "Operation failed during startup."
+            exc_type, exc, _tb = sys.exc_info()
+            if exc is not None:
+                summary = str(exc) or summary
+            state.status = OperationStatus.FAILED
+            state.final_summary = summary
+            state.objective_state.summary = summary
+            state.updated_at = datetime.now(UTC)
+            if state.tasks:
+                root_task = state.tasks[0]
+                if root_task.status not in {
+                    TaskStatus.COMPLETED,
+                    TaskStatus.FAILED,
+                    TaskStatus.CANCELLED,
+                }:
+                    root_task.status = TaskStatus.FAILED
+                    root_task.updated_at = state.updated_at
+            await store.save_operation(state)
+            await store.save_outcome(
+                OperationOutcome(
+                    operation_id=operation_id,
+                    status=OperationStatus.FAILED,
+                    summary=summary,
+                    ended_at=state.updated_at,
+                )
+            )
+        raise
     if wait and effective_mode is RunMode.RESUMABLE:
         outcome = await _wait_for_operation_outcome(
             operation_id=operation_id,

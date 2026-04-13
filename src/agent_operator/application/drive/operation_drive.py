@@ -353,8 +353,22 @@ class OperationDriveService:
                     task,
                     options,
                 )
-            except RuntimeError as exc:
+            except anyio.get_cancelled_exc_class():
+                raise
+            except Exception as exc:
                 self._lifecycle_coordinator.mark_failed(state, summary=str(exc))
+                if task is not None and task.status not in {
+                    TaskStatus.COMPLETED,
+                    TaskStatus.FAILED,
+                    TaskStatus.CANCELLED,
+                }:
+                    task.status = TaskStatus.FAILED
+                    task.updated_at = datetime.now(UTC)
+                else:
+                    self._loaded_operation.mark_root_task_terminal(
+                        state,
+                        TaskStatus.FAILED,
+                    )
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
                 await self._advance_checkpoint(state)

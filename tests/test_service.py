@@ -207,6 +207,44 @@ async def test_operator_service_fails_on_unavailable_adapter() -> None:
 
 
 @pytest.mark.anyio
+async def test_attached_startup_failure_transitions_operation_to_failed() -> None:
+    class StartupTimeoutAgent(FakeAgent):
+        async def start(self, request):
+            self.started_requests.append(request)
+            raise TimeoutError("Claude ACP startup timed out while establishing the session.")
+
+    store = MemoryStore()
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"claude_acp": StartupTimeoutAgent()}
+        ),
+    )
+
+    outcome = await service.run(
+        OperationGoal(objective="do the task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(run_mode=RunMode.ATTACHED),
+        operation_id="op-startup-timeout",
+    )
+
+    updated = await store.load_operation("op-startup-timeout")
+    persisted_outcome = await store.load_outcome("op-startup-timeout")
+
+    assert outcome.status is OperationStatus.FAILED
+    assert "startup timed out" in outcome.summary
+    assert updated is not None
+    assert updated.status is OperationStatus.FAILED
+    assert updated.tasks[0].status is TaskStatus.FAILED
+    assert len(updated.iterations) == 1
+    assert persisted_outcome is not None
+    assert persisted_outcome.status is OperationStatus.FAILED
+
+
+@pytest.mark.anyio
 async def test_operator_service_answers_question_from_loaded_operation_state() -> None:
     class AnsweringBrain(StartThenStopBrain):
         async def answer_question(self, state, question: str) -> str:

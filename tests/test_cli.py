@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import anyio
+import httpx
 from typer.testing import CliRunner
 
 import agent_operator.cli.commands as cli_commands_pkg
@@ -80,6 +81,116 @@ def test_workflows_facade_reexports_package_entrypoints() -> None:
     assert "run_async" in cli_workflows.__all__
     assert "fleet_async" in cli_workflows.__all__
     assert "clear_async" in cli_workflows.__all__
+
+
+def test_run_cli_startup_connect_error_marks_operation_failed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    data_dir = tmp_path / ".operator"
+    runs_dir = data_dir / "runs"
+    store = FileOperationStore(runs_dir)
+    captured: dict[str, str] = {}
+
+    settings = SimpleNamespace(
+        data_dir=data_dir,
+        claude_acp=SimpleNamespace(
+            command="npx @agentclientprotocol/claude-agent-acp",
+            model=None,
+            reasoning_effort=None,
+            permission_mode="bypassPermissions",
+            timeout_seconds=None,
+            mcp_servers=[],
+            substrate_backend="sdk",
+            stdio_limit_bytes=1048576,
+            working_directory=str(tmp_path),
+        ),
+    )
+
+    class _ResolvedRunConfig:
+        objective_text = "Investigate ADR closure."
+        harness_instructions = "Follow AGENTS.md."
+        success_criteria: list[str] = []
+        default_agents = ["claude_acp"]
+        max_iterations = 4
+        run_mode = RunMode.ATTACHED
+        involvement_level = InvolvementLevel.AUTO
+        cwd = tmp_path
+        message_window = 3
+
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            return {
+                "profile_name": "operator",
+                "cwd": str(tmp_path),
+                "default_agents": ["claude_acp"],
+                "objective_text": self.objective_text,
+                "harness_instructions": self.harness_instructions,
+                "success_criteria": [],
+                "max_iterations": self.max_iterations,
+                "run_mode": self.run_mode.value,
+                "involvement_level": self.involvement_level.value,
+                "message_window": self.message_window,
+            }
+
+    async def _save_ready_operation(operation_id: str) -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Investigate ADR closure."),
+            **state_settings(
+                allowed_agents=["claude_acp"],
+                involvement_level=InvolvementLevel.AUTO,
+                max_iterations=4,
+                metadata={"run_mode": "attached"},
+            ),
+            status=OperationStatus.RUNNING,
+        )
+        await store.save_operation(state)
+
+    class _ExplodingService:
+        async def run(self, goal, **kwargs):
+            operation_id = kwargs["operation_id"]
+            captured["operation_id"] = operation_id
+            await _save_ready_operation(operation_id)
+            raise httpx.ConnectError(
+                "[Errno 8] nodename nor servname provided, or not known",
+                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.load_settings_with_data_dir",
+        lambda: (settings, "test"),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.resolve_project_profile_selection",
+        lambda settings, name=None: (
+            SimpleNamespace(name="operator"),
+            tmp_path / "operator-profile.yaml",
+            "test_profile",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.apply_project_profile_settings",
+        lambda settings, profile: None,
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.resolve_project_run_config",
+        lambda *args, **kwargs: _ResolvedRunConfig(),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.snapshot_effective_adapter_settings",
+        lambda settings, adapter_keys: {},
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_projected_service",
+        lambda settings, operation_id, projector: _ExplodingService(),
+    )
+
+    result = runner.invoke(app, ["run"])
+
+    assert result.exit_code != 0
+    operation_id = captured["operation_id"]
+    persisted = anyio.run(store.load_operation, operation_id)
+    assert persisted is not None
+    assert persisted.status is OperationStatus.FAILED
 
 
 def test_cli_package_exports_command_and_helper_families() -> None:

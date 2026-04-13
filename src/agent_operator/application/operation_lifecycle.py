@@ -116,6 +116,17 @@ class OperationLifecycleCoordinator:
         final_result: AgentResult | None = None,
         summary: str = "Operation cancelled.",
     ) -> OperationOutcome:
+        state.current_focus = None
+        state.active_session = None
+        for record in state.sessions:
+            if record.status not in {
+                SessionStatus.COMPLETED,
+                SessionStatus.FAILED,
+                SessionStatus.CANCELLED,
+            }:
+                record.status = SessionStatus.CANCELLED
+                record.waiting_reason = "Cancelled by operator."
+                record.updated_at = state.updated_at
         self.mark_cancelled(state, summary=summary)
         return await self.finalize_outcome(
             state,
