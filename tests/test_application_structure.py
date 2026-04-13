@@ -142,13 +142,34 @@ def test_event_sourced_operation_commands_do_not_force_snapshot_persistence() ->
 
     assert direct_save_calls == []
     assert len(persist_calls) == 1
-    save_snapshot_keywords = {
-        keyword.arg: keyword.value
-        for keyword in persist_calls[0].keywords
-        if keyword.arg is not None
-    }
-    assert isinstance(save_snapshot_keywords.get("save_snapshot"), ast.Constant)
-    assert save_snapshot_keywords["save_snapshot"].value is False
+    assert persist_calls[0].keywords == []
+
+
+def test_control_state_coordinator_keeps_replay_sync_separate_from_snapshot_writes() -> None:
+    """ADR 0144: canonical command-effect sync must not hide snapshot writes behind a flag."""
+    control_file = APPLICATION_DIR / "commands" / "operation_control_state.py"
+    source = control_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    class_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OperationControlStateCoordinator"
+    )
+    persist_method = next(
+        node
+        for node in class_node.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "persist_command_effect_state"
+    )
+
+    direct_save_calls = [
+        child.lineno
+        for child in ast.walk(persist_method)
+        if isinstance(child, ast.Attribute) and child.attr == "save_operation"
+    ]
+
+    assert direct_save_calls == []
 
 
 def test_operation_lifecycle_uses_no_direct_snapshot_writes() -> None:

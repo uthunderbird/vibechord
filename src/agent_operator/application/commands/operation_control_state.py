@@ -24,16 +24,16 @@ class OperationControlStateCoordinator:
             operation_state_view_service or OperationStateViewService()
         )
 
-    async def persist_command_effect_state(
-        self,
-        state: OperationState,
-        *,
-        save_snapshot: bool = True,
-    ) -> None:
+    async def persist_command_effect_state(self, state: OperationState) -> None:
         state.updated_at = datetime.now(UTC)
         await self._traceability_service.sync_traceability_artifacts(state)
-        if save_snapshot:
-            await self._store.save_operation(state)
+
+    async def persist_legacy_snapshot_command_effect_state(
+        self,
+        state: OperationState,
+    ) -> None:
+        await self.persist_command_effect_state(state)
+        await self._store.save_operation(state)
 
     def remember_processed_command(self, state: OperationState, command_id: str) -> None:
         if command_id not in state.processed_command_ids:

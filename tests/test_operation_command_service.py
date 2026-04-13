@@ -785,6 +785,81 @@ async def test_event_sourced_patch_objective_persists_processed_command_via_chec
 
 
 @pytest.mark.anyio
+async def test_event_sourced_patch_objective_replay_restores_canonical_state_without_snapshot_write(
+    tmp_path: Path,
+) -> None:
+    store = _CountingMemoryStore()
+    command_inbox = MemoryCommandInbox()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=command_inbox,
+        event_sourced_operation_birth_service=birth_service,
+        operation_entrypoint_service=operation_entrypoints,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+    )
+
+    command = OperationCommand(
+        operation_id="op-event-replay-objective",
+        command_type=OperationCommandType.PATCH_OBJECTIVE,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id="op-event-replay-objective",
+        payload={"text": "Canonical replay should win over stale snapshot state."},
+    )
+    await command_inbox.enqueue(command)
+
+    outcome = await service.run(
+        OperationGoal(objective="do the task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(run_mode=RunMode.ATTACHED),
+        operation_id="op-event-replay-objective",
+    )
+    save_calls_after_run = store.save_calls
+
+    persisted = await store.load_operation(outcome.operation_id)
+    assert persisted is not None
+    persisted.goal.objective = "stale snapshot objective"
+    persisted.objective.objective = "stale snapshot objective"
+    persisted.processed_command_ids = []
+
+    replayed = await operation_entrypoints._load_event_sourced(  # noqa: SLF001 - regression check
+        outcome.operation_id,
+        fallback_state=persisted,
+    )
+
+    assert replayed.objective_state.objective == (
+        "Canonical replay should win over stale snapshot state."
+    )
+    assert command.command_id in replayed.processed_command_ids
+    assert store.save_calls == save_calls_after_run
+
+
+@pytest.mark.anyio
 async def test_event_sourced_set_involvement_level_command_updates_runtime_view(
     tmp_path: Path,
 ) -> None:

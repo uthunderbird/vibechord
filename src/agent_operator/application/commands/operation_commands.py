@@ -332,7 +332,7 @@ class OperationCommandService:
         await self.refresh_policy_context(state)
         self._control_state_coordinator.remember_processed_command(state, command.command_id)
         applied_at = datetime.now(UTC)
-        await self._control_state_coordinator.persist_command_effect_state(state)
+        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
@@ -413,7 +413,7 @@ class OperationCommandService:
         await self.refresh_policy_context(state)
         self._control_state_coordinator.remember_processed_command(state, command.command_id)
         applied_at = datetime.now(UTC)
-        await self._control_state_coordinator.persist_command_effect_state(state)
+        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
@@ -487,7 +487,9 @@ class OperationCommandService:
                 if policy_written:
                     changed = True
         if changed:
-            await self._control_state_coordinator.persist_command_effect_state(state)
+            await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(
+                state
+            )
 
     async def auto_record_approval_attention_policy(
         self,
@@ -604,10 +606,7 @@ class OperationCommandService:
         assert self._event_sourced_command_service is not None
         result = await self._event_sourced_command_service.apply(command)
         self._control_state_coordinator.refresh_state_from_checkpoint(state, result.checkpoint)
-        await self._control_state_coordinator.persist_command_effect_state(
-            state,
-            save_snapshot=False,
-        )
+        await self._control_state_coordinator.persist_command_effect_state(state)
         if not result.applied:
             await self.reject_command(
                 state,
@@ -727,7 +726,7 @@ class OperationCommandService:
         ):
             self._lifecycle_coordinator.mark_running(state)
             state.current_focus = None
-        await self._control_state_coordinator.persist_command_effect_state(state)
+        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
@@ -810,7 +809,7 @@ class OperationCommandService:
             resume_policy=ResumePolicy.REPLAN,
         )
         self._control_state_coordinator.remember_processed_command(state, command.command_id)
-        await self._control_state_coordinator.persist_command_effect_state(state)
+        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
@@ -867,7 +866,7 @@ class OperationCommandService:
         state.current_focus = None
         state.scheduler_state = SchedulerState.ACTIVE
         self._control_state_coordinator.remember_processed_command(state, command.command_id)
-        await self._control_state_coordinator.persist_command_effect_state(state)
+        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
