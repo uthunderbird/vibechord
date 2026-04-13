@@ -359,11 +359,13 @@ class DefaultOperationProjector:
             if len(checkpoint.operator_messages) > 50:
                 checkpoint.operator_messages = checkpoint.operator_messages[-50:]
         elif event.event_type == "operator_message.dropped_from_context":
-            checkpoint.operator_messages = [
-                message
-                for message in checkpoint.operator_messages
-                if message.message_id != event.payload["message_id"]
-            ]
+            for message in checkpoint.operator_messages:
+                if message.message_id == event.payload["message_id"]:
+                    message.dropped_from_context = True
+                    planning_cycles_active = event.payload.get("planning_cycles_active")
+                    if isinstance(planning_cycles_active, int):
+                        message.planning_cycles_active = planning_cycles_active
+                    break
         return checkpoint
 
     def _apply_policy_slice(

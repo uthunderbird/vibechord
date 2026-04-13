@@ -147,6 +147,41 @@ class OperationDriveService:
         self._decision_executor = decision_executor
         self._lifecycle_coordinator = lifecycle_coordinator
 
+    @staticmethod
+    def _message_is_active_this_cycle(message: object, *, window: int) -> bool:
+        planning_cycles_active = getattr(message, "planning_cycles_active", None)
+        dropped_from_context = getattr(message, "dropped_from_context", None)
+        if not isinstance(planning_cycles_active, int) or dropped_from_context is not False:
+            return False
+        return planning_cycles_active == 0 or planning_cycles_active < window
+
+    async def _age_operator_messages_after_planning_cycle(
+        self,
+        state: OperationState,
+        *,
+        iteration: int,
+    ) -> None:
+        """Advance operator-message planning age and emit explicit drop events."""
+        window = state.runtime_hints.operator_message_window
+        for message in state.operator_messages:
+            if not self._message_is_active_this_cycle(message, window=window):
+                continue
+            message.planning_cycles_active += 1
+            if message.planning_cycles_active < window:
+                continue
+            message.dropped_from_context = True
+            await self._trace._emit(
+                "operator_message.dropped_from_context",
+                state,
+                iteration,
+                {
+                    "message_id": message.message_id,
+                    "text_preview": message.text[:120],
+                    "planning_cycles_active": message.planning_cycles_active,
+                    "operator_message_window": window,
+                },
+            )
+
     async def _advance_checkpoint(self, state: OperationState) -> None:
         """Persist a durable snapshot of event-sourced state for fast resume.
 
@@ -249,7 +284,18 @@ class OperationDriveService:
             self._runtime._reconcile_state(state)
             await self._runtime._refresh_policy_context(state)
             await self._runtime._refresh_available_agent_descriptors(state)
-            decision = await self._operator_policy.decide_next_action(state)
+            planning_state = state.model_copy(deep=True)
+            window = state.runtime_hints.operator_message_window
+            planning_state.operator_messages = [
+                message.model_copy(deep=True)
+                for message in state.operator_messages
+                if self._message_is_active_this_cycle(message, window=window)
+            ]
+            decision = await self._operator_policy.decide_next_action(planning_state)
+            await self._age_operator_messages_after_planning_cycle(
+                state,
+                iteration=len(state.iterations) + 1,
+            )
             self._loaded_operation.apply_task_mutations(
                 state,
                 decision.new_tasks,

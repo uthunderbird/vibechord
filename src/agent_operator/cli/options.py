@@ -94,7 +94,7 @@ PROJECT_INVOLVEMENT_OPTION = typer.Option(
 PROJECT_MESSAGE_WINDOW_OPTION = typer.Option(
     None,
     "--message-window",
-    min=1,
+    min=0,
     help="Default operator message window for this profile.",
 )
 INVOLVEMENT_LEVEL_OPTION = typer.Option(..., "--level", help="New involvement level.")
@@ -119,6 +119,18 @@ COMMAND_CLEAR_SUCCESS_CRITERIA_OPTION = typer.Option(
     False,
     "--clear-success-criteria",
     help="Clear the current success criteria for patch_success_criteria.",
+)
+PATCH_CRITERIA_OPTION = typer.Option(
+    None,
+    "--criteria",
+    "--success-criterion",
+    help="Success criterion text. Repeat to replace the full list.",
+)
+PATCH_CLEAR_CRITERIA_OPTION = typer.Option(
+    False,
+    "--clear",
+    "--clear-success-criteria",
+    help="Clear the current success criteria.",
 )
 POLICY_PROJECT_OPTION = typer.Option(None, "--project", help="Project profile name.")
 POLICY_SCOPE_OPTION = typer.Option(None, "--scope", help="Explicit project scope.")
@@ -247,6 +259,8 @@ __all__ = [
     "PROJECT_PATH_OPTION",
     "PROJECT_RUN_MODE_OPTION",
     "PROJECT_SUCCESS_CRITERION_OPTION",
+    "PATCH_CLEAR_CRITERIA_OPTION",
+    "PATCH_CRITERIA_OPTION",
     "PROMOTE_POLICY_AGENT_OPTION",
     "PROMOTE_POLICY_INVOLVEMENT_OPTION",
     "PROMOTE_POLICY_OBJECTIVE_KEYWORD_OPTION",

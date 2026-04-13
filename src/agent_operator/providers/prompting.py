@@ -199,7 +199,9 @@ def _serialize_focus(state: OperationState) -> dict[str, object] | None:
 
 
 def _serialize_operator_messages(state: OperationState, limit: int = 5) -> list[dict[str, object]]:
-    recent = state.operator_messages[-limit:]
+    recent = [
+        message for message in state.operator_messages if not message.dropped_from_context
+    ][-limit:]
     return [
         {
             "message_id": message.message_id,

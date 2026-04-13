@@ -13,6 +13,7 @@ from agent_operator.domain import (
     OperationGoal,
     OperationState,
     OperationStatus,
+    OperatorMessage,
     ProgressSummary,
     RunMode,
     RunOptions,
@@ -155,6 +156,36 @@ class StartThenContinueBackgroundTurnBrain:
             should_continue=True,
             summary="continue",
         )
+
+    async def summarize_progress(self, state) -> ProgressSummary:
+        return ProgressSummary(summary="summary")
+
+    async def normalize_artifact(self, goal, result) -> AgentResult:
+        return result
+
+
+class CapturingStartThenStopBrain:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.seen_messages: list[list[str]] = []
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        self.seen_messages.append([message.text for message in state.operator_messages])
+        if self.calls == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="claude_acp",
+                instruction="run one turn",
+                rationale="Need one execution cycle before stopping.",
+            )
+        return BrainDecision(
+            action_type=BrainActionType.STOP,
+            rationale="Captured enough planning cycles.",
+        )
+
+    async def evaluate_result(self, state) -> Evaluation:
+        return Evaluation(goal_satisfied=False, should_continue=True, summary="continue")
 
     async def summarize_progress(self, state) -> ProgressSummary:
         return ProgressSummary(summary="summary")
@@ -448,3 +479,76 @@ async def test_run_started_at_is_set_on_first_run_and_preserved_on_resume() -> N
     operation = await store.load_operation(outcome.operation_id)
     assert operation is not None
     assert operation.run_started_at == original_started_at
+
+
+@pytest.mark.anyio
+async def test_operator_message_window_drops_message_before_next_cycle() -> None:
+    brain = CapturingStartThenStopBrain()
+    store = MemoryStore()
+    event_sink = MemoryEventSink()
+    service = make_service(
+        brain=brain,
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+    )
+    operation = OperationState(
+        operation_id="op-message-window-1",
+        goal=OperationGoal(objective="Do the task"),
+        operator_messages=[OperatorMessage(text="Use the smaller safe slice.")],
+        **state_settings(allowed_agents=["claude_acp"], operator_message_window=1),
+    )
+    await store.save_operation(operation)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=3),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert brain.seen_messages == [["Use the smaller safe slice."], []]
+    assert updated is not None
+    assert updated.operator_messages[0].dropped_from_context is True
+    assert updated.operator_messages[0].planning_cycles_active == 1
+    drop_events = [
+        event
+        for event in event_sink.events
+        if event.event_type == "operator_message.dropped_from_context"
+    ]
+    assert len(drop_events) == 1
+    assert drop_events[0].payload["text_preview"] == "Use the smaller safe slice."
+    assert drop_events[0].payload["operator_message_window"] == 1
+
+
+@pytest.mark.anyio
+async def test_operator_message_window_zero_keeps_message_for_first_cycle_only() -> None:
+    brain = CapturingStartThenStopBrain()
+    store = MemoryStore()
+    service = make_service(
+        brain=brain,
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+    )
+    operation = OperationState(
+        operation_id="op-message-window-0",
+        goal=OperationGoal(objective="Do the task"),
+        operator_messages=[OperatorMessage(text="Only use this once.")],
+        **state_settings(allowed_agents=["claude_acp"], operator_message_window=0),
+    )
+    await store.save_operation(operation)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=3),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert brain.seen_messages == [["Only use this once."], []]
+    assert updated is not None
+    assert updated.operator_messages[0].dropped_from_context is True
+    assert updated.operator_messages[0].planning_cycles_active == 1

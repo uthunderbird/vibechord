@@ -243,7 +243,9 @@ def test_operation_projector_updates_attention_scheduler_and_optional_subslices(
         tzinfo=UTC,
     )
     assert projected.status is OperationStatus.RUNNING
-    assert projected.operator_messages == []
+    assert len(projected.operator_messages) == 1
+    assert projected.operator_messages[0].message_id == "msg-1"
+    assert projected.operator_messages[0].dropped_from_context is True
 
 
 def test_operation_projector_is_deterministic_for_same_input_suffix() -> None:

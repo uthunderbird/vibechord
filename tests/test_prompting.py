@@ -9,6 +9,7 @@ from agent_operator.domain import (
     IterationState,
     OperationGoal,
     OperationState,
+    OperatorMessage,
     PolicyApplicability,
     PolicyCategory,
     PolicyEntry,
@@ -43,6 +44,27 @@ def test_build_decision_prompt_surfaces_active_project_policy() -> None:
     assert "Active project policy:" in prompt
     assert "MANUAL_TESTING_REQUIRED.md" in prompt
     assert '"objective_keywords": ["manual testing"]' in prompt
+
+
+def test_build_decision_prompt_excludes_dropped_operator_messages() -> None:
+    state = OperationState(
+        goal=OperationGoal(objective="Ship the feature"),
+        **state_settings(),
+        operator_messages=[
+            OperatorMessage(message_id="msg-active", text="Keep the release notes concise."),
+            OperatorMessage(
+                message_id="msg-dropped",
+                text="Old message that should not reach planning.",
+                dropped_from_context=True,
+                planning_cycles_active=2,
+            ),
+        ],
+    )
+
+    prompt = build_decision_prompt(state)
+
+    assert "Keep the release notes concise." in prompt
+    assert "Old message that should not reach planning." not in prompt
 
 
 def test_build_question_answer_prompt_enforces_read_only_grounded_answering() -> None:

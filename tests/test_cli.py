@@ -3055,6 +3055,76 @@ def test_command_can_clear_success_criteria(tmp_path: Path, monkeypatch) -> None
     assert record.command.payload["success_criteria"] == []
 
 
+def test_patch_objective_command_enqueues_patch_objective(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["patch-objective", operation_id, "Audit the release flow and trim dead steps."],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_OBJECTIVE
+    assert record.command.payload["text"] == "Audit the release flow and trim dead steps."
+
+
+def test_patch_harness_command_enqueues_patch_harness(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["patch-harness", operation_id, "Prefer the smallest verifiable change."],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_HARNESS
+    assert record.command.payload["text"] == "Prefer the smallest verifiable change."
+
+
+def test_patch_criteria_command_enqueues_patch_success_criteria(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "patch-criteria",
+            operation_id,
+            "--criteria",
+            "Tests pass",
+            "--criteria",
+            "Docs updated",
+        ],
+    )
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA
+    assert record.command.payload["success_criteria"] == ["Tests pass", "Docs updated"]
+
+
+def test_patch_criteria_command_can_clear_criteria(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["patch-criteria", operation_id, "--clear"])
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA
+    assert record.command.payload["success_criteria"] == []
+
+
 def test_command_requires_allowed_agent_for_set_allowed_agents(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))

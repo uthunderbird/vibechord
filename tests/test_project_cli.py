@@ -290,6 +290,28 @@ def test_project_create_remains_explicit_profile_mutation(tmp_path: Path, monkey
     assert payload["profile_path"] == str(tmp_path / "operator-profiles" / "beta.yaml")
 
 
+def test_project_create_allows_zero_message_window(tmp_path: Path, monkeypatch) -> None:
+    settings = _settings(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(settings.data_dir))
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "alpha",
+            "--local",
+            "--message-window",
+            "0",
+        ],
+    )
+
+    assert result.exit_code == 0
+    stored = load_project_profile(settings, "alpha")
+    assert stored.default_message_window == 0
+
+
 def test_project_resolve_json_covers_all_run_resolution_fields(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path / ".operator"))
     (tmp_path / "operator-profile.yaml").write_text(

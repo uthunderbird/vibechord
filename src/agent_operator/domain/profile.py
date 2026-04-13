@@ -38,7 +38,7 @@ class ProjectProfile(BaseModel):
     adapter_settings: dict[str, ProjectProfileAdapterSettings] = Field(default_factory=dict)
     dashboard_prefs: dict[str, object] = Field(default_factory=dict)
     session_reuse_policy: SessionReusePolicy | None = None
-    default_message_window: int | None = Field(default=None, ge=1)
+    default_message_window: int | None = Field(default=None, ge=0)
 
 
 class ResolvedProjectRunConfig(BaseModel):

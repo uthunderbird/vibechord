@@ -19,6 +19,8 @@ from ..options import (
     COMMAND_SUCCESS_CRITERION_OPTION,
     COMMAND_TYPE_OPTION,
     INVOLVEMENT_LEVEL_OPTION,
+    PATCH_CLEAR_CRITERIA_OPTION,
+    PATCH_CRITERIA_OPTION,
     PROMOTE_POLICY_AGENT_OPTION,
     PROMOTE_POLICY_INVOLVEMENT_OPTION,
     PROMOTE_POLICY_OBJECTIVE_KEYWORD_OPTION,
@@ -172,6 +174,46 @@ def message(operation_ref: str, text: str) -> None:
         resolve_operation_id(operation_ref),
         OperationCommandType.INJECT_OPERATOR_MESSAGE,
         text,
+    )
+
+
+@app.command()
+def patch_objective(operation_ref: str, text: str) -> None:
+    anyio.run(
+        enqueue_command_async,
+        resolve_operation_id(operation_ref),
+        OperationCommandType.PATCH_OBJECTIVE,
+        text,
+    )
+
+
+@app.command()
+def patch_harness(operation_ref: str, text: str) -> None:
+    anyio.run(
+        enqueue_command_async,
+        resolve_operation_id(operation_ref),
+        OperationCommandType.PATCH_HARNESS,
+        text,
+    )
+
+
+@app.command("patch-criteria")
+def patch_criteria(
+    operation_ref: str,
+    criteria: list[str] | None = PATCH_CRITERIA_OPTION,
+    clear: bool = PATCH_CLEAR_CRITERIA_OPTION,
+) -> None:
+    anyio.run(
+        enqueue_command_async,
+        resolve_operation_id(operation_ref),
+        OperationCommandType.PATCH_SUCCESS_CRITERIA,
+        None,
+        False,
+        CommandTargetScope.OPERATION,
+        None,
+        None,
+        criteria,
+        clear,
     )
 
 
