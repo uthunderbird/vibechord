@@ -120,12 +120,6 @@ class OperationCommandService:
             await self.reconcile_single_command_status(command, CommandStatus.APPLIED)
             return False
         if command.command_type is OperationCommandType.ANSWER_ATTENTION_REQUEST:
-            if self._event_sourced_command_service is None:
-                return await self._apply_legacy_answer_attention_request(
-                    state,
-                    command,
-                    trace_iteration=trace_iteration,
-                )
             return await self._apply_answer_attention_request(
                 state,
                 command,
@@ -701,19 +695,36 @@ class OperationCommandService:
                 result.rejection_reason == "Target attention request was not found."
                 and self.find_attention_request(state, command.target_id) is not None
             ):
-                return await self._apply_legacy_answer_attention_request(
+                snapshot_attention = self.find_attention_request(state, command.target_id)
+                assert snapshot_attention is not None
+                checkpoint = await self._event_sourced_command_service.seed_attention_request_from_state(
+                    state,
+                    snapshot_attention,
+                )
+                self._control_state_coordinator.refresh_state_from_checkpoint(state, checkpoint)
+                result = await self._event_sourced_command_service.apply(command)
+                replayed_attention = next(
+                    (
+                        attention
+                        for attention in result.checkpoint.attention_requests
+                        if attention.attention_id == command.target_id
+                    ),
+                    None,
+                )
+                if replayed_attention is not None:
+                    self._control_state_coordinator.refresh_state_from_checkpoint(
+                        state,
+                        result.checkpoint,
+                    )
+            if not result.applied:
+                await self.reject_command(
                     state,
                     command,
-                    trace_iteration=trace_iteration,
+                    trace_iteration,
+                    result.rejection_reason
+                    or f"Unsupported command type: {command.command_type.value}.",
                 )
-            await self.reject_command(
-                state,
-                command,
-                trace_iteration,
-                result.rejection_reason
-                or f"Unsupported command type: {command.command_type.value}.",
-            )
-            return False
+                return False
         answered_attention = self.find_attention_request(state, command.target_id)
         if (
             answered_attention is not None
@@ -752,92 +763,6 @@ class OperationCommandService:
                     metadata={"attention_id": answered_attention.attention_id},
                 ),
             )
-        return True
-
-    async def _apply_legacy_answer_attention_request(
-        self,
-        state: OperationState,
-        command: OperationCommand,
-        *,
-        trace_iteration: int,
-    ) -> bool:
-        if command.target_scope is not CommandTargetScope.ATTENTION_REQUEST:
-            await self.reject_command(
-                state,
-                command,
-                trace_iteration,
-                "ANSWER_ATTENTION_REQUEST requires attention_request target scope.",
-            )
-            return False
-        attention = self.find_attention_request(state, command.target_id)
-        if attention is None:
-            await self.reject_command(
-                state,
-                command,
-                trace_iteration,
-                "Target attention request was not found.",
-            )
-            return False
-        if attention.status is not AttentionStatus.OPEN:
-            await self.reject_command(
-                state,
-                command,
-                trace_iteration,
-                "Target attention request is not open.",
-            )
-            return False
-        text = str(command.payload.get("text", "")).strip()
-        if not text:
-            await self.reject_command(
-                state,
-                command,
-                trace_iteration,
-                "ANSWER_ATTENTION_REQUEST requires non-empty payload.text.",
-            )
-            return False
-        attention.status = AttentionStatus.ANSWERED
-        attention.answer_text = text
-        attention.answer_source_command_id = command.command_id
-        attention.answered_at = datetime.now(UTC)
-        await self._event_relay.emit(
-            "attention.request.answered",
-            state,
-            trace_iteration,
-            {
-                "attention_id": attention.attention_id,
-                "attention_type": attention.attention_type.value,
-                "status": attention.status.value,
-                "answer_text": attention.answer_text,
-                "source_command_id": attention.answer_source_command_id,
-                "answered_at": attention.answered_at.isoformat(),
-            },
-        )
-        if attention.attention_id not in state.pending_attention_resolution_ids:
-            state.pending_attention_resolution_ids.append(attention.attention_id)
-        if (
-            state.status is OperationStatus.NEEDS_HUMAN
-            and state.current_focus is not None
-            and state.current_focus.kind is FocusKind.ATTENTION_REQUEST
-        ):
-            self._lifecycle_coordinator.mark_running(state)
-            state.current_focus = None
-        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
-        await self.mark_command_applied(
-            state,
-            command,
-            trace_iteration,
-            "Attention answer recorded.",
-        )
-        await self._process_signal_dispatcher.dispatch(
-            state,
-            trace_iteration,
-            ProcessManagerSignal(
-                operation_id=state.operation_id,
-                signal_type="attention_answer_recorded",
-                source_command_id=command.command_id,
-                metadata={"attention_id": attention.attention_id},
-            ),
-        )
         return True
 
     async def _apply_stop_agent_turn(
