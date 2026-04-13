@@ -5,13 +5,29 @@ from pathlib import Path
 import pytest
 
 from agent_operator.acp.permissions import normalize_permission_request
-from agent_operator.application import EventSourcedCommandApplicationService
+from agent_operator.application import (
+    EventSourcedCommandApplicationService,
+    LoadedOperation,
+    OperationAttentionCoordinator,
+    OperationCommandService,
+    OperationControlStateCoordinator,
+    OperationLifecycleCoordinator,
+    OperationPolicyContextCoordinator,
+    OperationRuntimeContext,
+    OperationTraceabilityService,
+)
+from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
 from agent_operator.application.operation_entrypoints import OperationEntrypointService
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
+from agent_operator.application.runtime.operation_process_dispatch import (
+    OperationProcessSignalDispatcher,
+)
 from agent_operator.domain import (
+    AgentSessionHandle,
     AttentionRequest,
     AttentionStatus,
     AttentionType,
@@ -22,7 +38,9 @@ from agent_operator.domain import (
     FocusKind,
     FocusMode,
     FocusState,
+    InterruptPolicy,
     InvolvementLevel,
+    IterationState,
     OperationCommand,
     OperationCommandType,
     OperationDomainEventDraft,
@@ -36,9 +54,11 @@ from agent_operator.domain import (
     PolicyCoverageStatus,
     PolicyEntry,
     PolicyStatus,
+    ResumePolicy,
     RunMode,
     RunOptions,
     SchedulerState,
+    SessionStatus,
 )
 from agent_operator.projectors import DefaultOperationProjector
 from agent_operator.providers.permission import ProviderBackedPermissionEvaluator
@@ -1339,6 +1359,143 @@ async def test_answer_attention_request_command_service_uses_replay_backed_persi
         for event in event_sink.events
         if event.event_type.startswith("attention.request.")
     ] == ["attention.request.resolved"]
+
+
+@pytest.mark.anyio
+async def test_stop_agent_turn_command_service_uses_replay_backed_persistence(
+    tmp_path: Path,
+) -> None:
+    class _CancellingAttachedRegistry:
+        def __init__(self) -> None:
+            self.cancelled: list[str] = []
+
+        async def cancel(self, handle: AgentSessionHandle) -> None:
+            self.cancelled.append(handle.session_id)
+
+    store = _CountingMemoryStore()
+    trace_store = MemoryTraceStore()
+    event_sink = MemoryEventSink()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionRuntimeRegistry({}))
+    runtime_context = OperationRuntimeContext(
+        loaded_operation=loaded_operation,
+        attached_session_registry=AttachedSessionRuntimeRegistry({}),
+    )
+    traceability_service = OperationTraceabilityService(
+        loaded_operation=loaded_operation,
+        trace_store=trace_store,
+        runtime_context=runtime_context,
+    )
+    command_service = OperationCommandService(
+        loaded_operation=loaded_operation,
+        command_inbox=None,
+        trace_store=trace_store,
+        policy_context_coordinator=OperationPolicyContextCoordinator(policy_store=None),
+        attention_coordinator=OperationAttentionCoordinator(),
+        attached_session_registry=_CancellingAttachedRegistry(),
+        operation_runtime=None,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+        event_relay=OperationEventRelay(event_sink=event_sink, wakeup_inbox=None),
+        control_state_coordinator=OperationControlStateCoordinator(
+            store=store,
+            traceability_service=traceability_service,
+        ),
+        lifecycle_coordinator=OperationLifecycleCoordinator(store=store),
+        process_signal_dispatcher=OperationProcessSignalDispatcher(
+            planning_trigger_bus=None,
+            process_managers=[],
+            emit=OperationEventRelay(event_sink=event_sink, wakeup_inbox=None).emit,
+        ),
+        runtime_context=runtime_context,
+    )
+
+    attached_session = AgentSessionHandle(
+        session_id="session-stop-1",
+        adapter_key="claude_acp",
+        status=SessionStatus.RUNNING,
+        session_name="Stop turn session",
+    )
+    operation = OperationState(
+        operation_id="op-event-stop-agent-turn",
+        goal=OperationGoal(objective="stop the active attached turn"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        sessions=[],
+        active_session=attached_session,
+        iterations=[IterationState(index=0, session=attached_session)],
+    )
+    await store.save_operation(operation)
+    await birth_service.birth(operation)
+    await replay_service.load(operation.operation_id)
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.STOP_AGENT_TURN,
+        target_scope=CommandTargetScope.SESSION,
+        target_id=attached_session.session_id,
+    )
+    stale_snapshot = operation.model_copy(deep=True)
+
+    applied = await command_service.apply_command(
+        operation,
+        command,
+        iteration=operation.iterations[-1],
+        attached_session=attached_session,
+    )
+
+    assert applied is True
+    assert store.save_calls == 1
+    assert operation.scheduler_state is SchedulerState.DRAINING
+    assert operation.current_focus is not None
+    assert operation.current_focus.kind is FocusKind.SESSION
+    assert operation.current_focus.target_id == attached_session.session_id
+    assert operation.current_focus.mode is FocusMode.BLOCKING
+    assert operation.current_focus.interrupt_policy is InterruptPolicy.TERMINAL_ONLY
+    assert operation.current_focus.resume_policy is ResumePolicy.REPLAN
+    assert operation.sessions[0].waiting_reason == "Stopping the active attached agent turn."
+    assert command.command_id in operation.processed_command_ids
+
+    events = await event_store.load_after(operation.operation_id, after_sequence=0)
+    assert [event.event_type for event in events] == [
+        "operation.created",
+        "session.created",
+        "operation.active_session_updated",
+        "command.accepted",
+        "session.waiting_reason.updated",
+        "scheduler.state.changed",
+        "operation.focus.updated",
+    ]
+
+    replayed = await operation_entrypoints._load_event_sourced(  # noqa: SLF001 - regression check
+        operation.operation_id,
+        fallback_state=stale_snapshot,
+    )
+    assert replayed.scheduler_state is SchedulerState.DRAINING
+    assert replayed.current_focus is not None
+    assert replayed.current_focus.kind is FocusKind.SESSION
+    assert replayed.current_focus.target_id == attached_session.session_id
+    assert replayed.sessions[0].waiting_reason == "Stopping the active attached agent turn."
+    assert command.command_id in replayed.processed_command_ids
 
 
 @pytest.mark.anyio

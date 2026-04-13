@@ -12,6 +12,7 @@ from agent_operator.domain import (
     CommandTargetScope,
     ExecutionObservedState,
     ExecutionState,
+    FocusState,
     InvolvementLevel,
     ObjectiveState,
     OperationCheckpoint,
@@ -68,6 +69,7 @@ class DefaultOperationProjector:
         updated = self._apply_operator_message_slice(updated, event)
         updated = self._apply_policy_slice(updated, event)
         updated = self._apply_active_session_slice(updated, event)
+        updated = self._apply_focus_slice(updated, event)
         updated.updated_at = event.timestamp
         return updated
 
@@ -407,6 +409,36 @@ class DefaultOperationProjector:
                 session = self._find_by_attr(checkpoint.sessions, "session_id", session_id)
                 if session is not None:
                     checkpoint.active_session = session.handle.model_copy()
+        return checkpoint
+
+    def _apply_focus_slice(
+        self,
+        checkpoint: OperationCheckpoint,
+        event: StoredOperationDomainEvent,
+    ) -> OperationCheckpoint:
+        if event.event_type == "operation.focus.updated":
+            focus_payload = event.payload.get("focus")
+            checkpoint.current_focus = (
+                None
+                if focus_payload is None
+                else self._payload_model(focus_payload, FocusState)
+            )
+        elif event.event_type == "session.waiting_reason.updated":
+            session = self._find_by_attr(
+                checkpoint.sessions,
+                "session_id",
+                event.payload["session_id"],
+            )
+            if session is not None:
+                session.waiting_reason = self._payload_optional_string(
+                    event.payload,
+                    "waiting_reason",
+                )
+                session.updated_at = self._payload_datetime(
+                    event.payload,
+                    "updated_at",
+                    event.timestamp,
+                )
         return checkpoint
 
     def _payload_model(self, payload: dict[str, Any], model_type: type[BaseModel]) -> Any:

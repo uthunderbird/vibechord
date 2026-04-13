@@ -896,9 +896,14 @@ class OperationCommandService:
                 f"Failed to stop the active attached turn: {exc}",
             )
             return False
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "STOP_AGENT_TURN requires EventSourcedCommandApplicationService."
+            )
+        applied_at = datetime.now(UTC)
         record = self._loaded_operation.ensure_session_record(state, attached_session)
         record.waiting_reason = "Stopping the active attached agent turn."
-        record.updated_at = datetime.now(UTC)
+        record.updated_at = applied_at
         state.scheduler_state = SchedulerState.DRAINING
         state.current_focus = FocusState(
             kind=FocusKind.SESSION,
@@ -908,13 +913,65 @@ class OperationCommandService:
             interrupt_policy=InterruptPolicy.TERMINAL_ONLY,
             resume_policy=ResumePolicy.REPLAN,
         )
-        self._control_state_coordinator.remember_processed_command(state, command.command_id)
-        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
+        result = await self._event_sourced_command_service.append_domain_events(
+            state.operation_id,
+            [
+                OperationDomainEventDraft(
+                    event_type="command.accepted",
+                    payload={
+                        "command_id": command.command_id,
+                        "command_type": command.command_type.value,
+                        "target_scope": command.target_scope.value,
+                        "target_id": command.target_id,
+                        "submitted_by": command.submitted_by,
+                        "submitted_at": command.submitted_at.isoformat(),
+                    },
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+                OperationDomainEventDraft(
+                    event_type="session.waiting_reason.updated",
+                    payload={
+                        "session_id": attached_session.session_id,
+                        "waiting_reason": record.waiting_reason,
+                        "updated_at": applied_at.isoformat(),
+                    },
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+                OperationDomainEventDraft(
+                    event_type="scheduler.state.changed",
+                    payload={"scheduler_state": SchedulerState.DRAINING.value},
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+                OperationDomainEventDraft(
+                    event_type="operation.focus.updated",
+                    payload={"focus": state.current_focus.model_dump(mode="json")},
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+            ],
+        )
+        state.sessions = [item.model_copy(deep=True) for item in result.checkpoint.sessions]
+        state.scheduler_state = result.checkpoint.scheduler_state
+        state.current_focus = (
+            result.checkpoint.current_focus.model_copy(deep=True)
+            if result.checkpoint.current_focus is not None
+            else None
+        )
+        state.processed_command_ids = list(result.checkpoint.processed_command_ids)
+        await self._control_state_coordinator.persist_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
             trace_iteration,
             "Stop requested for the active attached turn.",
+            applied_at=applied_at,
         )
         return True
 

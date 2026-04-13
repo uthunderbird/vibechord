@@ -232,11 +232,8 @@ class OperationEntrypointService:
             for attention in state.attention_requests
             if attention.status is AttentionStatus.ANSWERED
         ]
-        state.current_focus = (
-            fallback_state.current_focus.model_copy(deep=True)
-            if fallback_state.current_focus is not None
-            else None
-        )
+        if state.current_focus is None and fallback_state.current_focus is not None:
+            state.current_focus = fallback_state.current_focus.model_copy(deep=True)
         return state
 
     def _persist_runtime_mode_metadata(

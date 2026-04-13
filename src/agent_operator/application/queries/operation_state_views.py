@@ -69,6 +69,11 @@ class OperationStateViewService:
                 message.model_copy(deep=True)
                 for message in checkpoint.operator_messages
             ],
+            current_focus=(
+                checkpoint.current_focus.model_copy(deep=True)
+                if checkpoint.current_focus is not None
+                else None
+            ),
             active_session=(
                 checkpoint.active_session.model_copy(deep=True)
                 if checkpoint.active_session is not None
