@@ -225,7 +225,6 @@ class OperationEntrypointService:
         state.pending_wakeups = [
             item.model_copy(deep=True) for item in fallback_state.pending_wakeups
         ]
-        state.processed_command_ids = list(fallback_state.processed_command_ids)
         state.pending_replan_command_ids = list(fallback_state.pending_replan_command_ids)
         state.pending_attention_resolution_ids = list(
             fallback_state.pending_attention_resolution_ids

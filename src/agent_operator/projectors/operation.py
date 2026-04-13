@@ -59,6 +59,7 @@ class DefaultOperationProjector:
 
         updated = checkpoint.model_copy(deep=True)
         updated = self._apply_operation_slice(updated, event)
+        updated = self._apply_command_slice(updated, event)
         updated = self._apply_task_slice(updated, event)
         updated = self._apply_session_slice(updated, event)
         updated = self._apply_execution_slice(updated, event)
@@ -89,6 +90,18 @@ class DefaultOperationProjector:
         for event in events:
             projected = self.apply_event(projected, event)
         return projected
+
+    def _apply_command_slice(
+        self,
+        checkpoint: OperationCheckpoint,
+        event: StoredOperationDomainEvent,
+    ) -> OperationCheckpoint:
+        if event.event_type != "command.accepted":
+            return checkpoint
+        command_id = self._payload_optional_string(event.payload, "command_id")
+        if command_id and command_id not in checkpoint.processed_command_ids:
+            checkpoint.processed_command_ids.append(command_id)
+        return checkpoint
 
     def _apply_operation_slice(
         self,

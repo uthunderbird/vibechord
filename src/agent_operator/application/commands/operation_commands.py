@@ -603,9 +603,11 @@ class OperationCommandService:
     ) -> bool:
         assert self._event_sourced_command_service is not None
         result = await self._event_sourced_command_service.apply(command)
-        self._control_state_coordinator.remember_processed_command(state, command.command_id)
         self._control_state_coordinator.refresh_state_from_checkpoint(state, result.checkpoint)
-        await self._control_state_coordinator.persist_command_effect_state(state)
+        await self._control_state_coordinator.persist_command_effect_state(
+            state,
+            save_snapshot=False,
+        )
         if not result.applied:
             await self.reject_command(
                 state,

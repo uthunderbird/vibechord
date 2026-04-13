@@ -109,6 +109,48 @@ def test_drive_loop_save_operation_only_via_advance_checkpoint() -> None:
     assert violations == [], "\n".join(violations)
 
 
+def test_event_sourced_operation_commands_do_not_force_snapshot_persistence() -> None:
+    """ADR 0144: event-sourced command handling must not force snapshot writes."""
+    command_file = APPLICATION_DIR / "commands" / "operation_commands.py"
+    source = command_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    class_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OperationCommandService"
+    )
+    method = next(
+        node
+        for node in class_node.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "apply_event_sourced_operation_command"
+    )
+
+    direct_save_calls = [
+        child.lineno
+        for child in ast.walk(method)
+        if isinstance(child, ast.Attribute) and child.attr == "save_operation"
+    ]
+    persist_calls = [
+        child
+        for child in ast.walk(method)
+        if isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "persist_command_effect_state"
+    ]
+
+    assert direct_save_calls == []
+    assert len(persist_calls) == 1
+    save_snapshot_keywords = {
+        keyword.arg: keyword.value
+        for keyword in persist_calls[0].keywords
+        if keyword.arg is not None
+    }
+    assert isinstance(save_snapshot_keywords.get("save_snapshot"), ast.Constant)
+    assert save_snapshot_keywords["save_snapshot"].value is False
+
+
 def test_queries_do_not_import_commands_family() -> None:
     offenders: list[str] = []
     queries_dir = APPLICATION_DIR / "queries"

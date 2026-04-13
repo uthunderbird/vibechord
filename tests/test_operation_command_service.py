@@ -68,6 +68,16 @@ class _EscalatingPermissionProvider:
         )
 
 
+class _CountingMemoryStore(MemoryStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.save_calls = 0
+
+    async def save_operation(self, state) -> None:  # type: ignore[no-untyped-def]
+        self.save_calls += 1
+        await super().save_operation(state)
+
+
 @pytest.mark.anyio
 async def test_answer_attention_request_resolves_after_replan() -> None:
     store = MemoryStore()
@@ -702,6 +712,76 @@ async def test_event_sourced_patch_objective_command_appends_canonical_events(
         "command.accepted",
         "objective.updated",
     ]
+
+
+@pytest.mark.anyio
+async def test_event_sourced_patch_objective_persists_processed_command_via_checkpoint_replay(
+    tmp_path: Path,
+) -> None:
+    store = _CountingMemoryStore()
+    command_inbox = MemoryCommandInbox()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=command_inbox,
+        event_sourced_operation_birth_service=birth_service,
+        operation_entrypoint_service=operation_entrypoints,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+    )
+
+    command = OperationCommand(
+        operation_id="op-event-processed-replay",
+        command_type=OperationCommandType.PATCH_OBJECTIVE,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id="op-event-processed-replay",
+        payload={"text": "Persist processed command ids through canonical replay."},
+    )
+    await command_inbox.enqueue(command)
+
+    outcome = await service.run(
+        OperationGoal(objective="do the task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(run_mode=RunMode.ATTACHED),
+        operation_id="op-event-processed-replay",
+    )
+    save_calls_after_run = store.save_calls
+
+    persisted = await store.load_operation(outcome.operation_id)
+    assert persisted is not None
+    persisted.processed_command_ids = []
+
+    replayed = await operation_entrypoints._load_event_sourced(  # noqa: SLF001 - regression check
+        outcome.operation_id,
+        fallback_state=persisted,
+    )
+
+    assert command.command_id in replayed.processed_command_ids
+    assert store.save_calls == save_calls_after_run
 
 
 @pytest.mark.anyio

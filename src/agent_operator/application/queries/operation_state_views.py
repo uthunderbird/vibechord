@@ -63,6 +63,7 @@ class OperationStateViewService:
             active_policies=[policy.model_copy(deep=True) for policy in checkpoint.active_policies],
             policy_coverage=checkpoint.policy_coverage.model_copy(deep=True),
             involvement_level=checkpoint.involvement_level,
+            processed_command_ids=list(checkpoint.processed_command_ids),
             scheduler_state=checkpoint.scheduler_state,
             operator_messages=[
                 message.model_copy(deep=True)
