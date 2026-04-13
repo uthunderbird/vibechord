@@ -5,7 +5,12 @@ from pathlib import Path
 
 import yaml
 
-from agent_operator.config import OperatorSettings
+from agent_operator.config import (
+    GlobalUserConfig,
+    OperatorSettings,
+    apply_global_user_defaults,
+    load_global_config,
+)
 from agent_operator.domain import (
     InvolvementLevel,
     ProjectProfile,
@@ -81,6 +86,7 @@ def prepare_operator_settings(
     *,
     cwd: Path | None = None,
 ) -> OperatorSettings:
+    apply_global_user_defaults(settings, load_global_config())
     settings.data_dir = resolve_operator_data_dir(settings, cwd=cwd).path
     return settings
 
@@ -274,7 +280,9 @@ def resolve_project_run_config(
     max_iterations: int | None,
     run_mode: RunMode | None,
     involvement_level: InvolvementLevel | None,
+    global_config: GlobalUserConfig | None = None,
 ) -> ResolvedProjectRunConfig:
+    effective_global_config = global_config or load_global_config()
     overrides: list[str] = []
 
     default_objective = profile.default_objective if profile is not None else None
@@ -339,14 +347,22 @@ def resolve_project_run_config(
         else (
             profile.default_involvement_level
             if profile is not None and profile.default_involvement_level is not None
-            else InvolvementLevel.AUTO
+            else (
+                InvolvementLevel(effective_global_config.defaults.involvement_level)
+                if effective_global_config.defaults.involvement_level is not None
+                else InvolvementLevel.AUTO
+            )
         )
     )
 
     resolved_message_window = (
         profile.default_message_window
         if profile is not None and profile.default_message_window is not None
-        else 3
+        else (
+            effective_global_config.defaults.message_window
+            if effective_global_config.defaults.message_window is not None
+            else 3
+        )
     )
     resolved_session_reuse_policy = (
         profile.session_reuse_policy

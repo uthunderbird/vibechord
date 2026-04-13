@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
+import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -65,6 +67,85 @@ class OpencodeAcpAdapterSettings(BaseModel):
     substrate_backend: Literal["bespoke", "sdk"] = "bespoke"
     stdio_limit_bytes: int = 1_048_576
     working_directory: Path = Field(default_factory=Path.cwd)
+
+
+class GlobalUserDefaults(BaseModel):
+    involvement_level: str | None = None
+    brain_model: str | None = None
+    message_window: int | None = Field(default=None, ge=0)
+
+
+class GlobalGithubProviderConfig(BaseModel):
+    token: str | None = None
+
+
+class GlobalProviderConfig(BaseModel):
+    github: GlobalGithubProviderConfig = Field(default_factory=GlobalGithubProviderConfig)
+
+
+class GlobalUserConfig(BaseModel):
+    project_roots: list[Path] = Field(default_factory=list)
+    defaults: GlobalUserDefaults = Field(default_factory=GlobalUserDefaults)
+    providers: GlobalProviderConfig = Field(default_factory=GlobalProviderConfig)
+
+
+def global_config_path() -> Path:
+    """Return the user-level operator config path.
+
+    Returns:
+        Canonical `~/.operator/config.yaml` path, or the override from
+        `OPERATOR_GLOBAL_CONFIG` when provided for tests and tooling.
+    """
+
+    override = os.environ.get("OPERATOR_GLOBAL_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".operator" / "config.yaml"
+
+
+def load_global_config(path: Path | None = None) -> GlobalUserConfig:
+    """Load optional global user config from disk.
+
+    Args:
+        path: Explicit config path override.
+
+    Returns:
+        Parsed global config, or an empty config when the file is absent.
+    """
+
+    candidate = (path or global_config_path()).expanduser()
+    if not candidate.exists():
+        return GlobalUserConfig()
+    payload = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Global config {candidate} must deserialize to a mapping.")
+    return GlobalUserConfig.model_validate(payload)
+
+
+def apply_global_user_defaults(
+    settings: OperatorSettings,
+    global_config: GlobalUserConfig,
+) -> OperatorSettings:
+    """Apply global user defaults to runtime settings without overriding env/config input.
+
+    Args:
+        settings: Runtime settings assembled from environment and direct initialization.
+        global_config: Parsed global config payload.
+
+    Returns:
+        The mutated `settings` instance for fluent call sites.
+    """
+
+    brain_model = global_config.defaults.brain_model
+    if brain_model is not None:
+        if (
+            settings.brain_provider == "openai_codex"
+            and "codex_brain" not in settings.model_fields_set
+        ):
+            settings.codex_brain.model = brain_model
+        if settings.brain_provider == "openai" and "openai" not in settings.model_fields_set:
+            settings.openai.model = brain_model
+    return settings
 
 
 class OperatorSettings(BaseSettings):

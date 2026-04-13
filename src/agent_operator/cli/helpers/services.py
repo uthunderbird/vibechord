@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 import typer
+import yaml
 
 from agent_operator.application import (
     OperationAgendaQueryService,
@@ -33,6 +34,7 @@ from agent_operator.domain import (
 from agent_operator.runtime import (
     ProjectingEventSink,
     committed_default_profile_path,
+    prepare_operator_settings,
     resolve_operator_data_dir,
 )
 
@@ -50,26 +52,33 @@ from .rendering import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agent_operator.application.commands.operation_delivery_commands import OperatorServiceLike
 
-def _current_build_service():
+
+class EventProjector(Protocol):
+    def handle_event(self, event: object) -> None: ...
+
+
+def _current_build_service() -> Callable[..., OperatorServiceLike]:
     try:
         import agent_operator.cli.main as cli_main
 
-        return getattr(cli_main, "build_service", bootstrap_build_service)
+        return cast(
+            "Callable[..., OperatorServiceLike]",
+            getattr(cli_main, "build_service", bootstrap_build_service),
+        )
     except Exception:
-        return bootstrap_build_service
+        return cast("Callable[..., OperatorServiceLike]", bootstrap_build_service)
 
 
 def load_settings() -> OperatorSettings:
-    settings = OperatorSettings()
-    settings.data_dir = resolve_operator_data_dir(settings).path
-    return settings
+    return prepare_operator_settings(OperatorSettings())
 
 
 def load_settings_with_data_dir() -> tuple[OperatorSettings, str]:
     settings = OperatorSettings()
     data_dir = resolve_operator_data_dir(settings)
-    settings.data_dir = data_dir.path
+    prepare_operator_settings(settings)
     return settings, data_dir.source
 
 
@@ -126,7 +135,7 @@ def build_operation_dashboard_query_service(
 def build_delivery_commands_service(
     settings: OperatorSettings,
     *,
-    service_factory: Callable[[], object] | None = None,
+    service_factory: Callable[[], OperatorServiceLike] | None = None,
 ) -> OperationDeliveryCommandService:
     factory = service_factory or (lambda: _current_build_service()(settings))
     return OperationDeliveryCommandService(
@@ -155,8 +164,8 @@ def build_status_query_service(settings: OperatorSettings) -> OperationStatusQue
 def build_projecting_delivery_commands_service(
     settings: OperatorSettings,
     *,
-    operation_id: str | None,
-    projector,
+    operation_id: str,
+    projector: EventProjector,
 ) -> OperationDeliveryCommandService:
     return build_delivery_commands_service(
         settings,
@@ -173,9 +182,9 @@ def build_projecting_delivery_commands_service(
 def build_projected_service(
     settings: OperatorSettings,
     *,
-    operation_id: str | None,
-    projector,
-):
+    operation_id: str,
+    projector: EventProjector,
+) -> OperatorServiceLike:
     return _current_build_service()(
         settings,
         event_sink=ProjectingEventSink(
@@ -231,8 +240,6 @@ def write_default_project_profile(
     path = committed_default_profile_path(cwd=root)
     if path.exists() and not force:
         raise RuntimeError("Project already configured (operator-profile.yaml found).")
-    import yaml  # type: ignore[import-untyped]
-
     payload = profile.model_dump(mode="json")
     payload = {key: value for key, value in payload.items() if value not in (None, [], {})}
     path.write_text(
