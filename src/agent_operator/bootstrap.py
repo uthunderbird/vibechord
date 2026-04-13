@@ -295,8 +295,15 @@ class OperatorGraphProvider(_BootstrapProviderBase):
         self,
         store: FileOperationStore,
         history_ledger: FileOperationHistoryLedger,
+        event_store: FileOperationEventStore,
+        replay_service: EventSourcedReplayService,
     ) -> OperationLifecycleCoordinator:
-        return OperationLifecycleCoordinator(store=store, history_ledger=history_ledger)
+        return OperationLifecycleCoordinator(
+            store=store,
+            history_ledger=history_ledger,
+            event_store=event_store,
+            replay_service=replay_service,
+        )
 
     @provide(scope=Scope.APP)
     def attached_turn_service(self) -> AttachedTurnService:

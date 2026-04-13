@@ -666,6 +666,13 @@ class _TestServiceProvider(Provider):
                 checkpoint_store=_checkpoint_store,
                 projector=_projector,
             )
+            if isinstance(lifecycle_coordinator, OperationLifecycleCoordinator):
+                lifecycle_coordinator.event_store = _event_store
+                lifecycle_coordinator.replay_service = EventSourcedReplayService(
+                    event_store=_event_store,
+                    checkpoint_store=_checkpoint_store,
+                    projector=_projector,
+                )
             if event_sourced_operation_birth_service is None:
                 from agent_operator.application.event_sourcing.event_sourced_birth import (
                     EventSourcedOperationBirthService,

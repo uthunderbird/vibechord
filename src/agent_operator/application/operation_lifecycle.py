@@ -8,8 +8,10 @@ from typing import Protocol
 from agent_operator.domain import (
     AgentResult,
     AgentSessionHandle,
+    CanonicalPersistenceMode,
     FocusMode,
     IterationState,
+    OperationDomainEventDraft,
     OperationOutcome,
     OperationState,
     OperationStatus,
@@ -17,7 +19,15 @@ from agent_operator.domain import (
     SessionStatus,
     TaskState,
 )
-from agent_operator.protocols import OperationStore
+from agent_operator.protocols import OperationEventStore, OperationStore
+
+
+class LifecycleReplayService(Protocol):
+    async def load(self, operation_id: str): ...
+
+    def advance(self, state, events): ...
+
+    async def materialize(self, state): ...
 
 
 class HistoryLedger(Protocol):
@@ -52,6 +62,8 @@ class OperationLifecycleCoordinator:
 
     store: OperationStore
     history_ledger: HistoryLedger | None = None
+    event_store: OperationEventStore | None = None
+    replay_service: LifecycleReplayService | None = None
 
     def mark_running(self, state: OperationState) -> None:
         state.status = OperationStatus.RUNNING
@@ -152,7 +164,8 @@ class OperationLifecycleCoordinator:
             await emit_cancel_wakeup()
         if record is not None and emit_session_cancelled is not None:
             await emit_session_cancelled()
-        await self.store.save_operation(state)
+        if record is not None:
+            await self._persist_scoped_cancellation(record, state)
         return OperationOutcome(
             operation_id=state.operation_id,
             status=state.status,
@@ -160,6 +173,36 @@ class OperationLifecycleCoordinator:
             ended_at=datetime.now(UTC),
             final_result=final_result,
         )
+
+    async def _persist_scoped_cancellation(
+        self,
+        record: SessionState,
+        state: OperationState,
+    ) -> None:
+        if (
+            state.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
+            and self.event_store is not None
+            and self.replay_service is not None
+        ):
+            replay_state = await self.replay_service.load(state.operation_id)
+            stored_events = await self.event_store.append(
+                state.operation_id,
+                replay_state.last_applied_sequence,
+                [
+                    OperationDomainEventDraft(
+                        event_type="session.observed_state.changed",
+                        payload={
+                            "session_id": record.session_id,
+                            "observed_state": record.observed_state.value,
+                            "terminal_state": record.terminal_state.value,
+                            "updated_at": record.updated_at.isoformat(),
+                        },
+                    )
+                ],
+            )
+            await self.replay_service.materialize(
+                self.replay_service.advance(replay_state, stored_events)
+            )
 
     async def fold_reconciled_terminal_result(
         self,

@@ -151,6 +151,23 @@ def test_event_sourced_operation_commands_do_not_force_snapshot_persistence() ->
     assert save_snapshot_keywords["save_snapshot"].value is False
 
 
+def test_operation_lifecycle_scoped_cancel_no_longer_writes_snapshot_directly() -> None:
+    """ADR 0144: scoped lifecycle cancellation must project via canonical events."""
+    lifecycle_file = APPLICATION_DIR / "operation_lifecycle.py"
+    source = lifecycle_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    direct_save_callers = sorted(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        for child in ast.walk(node)
+        if isinstance(child, ast.Attribute) and child.attr == "save_operation"
+    )
+
+    assert direct_save_callers == ["finalize_outcome"]
+
+
 def test_queries_do_not_import_commands_family() -> None:
     offenders: list[str] = []
     queries_dir = APPLICATION_DIR / "queries"
