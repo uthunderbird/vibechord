@@ -303,7 +303,7 @@ class AttachedSessionRuntimeRegistry:
 
     async def _dispose_runtime(self, live: _LiveAttachedSession) -> None:
         with suppress(Exception):
-            await live.runtime.__aexit__(None, None, None)
+            await live.runtime.close()
         task = live.consumer_task
         if task is not None:
             task.cancel()

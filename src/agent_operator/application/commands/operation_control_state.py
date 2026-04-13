@@ -117,11 +117,5 @@ class OperationControlStateCoordinator:
             refreshed.current_focus = (
                 current_focus.model_copy(deep=True) if current_focus is not None else None
             )
-        if hasattr(state, "active_session"):
-            active_session = state.active_session
-            refreshed.active_session = (
-                active_session.model_copy(deep=True) if active_session is not None else None
-            )
-
         for field_name in OperationState.model_fields:
             setattr(state, field_name, getattr(refreshed, field_name))

@@ -1145,16 +1145,15 @@ The following named items are known tech debt — a contributor encountering the
   direction is not "remove sessions from operator entirely." The correct direction is to keep only
   thin durable session truth in operator and move live-session lifecycle ownership behind an
   explicit `AgentSessionManager` boundary below it. This is tracked in ADR 0170.
-- **`active_session` pointer is dual-write debt.** `OperationState.active_session` is the
-  "currently preferred session" pointer. It is set via direct mutation in 8 places and persisted
-  via `save_operation()`, but is not emitted as an event and is absent from the checkpoint. On
-  resume from event-sourced replay it is `None`, requiring a recovery step in reconciliation that
-  derives it from the `sessions` list. If the sessions list is itself stale (see Failure 1 above),
-  the recovery produces incorrect results. Fix path: either emit `ActiveSessionUpdated` events, or
-  remove `active_session` from persisted state and always derive it on demand once the sessions
-  list is event-sourced. Under ADR 0170 this is part of the broader move toward durable
-  session truth in operator plus live-session ownership in `AgentSessionManager`. Tracked in ADR 0144
-  and ADR 0170.
+- **`active_session` retirement tranche is complete.** The old `OperationState.active_session`
+  pointer has been removed from persisted operator state. Read surfaces now derive the current
+  active-session view from canonical session truth (`sessions`, focus, task linkage, and execution
+  state) instead of consulting a second durable field.
+- **`AgentSessionManager` boundary tranche is implemented.** The operator now exposes an explicit
+  `AgentSessionManager` boundary above `AgentSessionRuntime`, foreground services and the
+  in-process supervisor share one app-scoped manager instance, and runtime `close()` is separated
+  from semantic `cancel()`. Under ADR 0170, the remaining work is now follow-on cleanup and
+  feature expansion, not ownership ambiguity around `active_session` or `context_exit`.
 - **`ObjectiveState.status` is a redundant synchronized copy of `OperationState.status`.**
   `ObjectiveState` carries a `status: OperationStatus` field kept in sync via `sync_derived_state()`
   and the checkpoint projector. This is the only status that should be read from `OperationState.status`
@@ -1239,7 +1238,9 @@ runtime instance, while the manager owns semantic session orchestration across r
 session identities.
 
 The current attached-session registry is the likely migration point for this boundary rather than
-the basis for an additional parallel subsystem. See ADR 0170.
+the basis for an additional parallel subsystem. The current repository truth already wraps the
+registry behind an explicit manager contract and shares that manager across foreground and
+background orchestration. See ADR 0170.
 
 ## Composition And DI
 

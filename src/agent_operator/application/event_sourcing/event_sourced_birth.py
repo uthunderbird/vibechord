@@ -88,13 +88,6 @@ class EventSourcedOperationBirthService:
             )
             for session in state.sessions
         )
-        if state.active_session is not None:
-            event_drafts.append(
-                OperationDomainEventDraft(
-                    event_type="operation.active_session_updated",
-                    payload={"session_id": state.active_session.session_id},
-                )
-            )
         stored_events = await self._event_store.append(
             state.operation_id,
             0,

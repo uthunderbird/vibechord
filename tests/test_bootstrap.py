@@ -24,6 +24,9 @@ def test_build_service_uses_inprocess_supervisor_for_canonical_runtime() -> None
     assert isinstance(
         service._supervisor, InProcessAgentRunSupervisor
     )  # type: ignore[attr-defined]
+    assert (
+        service._supervisor._session_registry is service._attached_session_registry
+    )  # type: ignore[attr-defined]
     assert set(service._attached_session_registry.keys()) == {  # type: ignore[attr-defined]
         "claude_acp",
         "codex_acp",

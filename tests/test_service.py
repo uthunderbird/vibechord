@@ -411,7 +411,7 @@ async def test_stop_turn_command_cancels_active_attached_turn_and_forces_replan(
     assert agent.cancelled is True
     assert commands[0].status is CommandStatus.APPLIED
     assert operation.scheduler_state is SchedulerState.ACTIVE
-    assert operation.active_session is None
+    assert operation.active_session_record is None
     assert operation.tasks[0].status is TaskStatus.COMPLETED
     assert (
         operation.tasks[0].notes[-1]
@@ -666,7 +666,6 @@ async def test_resume_reconciles_completed_background_run_for_reused_session() -
         session_id="session-1",
         session_name="main",
     )
-    operation.active_session = session
     operation.sessions.append(
         SessionState(
             handle=session,

@@ -509,7 +509,6 @@ class OperationState(BaseModel):
     processed_command_ids: list[str] = Field(default_factory=list)
     pending_replan_command_ids: list[str] = Field(default_factory=list)
     pending_attention_resolution_ids: list[str] = Field(default_factory=list)
-    active_session: AgentSessionHandle | None = None
     final_summary: str | None = None
     run_started_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -574,15 +573,6 @@ class OperationState(BaseModel):
             self.objective.root_task_id = root_task.task_id
         elif self.objective.root_task_id is None:
             self.objective.root_task_id = self.tasks[0].task_id
-        if self.active_session is not None and not any(
-            record.session_id == self.active_session.session_id for record in self.sessions
-        ):
-            self.sessions.append(
-                SessionState(
-                    handle=self.active_session,
-                    status=SessionStatus.IDLE,
-                )
-            )
         return self
 
     def _derive_root_task_status(self) -> TaskStatus:
@@ -598,14 +588,27 @@ class OperationState(BaseModel):
 
     @property
     def active_session_record(self) -> SessionState | None:
-        if self.active_session is not None:
-            for record in self.sessions:
-                if record.session_id == self.active_session.session_id:
-                    return record
         if self.current_focus and self.current_focus.kind is FocusKind.SESSION:
             for record in self.sessions:
                 if record.session_id == self.current_focus.target_id:
                     return record
+        root_task_id = self.objective.root_task_id if self.objective is not None else None
+        if root_task_id is not None:
+            for task in self.tasks:
+                if task.task_id != root_task_id or task.linked_session_id is None:
+                    continue
+                for record in self.sessions:
+                    if (
+                        record.session_id == task.linked_session_id
+                        and not record.handle.one_shot
+                        and record.status
+                        not in {
+                            SessionStatus.COMPLETED,
+                            SessionStatus.FAILED,
+                            SessionStatus.CANCELLED,
+                        }
+                    ):
+                        return record
         running_attached = [
             record
             for record in self.sessions
@@ -620,6 +623,28 @@ class OperationState(BaseModel):
                 )
             )
             return running_attached[-1]
+        reusable = [
+            record
+            for record in self.sessions
+            if (
+                not record.handle.one_shot
+                and record.status
+                not in {
+                    SessionStatus.COMPLETED,
+                    SessionStatus.FAILED,
+                    SessionStatus.CANCELLED,
+                }
+            )
+        ]
+        if reusable:
+            reusable.sort(
+                key=lambda record: (
+                    record.latest_iteration or -1,
+                    record.updated_at,
+                    record.created_at,
+                )
+            )
+            return reusable[-1]
         return None
 
     @property

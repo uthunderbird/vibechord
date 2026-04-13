@@ -28,7 +28,7 @@ class FakeSessionRuntime:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.cancel(reason="context_exit")
+        await self.close()
 
     async def send(self, command: AgentSessionCommand) -> None:
         self.commands.append(command)
@@ -82,6 +82,12 @@ class FakeSessionRuntime:
             yield item
 
     async def cancel(self, reason: str | None = None) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        await self._queue.put(None)
+
+    async def close(self) -> None:
         if self._closed:
             return
         self._closed = True

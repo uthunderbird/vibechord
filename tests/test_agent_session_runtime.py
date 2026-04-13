@@ -93,6 +93,33 @@ async def test_acp_agent_session_runtime_starts_single_live_session() -> None:
     )
     assert started.fact_type == "session.started"
     assert started.session_id == "sess-1"
+    assert not any(method == "session/cancel" for method, _payload in connection.notifications)
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_exit_does_not_emit_session_cancel_notification() -> None:
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="codex_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+    )
+
+    async with runtime:
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+            )
+        )
+        await asyncio.sleep(0.02)
+
+    assert not any(method == "session/cancel" for method, _payload in connection.notifications)
 
 
 @pytest.mark.anyio

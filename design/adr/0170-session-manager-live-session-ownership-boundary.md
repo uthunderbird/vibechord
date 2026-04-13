@@ -2,8 +2,8 @@
 
 ## Status
 
-- Decision Status: Proposed
-- Implementation Status: Planned
+- Decision Status: Accepted
+- Implementation Status: Partial
 
 ## Context
 
@@ -118,11 +118,31 @@ This would reduce symptoms but preserve the underlying ownership confusion betwe
 
 ## Implementation Notes
 
-The first implementation tranche should prefer boundary clarification over feature expansion:
+The first implementation tranche is now implemented and verified at repository truth:
 
-1. separate quiet close/dispose from semantic cancel
-2. concentrate live session ownership in one manager layer
-3. route operator calls through semantic session operations instead of transport-level assumptions
-4. stop persisting or consulting `active_session` as a separate source of truth where canonical session records already suffice
+- `active_session` has been removed from `OperationState`, `OperationCheckpoint`, canonical birth,
+  and projector flow
+- replay, command handling, attached-turn orchestration, and result folding no longer persist or
+  consult `active_session` as a separate source of truth
+- read surfaces still expose an `active_session` payload, but only as a derived convenience view
+  from canonical session truth
+- verification passed at current repository truth: `610 passed, 11 skipped`
+
+The second implementation tranche is now also implemented and verified at repository truth:
+
+- explicit `AgentSessionManager` protocol now exists as the application-facing live-session boundary
+- the current attached-session registry is wrapped behind a registry-backed manager adapter
+- foreground services and the in-process supervisor now share one app-scoped manager instance
+- `AdapterRuntime` and `AgentSessionRuntime` now distinguish quiet `close()` from semantic `cancel()`
+- runtime disposal no longer maps `__aexit__()` to semantic `context_exit` cancellation
+- targeted verification passed at current repository truth, and full verification passed:
+  `610 passed, 11 skipped`
+
+The remaining work should now prefer feature expansion and internal cleanup over boundary repair:
+
+1. evolve or rename the current registry implementation behind the `AgentSessionManager` contract
+2. add honest capability-gated fork semantics where adapters support them
+3. reduce remaining lifecycle leakage in helper and test-support layers
+4. keep shrinking direct knowledge of transport/runtime details from application services
 
 Fork support should be introduced only where the target adapter can support it honestly.

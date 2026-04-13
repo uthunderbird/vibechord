@@ -9,6 +9,7 @@ from pathlib import Path
 import anyio
 import pytest
 
+from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
 from agent_operator.domain import (
     AgentProgress,
     AgentProgressState,
@@ -431,8 +432,8 @@ async def test_inprocess_supervisor_completes_run_and_enqueues_wakeup(tmp_path: 
     supervisor = InProcessAgentRunSupervisor(
         tmp_path / "background",
         tmp_path,
-        runtime_bindings=build_test_runtime_bindings(
-            {"codex_acp": _FakeTestAgent()}
+        session_manager=RegistryBackedAgentSessionManager.from_bindings(
+            build_test_runtime_bindings({"codex_acp": _FakeTestAgent()})
         ),
         wakeup_inbox=inbox,
     )

@@ -82,14 +82,6 @@ class AttachedTurnService:
                 task.linked_session_id = session.session_id
             task.attempt_count += 1
             task.updated_at = datetime.now(UTC)
-        state.active_session = session if not session.one_shot else None
-        await emit(
-            "operation.active_session_updated",
-            state,
-            iteration.index,
-            {"session_id": state.active_session.session_id if state.active_session else None},
-            session_id=state.active_session.session_id if state.active_session else None,
-        )
         await emit(
             "agent.invocation.started",
             state,
@@ -177,14 +169,6 @@ class AttachedTurnService:
                 task.attempt_count += 1
             task.updated_at = datetime.now(UTC)
         iteration.session = session
-        state.active_session = session if not session.one_shot else None
-        await emit(
-            "operation.active_session_updated",
-            state,
-            iteration.index,
-            {"session_id": state.active_session.session_id if state.active_session else None},
-            session_id=state.active_session.session_id if state.active_session else None,
-        )
         return session
 
     async def record_turn_started(

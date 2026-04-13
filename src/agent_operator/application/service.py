@@ -4,9 +4,9 @@ from collections.abc import Mapping
 from datetime import timedelta
 
 from agent_operator.application.agent_results import AgentResultService
+from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
 from agent_operator.application.attached_session_registry import (
     AttachedRuntimeBinding,
-    AttachedSessionRuntimeRegistry,
 )
 from agent_operator.application.attached_turns import AttachedTurnService
 from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
@@ -58,6 +58,7 @@ from agent_operator.domain import (
 )
 from agent_operator.protocols import (
     AgentRunSupervisor,
+    AgentSessionManager,
     EventSink,
     OperationCommandInbox,
     OperationRuntime,
@@ -84,6 +85,7 @@ class OperatorService:
         trace_store: TraceStore,
         event_sink: EventSink,
         agent_runtime_bindings: Mapping[str, AttachedRuntimeBinding],
+        session_manager: AgentSessionManager | None,
         operation_lifecycle_coordinator: OperationLifecycleCoordinator,
         event_relay: OperationEventRelay,
         operation_attention_coordinator: OperationAttentionCoordinator,
@@ -121,7 +123,11 @@ class OperatorService:
         self._store = store
         self._trace_store = trace_store
         self._event_sink = event_sink
-        self._attached_session_registry = AttachedSessionRuntimeRegistry(agent_runtime_bindings)
+        self._attached_session_registry: AgentSessionManager = (
+            session_manager
+            if session_manager is not None
+            else RegistryBackedAgentSessionManager.from_bindings(agent_runtime_bindings)
+        )
         self._loaded_operation = LoadedOperation(
             attached_session_registry=self._attached_session_registry
         )

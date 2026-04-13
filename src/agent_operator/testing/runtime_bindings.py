@@ -77,12 +77,7 @@ class TestAgentSessionRuntime:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self._cancel_turn_task()
-        handle = self._handle
-        if handle is not None:
-            with suppress(Exception):
-                await self._adapter.close(handle)
-        await self._events.put(None)
+        await self.close()
 
     async def send(self, command: AgentSessionCommand) -> None:
         """Send one start or follow-up command through the legacy fake adapter."""
@@ -113,6 +108,15 @@ class TestAgentSessionRuntime:
             session_id=handle.session_id,
             payload={"reason": reason or "cancelled"},
         )
+
+    async def close(self) -> None:
+        await self._cancel_turn_task()
+        handle = self._handle
+        if handle is not None:
+            with suppress(Exception):
+                await self._adapter.close(handle)
+        self._handle = None
+        await self._events.put(None)
 
     async def _iterate_events(self) -> AsyncIterator[TechnicalFactDraft]:
         while True:

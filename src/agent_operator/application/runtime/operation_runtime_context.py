@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.loaded_operation import LoadedOperation
 from agent_operator.domain import (
     BackgroundRunStatus,
@@ -13,6 +12,7 @@ from agent_operator.domain import (
     SessionRecord,
     SessionRecordStatus,
 )
+from agent_operator.protocols import AgentSessionManager
 
 
 class OperationRuntimeContext:
@@ -22,7 +22,7 @@ class OperationRuntimeContext:
         self,
         *,
         loaded_operation: LoadedOperation,
-        attached_session_registry: AttachedSessionRuntimeRegistry,
+        attached_session_registry: AgentSessionManager,
     ) -> None:
         self._loaded_operation = loaded_operation
         self._attached_session_registry = attached_session_registry

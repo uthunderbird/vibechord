@@ -276,7 +276,7 @@ async def test_operator_service_appends_agent_type_to_named_session_in_mixed_run
 
 
 @pytest.mark.anyio
-async def test_operator_service_clears_active_session_after_one_shot_run() -> None:
+async def test_operator_service_does_not_surface_active_session_record_after_one_shot_run() -> None:
     store = MemoryStore()
     agent = FakeAgent()
     service = make_service(
@@ -299,7 +299,7 @@ async def test_operator_service_clears_active_session_after_one_shot_run() -> No
     assert operation.iterations[0].session is not None
     assert operation.iterations[0].session.one_shot is True
     assert operation.iterations[0].session.session_name is None
-    assert operation.active_session is None
+    assert operation.active_session_record is None
 
 
 @pytest.mark.anyio
@@ -380,8 +380,8 @@ async def test_operator_service_can_start_with_attached_session() -> None:
     operation = await store.load_operation(outcome.operation_id)
     assert outcome.status is OperationStatus.COMPLETED
     assert operation is not None
-    assert operation.active_session is not None
-    assert operation.active_session.session_id == "attached-1"
+    assert operation.active_session_record is not None
+    assert operation.active_session_record.session_id == "attached-1"
     assert operation.tasks[0].linked_session_id == "attached-1"
     assert agent.sent_messages == ["continue the attached session"]
     assert agent.started_requests == []

@@ -75,7 +75,6 @@ async def test_whole_operation_cancel_clears_active_session_from_status_snapshot
                 waiting_reason="Working through the next slice.",
             )
         ],
-        active_session=session,
         **state_settings(),
     )
     await store.save_operation(state)
@@ -94,7 +93,6 @@ async def test_whole_operation_cancel_clears_active_session_from_status_snapshot
     assert outcome.status is OperationStatus.CANCELLED
     assert updated is not None
     assert updated.status is OperationStatus.CANCELLED
-    assert updated.active_session is None
     assert updated.active_session_record is None
 
     status_queries = OperationStatusQueryService(

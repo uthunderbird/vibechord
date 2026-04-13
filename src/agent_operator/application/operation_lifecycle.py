@@ -230,10 +230,6 @@ class OperationLifecycleCoordinator:
         drafts.extend(
             [
                 OperationDomainEventDraft(
-                    event_type="operation.active_session_updated",
-                    payload={"session_id": None},
-                ),
-                OperationDomainEventDraft(
                     event_type="operation.focus.updated",
                     payload={"focus": None},
                 ),
@@ -361,11 +357,6 @@ class OperationLifecycleCoordinator:
             return
         state.sessions = [item.model_copy(deep=True) for item in checkpoint.sessions]
         state.executions = [item.model_copy(deep=True) for item in checkpoint.executions]
-        state.active_session = (
-            checkpoint.active_session.model_copy(deep=True)
-            if checkpoint.active_session is not None
-            else None
-        )
         state.current_focus = (
             checkpoint.current_focus.model_copy(deep=True)
             if checkpoint.current_focus is not None
@@ -405,7 +396,6 @@ class OperationLifecycleCoordinator:
 
     def _apply_snapshot_operation_cancellation(self, state: OperationState) -> None:
         state.current_focus = None
-        state.active_session = None
         for record in state.sessions:
             if record.status in {
                 SessionStatus.COMPLETED,

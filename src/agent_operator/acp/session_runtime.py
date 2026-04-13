@@ -62,7 +62,7 @@ class AcpAgentSessionRuntime:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.cancel(reason="context_exit")
+        await self.close()
         await self._adapter_runtime.__aexit__(exc_type, exc, tb)
 
     async def send(self, command: AgentSessionCommand) -> None:
@@ -180,6 +180,26 @@ class AcpAgentSessionRuntime:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        await self._event_queue.put(None)
+
+    async def close(self) -> None:
+        """Quietly dispose transport/runtime resources without semantic cancellation."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._active_prompt_task is not None and not self._active_prompt_task.done():
+            self._active_prompt_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._active_prompt_task
+        self._active_prompt_task = None
+        self._live_session_id = None
+        await self._adapter_runtime.close()
+        task = self._adapter_events_task
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        self._adapter_events_task = None
         await self._event_queue.put(None)
 
     async def _start_new_session(self, instruction: str) -> str:

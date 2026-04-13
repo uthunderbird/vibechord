@@ -68,7 +68,6 @@ class DefaultOperationProjector:
         updated = self._apply_scheduler_slice(updated, event)
         updated = self._apply_operator_message_slice(updated, event)
         updated = self._apply_policy_slice(updated, event)
-        updated = self._apply_active_session_slice(updated, event)
         updated = self._apply_focus_slice(updated, event)
         updated.updated_at = event.timestamp
         return updated
@@ -394,21 +393,6 @@ class DefaultOperationProjector:
             checkpoint.active_policies = [
                 PolicyEntry.model_validate(item) for item in event.payload["active_policies"]
             ]
-        return checkpoint
-
-    def _apply_active_session_slice(
-        self,
-        checkpoint: OperationCheckpoint,
-        event: StoredOperationDomainEvent,
-    ) -> OperationCheckpoint:
-        if event.event_type == "operation.active_session_updated":
-            session_id = event.payload.get("session_id")
-            if session_id is None:
-                checkpoint.active_session = None
-            else:
-                session = self._find_by_attr(checkpoint.sessions, "session_id", session_id)
-                if session is not None:
-                    checkpoint.active_session = session.handle.model_copy()
         return checkpoint
 
     def _apply_focus_slice(

@@ -1008,11 +1008,13 @@ class OperationCommandService:
                 "Operation target does not match the current operation.",
             )
             return False
-        if state.active_session is not None and self._attached_session_registry.has(
-            state.active_session.adapter_key
+        active_session_record = state.active_session_record
+        active_session = active_session_record.handle if active_session_record is not None else None
+        if active_session is not None and self._attached_session_registry.has(
+            active_session.adapter_key
         ):
             try:
-                await self._attached_session_registry.cancel(state.active_session)
+                await self._attached_session_registry.cancel(active_session)
             except Exception as exc:
                 await self.reject_command(
                     state,
@@ -1082,13 +1084,6 @@ class OperationCommandService:
                     correlation_id=command.command_id,
                 ),
                 OperationDomainEventDraft(
-                    event_type="operation.active_session_updated",
-                    payload={"session_id": None},
-                    timestamp=applied_at,
-                    causation_id=command.command_id,
-                    correlation_id=command.command_id,
-                ),
-                OperationDomainEventDraft(
                     event_type="scheduler.state.changed",
                     payload={"scheduler_state": SchedulerState.ACTIVE.value},
                     timestamp=applied_at,
@@ -1105,7 +1100,6 @@ class OperationCommandService:
         if state.objective is not None:
             state.objective.summary = result.checkpoint.final_summary
         state.current_focus = None
-        state.active_session = None
         state.scheduler_state = result.checkpoint.scheduler_state
         state.processed_command_ids = list(result.checkpoint.processed_command_ids)
         await self._control_state_coordinator.persist_command_effect_state(state)

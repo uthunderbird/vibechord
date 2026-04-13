@@ -25,9 +25,11 @@ from agent_operator.protocols.runtime import (
     TraceStore,
     WakeupInbox,
 )
+from agent_operator.protocols.session_manager import AgentSessionManager
 from agent_operator.protocols.session_runtime import AgentSessionRuntime
 
 __all__ = [
+    "AgentSessionManager",
     "AgentSessionRuntime",
     "AdapterRuntime",
     "Clock",

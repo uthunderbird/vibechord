@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.attached_turns import AttachedTurnService
 from agent_operator.application.commands.operation_commands import OperationCommandService
 from agent_operator.application.loaded_operation import LoadedOperation
@@ -30,7 +29,7 @@ from agent_operator.domain import (
     TaskStatus,
 )
 from agent_operator.dtos.requests import AgentRunRequest
-from agent_operator.protocols import OperationRuntime, OperationStore
+from agent_operator.protocols import AgentSessionManager, OperationRuntime, OperationStore
 
 
 class OperationTurnExecutionService:
@@ -40,7 +39,7 @@ class OperationTurnExecutionService:
         self,
         *,
         loaded_operation: LoadedOperation,
-        attached_session_registry: AttachedSessionRuntimeRegistry,
+        attached_session_registry: AgentSessionManager,
         attached_turn_service: AttachedTurnService,
         operation_runtime: OperationRuntime | None,
         store: OperationStore,
@@ -268,14 +267,6 @@ class OperationTurnExecutionService:
                 task.linked_session_id = session.session_id
             task.attempt_count += 1
             task.updated_at = datetime.now(UTC)
-        state.active_session = session if not session.one_shot else None
-        await self._event_relay.emit(
-            "operation.active_session_updated",
-            state,
-            iteration.index,
-            {"session_id": state.active_session.session_id if state.active_session else None},
-            session_id=state.active_session.session_id if state.active_session else None,
-        )
         state.current_focus = FocusState(
             kind=FocusKind.SESSION,
             target_id=session.session_id,
@@ -412,14 +403,6 @@ class OperationTurnExecutionService:
             task.attempt_count += 1
             task.updated_at = datetime.now(UTC)
         iteration.session = session
-        state.active_session = session if not session.one_shot else None
-        await self._event_relay.emit(
-            "operation.active_session_updated",
-            state,
-            iteration.index,
-            {"session_id": state.active_session.session_id if state.active_session else None},
-            session_id=state.active_session.session_id if state.active_session else None,
-        )
         state.current_focus = FocusState(
             kind=FocusKind.SESSION,
             target_id=session.session_id,

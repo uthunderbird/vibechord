@@ -27,6 +27,7 @@ from agent_operator.application import (
     OperationRuntimeReconciliationService,
     OperationTraceabilityService,
     OperatorService,
+    RegistryBackedAgentSessionManager,
     SupervisorBackedOperationRuntime,
 )
 from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
@@ -46,7 +47,7 @@ from agent_operator.application.runtime.operation_process_dispatch import (
 from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.config import OperatorSettings
 from agent_operator.projectors import DefaultOperationProjector
-from agent_operator.protocols import EventSink, ProcessManager
+from agent_operator.protocols import AgentSessionManager, EventSink, ProcessManager
 from agent_operator.providers import (
     CodexStructuredOutputProvider,
     OpenAIResponsesStructuredOutputProvider,
@@ -221,9 +222,16 @@ class RuntimeProvider(_BootstrapProviderBase):
         return AttachedSessionRuntimeRegistry(runtime_bindings)
 
     @provide(scope=Scope.APP)
-    def loaded_operation(
+    def agent_session_manager(
         self,
         attached_session_registry: AttachedSessionRuntimeRegistry,
+    ) -> AgentSessionManager:
+        return RegistryBackedAgentSessionManager(attached_session_registry)
+
+    @provide(scope=Scope.APP)
+    def loaded_operation(
+        self,
+        attached_session_registry: AgentSessionManager,
     ) -> LoadedOperation:
         return LoadedOperation(attached_session_registry=attached_session_registry)
 
@@ -231,7 +239,7 @@ class RuntimeProvider(_BootstrapProviderBase):
     def operation_runtime_context(
         self,
         loaded_operation: LoadedOperation,
-        attached_session_registry: AttachedSessionRuntimeRegistry,
+        attached_session_registry: AgentSessionManager,
     ) -> OperationRuntimeContext:
         return OperationRuntimeContext(
             loaded_operation=loaded_operation,
@@ -242,12 +250,12 @@ class RuntimeProvider(_BootstrapProviderBase):
     def supervisor(
         self,
         wakeup_inbox: FileWakeupInbox,
-        runtime_bindings: dict[str, AgentRuntimeBinding],
+        session_manager: AgentSessionManager,
     ) -> InProcessAgentRunSupervisor:
         return InProcessAgentRunSupervisor(
             self._settings.data_dir / "background",
             self._settings.data_dir,
-            runtime_bindings=runtime_bindings,
+            session_manager=session_manager,
             wakeup_inbox=wakeup_inbox,
         )
 
@@ -400,7 +408,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
         trace_store: FileTraceStore,
         operation_policy_context_coordinator: OperationPolicyContextCoordinator,
         operation_attention_coordinator: OperationAttentionCoordinator,
-        attached_session_registry: AttachedSessionRuntimeRegistry,
+        attached_session_registry: AgentSessionManager,
         operation_runtime: SupervisorBackedOperationRuntime,
         event_sourced_command_service: EventSourcedCommandApplicationService,
         event_relay: OperationEventRelay,
@@ -429,7 +437,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
     def operation_turn_execution_service(
         self,
         loaded_operation: LoadedOperation,
-        attached_session_registry: AttachedSessionRuntimeRegistry,
+        attached_session_registry: AgentSessionManager,
         attached_turn_service: AttachedTurnService,
         operation_runtime: SupervisorBackedOperationRuntime,
         store: FileOperationStore,
@@ -478,7 +486,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
     def decision_execution_service(
         self,
         loaded_operation: LoadedOperation,
-        attached_session_registry: AttachedSessionRuntimeRegistry,
+        attached_session_registry: AgentSessionManager,
         operation_attention_coordinator: OperationAttentionCoordinator,
         event_relay: OperationEventRelay,
         operation_lifecycle_coordinator: OperationLifecycleCoordinator,
@@ -597,6 +605,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
         trace_store: FileTraceStore,
         event_sink: EventSink,
         runtime_bindings: dict[str, AgentRuntimeBinding],
+        session_manager: AgentSessionManager,
         wakeup_inbox: FileWakeupInbox,
         command_inbox: FileOperationCommandInbox,
         control_intent_bus: FileControlIntentBus,
@@ -635,6 +644,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
             trace_store=trace_store,
             event_sink=event_sink,
             agent_runtime_bindings=runtime_bindings,
+            session_manager=session_manager,
             wakeup_inbox=wakeup_inbox,
             command_inbox=command_inbox,
             planning_trigger_bus=control_intent_bus,

@@ -72,8 +72,9 @@ class AgentResultService:
     ) -> None:
         was_stopping_attached_turn = (
             state.scheduler_state is SchedulerState.DRAINING
-            and state.active_session is not None
-            and state.active_session.session_id == session.session_id
+            and state.current_focus is not None
+            and state.current_focus.kind is FocusKind.SESSION
+            and state.current_focus.target_id == session.session_id
         )
         result = await self.normalize_result_if_needed(state.goal, result)
         iteration.result = self.compact_result_for_state(result)
@@ -83,17 +84,6 @@ class AgentResultService:
         record.latest_iteration = iteration.index
         record.waiting_reason = None
         record.updated_at = datetime.now(UTC)
-        if session.one_shot or result.status is AgentResultStatus.CANCELLED:
-            state.active_session = None
-        else:
-            state.active_session = session
-        await self._event_relay.emit(
-            "operation.active_session_updated",
-            state,
-            iteration.index,
-            {"session_id": state.active_session.session_id if state.active_session else None},
-            session_id=state.active_session.session_id if state.active_session else None,
-        )
         execution_id = None
         if record.current_execution_id is not None:
             execution_id = record.current_execution_id

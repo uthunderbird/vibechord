@@ -458,6 +458,14 @@ def test_attached_turns_use_no_direct_snapshot_writes() -> None:
     assert direct_save_callers == []
 
 
+def test_event_sourced_birth_does_not_emit_active_session_event() -> None:
+    """ADR 0170 tranche 1: birth must not reintroduce active-session dual write."""
+    birth_file = APPLICATION_DIR / "event_sourcing" / "event_sourced_birth.py"
+    source = birth_file.read_text(encoding="utf-8")
+
+    assert "operation.active_session_updated" not in source
+
+
 def test_queries_do_not_import_commands_family() -> None:
     offenders: list[str] = []
     queries_dir = APPLICATION_DIR / "queries"

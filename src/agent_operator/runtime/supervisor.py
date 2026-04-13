@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,10 +9,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
-from agent_operator.application.attached_session_registry import (
-    AttachedRuntimeBinding,
-    AttachedSessionRuntimeRegistry,
-)
 from agent_operator.domain import (
     AgentError,
     AgentProgress,
@@ -29,7 +24,7 @@ from agent_operator.domain import (
     SessionStatus,
 )
 from agent_operator.dtos.requests import AgentRunRequest
-from agent_operator.protocols import WakeupInbox
+from agent_operator.protocols import AgentSessionManager, WakeupInbox
 from agent_operator.runtime.files import atomic_write_text, model_validate_json_file_with_retry
 
 
@@ -146,7 +141,7 @@ class InProcessAgentRunSupervisor:
     Args:
         root: Background artifact root.
         data_dir: Operator data directory used for log references.
-        runtime_bindings: Runtime-native session bindings used by in-process hosting.
+        session_manager: Live agent-session manager used by in-process hosting.
         wakeup_inbox: Optional durable wakeup inbox for terminal completion delivery.
 
     Examples:
@@ -160,12 +155,12 @@ class InProcessAgentRunSupervisor:
         root: Path,
         data_dir: Path,
         *,
-        runtime_bindings: Mapping[str, AttachedRuntimeBinding],
+        session_manager: AgentSessionManager,
         wakeup_inbox: WakeupInbox | None = None,
     ) -> None:
         self._root = root
         self._data_dir = data_dir
-        self._session_registry = AttachedSessionRuntimeRegistry(runtime_bindings)
+        self._session_registry = session_manager
         self._wakeup_inbox = wakeup_inbox
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._jobs_dir.mkdir(parents=True, exist_ok=True)

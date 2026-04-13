@@ -61,6 +61,8 @@ from agent_operator.domain import (
     RunMode,
     RunOptions,
     SchedulerState,
+    SessionRecord,
+    SessionRecordStatus,
     SessionStatus,
 )
 from agent_operator.projectors import DefaultOperationProjector
@@ -1564,8 +1566,7 @@ async def test_stop_agent_turn_command_service_uses_replay_backed_persistence(
         operation_id="op-event-stop-agent-turn",
         goal=OperationGoal(objective="stop the active attached turn"),
         **state_settings(allowed_agents=["claude_acp"]),
-        sessions=[],
-        active_session=attached_session,
+        sessions=[SessionRecord(handle=attached_session, status=SessionRecordStatus.RUNNING)],
         iterations=[IterationState(index=0, session=attached_session)],
     )
     await store.save_operation(operation)
@@ -1603,7 +1604,6 @@ async def test_stop_agent_turn_command_service_uses_replay_backed_persistence(
     assert [event.event_type for event in events] == [
         "operation.created",
         "session.created",
-        "operation.active_session_updated",
         "command.accepted",
         "session.waiting_reason.updated",
         "scheduler.state.changed",
@@ -1713,8 +1713,7 @@ async def test_stop_operation_command_service_uses_replay_backed_persistence(
         operation_id="op-event-stop-operation",
         goal=OperationGoal(objective="stop the whole operation"),
         **state_settings(allowed_agents=["claude_acp"]),
-        active_session=attached_session,
-        sessions=[],
+        sessions=[SessionRecord(handle=attached_session, status=SessionRecordStatus.RUNNING)],
     )
     operation.background_runs = [
         ExecutionState(
@@ -1771,12 +1770,11 @@ async def test_stop_operation_command_service_uses_replay_backed_persistence(
     assert command.command_id in operation.processed_command_ids
 
     events = await event_store.load_after(operation.operation_id, after_sequence=0)
-    assert [event.event_type for event in events][-6:] == [
+    assert [event.event_type for event in events][-5:] == [
         "command.accepted",
         "execution.observed_state.changed",
         "operation.status.changed",
         "operation.focus.updated",
-        "operation.active_session_updated",
         "scheduler.state.changed",
     ]
 
@@ -1787,7 +1785,7 @@ async def test_stop_operation_command_service_uses_replay_backed_persistence(
     assert replayed.status is OperationStatus.CANCELLED
     assert replayed.final_summary == "Operation cancelled."
     assert replayed.current_focus is None
-    assert replayed.active_session is None
+    assert replayed.active_session_record is None
     assert replayed.scheduler_state is SchedulerState.ACTIVE
     assert replayed.background_runs[0].status is BackgroundRunStatus.CANCELLED
     assert command.command_id in replayed.processed_command_ids

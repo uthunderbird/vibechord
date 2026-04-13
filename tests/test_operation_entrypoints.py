@@ -100,15 +100,16 @@ async def test_operation_entrypoint_service_prepares_run_state() -> None:
         operation_id="op-1",
         attached_sessions=[attached_session],
         merge_runtime_flags=lambda budget, _options: budget,
-        attach_initial_sessions=lambda state, sessions: setattr(
-            state, "active_session", sessions[0]
+        attach_initial_sessions=lambda state, sessions: state.sessions.append(
+            SessionState(handle=sessions[0])
         ),
     )
 
     assert state.operation_id == "op-1"
     assert state.run_started_at is not None
-    assert state.active_session is not None
-    assert state.active_session.session_id == "session-1"
+    assert state.sessions[0].session_id == "session-1"
+    assert state.active_session_record is not None
+    assert state.active_session_record.session_id == "session-1"
 
 
 @pytest.mark.anyio
@@ -272,7 +273,6 @@ async def test_operation_entrypoint_service_replays_event_sourced_resume_state(t
         goal=OperationGoal(objective="Recover me."),
     )
     state.sessions.append(SessionState(handle=session))
-    state.active_session = session
     await birth.birth(state)
     await store.save_operation(state)
 
@@ -286,8 +286,8 @@ async def test_operation_entrypoint_service_replays_event_sourced_resume_state(t
     assert loaded.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
     assert len(loaded.sessions) == 1
     assert loaded.sessions[0].session_id == "session-1"
-    assert loaded.active_session is not None
-    assert loaded.active_session.session_id == "session-1"
+    assert loaded.active_session_record is not None
+    assert loaded.active_session_record.session_id == "session-1"
 
 
 @pytest.mark.anyio
@@ -329,8 +329,8 @@ async def test_prepare_run_replays_event_sourced_attached_initial_session(tmp_pa
     assert state.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
     assert len(state.sessions) == 1
     assert state.sessions[0].session_id == "session-1"
-    assert state.active_session is not None
-    assert state.active_session.session_id == "session-1"
+    assert state.active_session_record is not None
+    assert state.active_session_record.session_id == "session-1"
 
 
 @pytest.mark.anyio
@@ -664,7 +664,6 @@ async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced
         goal=OperationGoal(objective="Cancel the whole operation."),
         policy=OperationPolicy(),
         status=OperationStatus.RUNNING,
-        active_session=session,
         current_focus=FocusState(
             kind=FocusKind.SESSION,
             target_id="session-1",
@@ -728,13 +727,11 @@ async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced
         "session.waiting_reason.updated",
         "session.observed_state.changed",
         "execution.observed_state.changed",
-        "operation.active_session_updated",
         "operation.focus.updated",
         "operation.status.changed",
     ):
         assert event_type in event_types
     assert resumed.status is OperationStatus.CANCELLED
-    assert resumed.active_session is None
     assert resumed.current_focus is None
     assert resumed.sessions[0].status is SessionStatus.CANCELLED
     assert resumed.background_runs[0].status is BackgroundRunStatus.CANCELLED

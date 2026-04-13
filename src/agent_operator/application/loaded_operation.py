@@ -3,9 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_operator.application.attached_session_registry import (
-    AttachedSessionRuntimeRegistry,
-)
 from agent_operator.domain import (
     AgentResult,
     AgentSessionHandle,
@@ -23,12 +20,13 @@ from agent_operator.domain import (
     TaskState,
     TaskStatus,
 )
+from agent_operator.protocols import AgentSessionManager
 
 
 class LoadedOperation:
     """Own one loaded operation's local state mechanics."""
 
-    def __init__(self, *, attached_session_registry: AttachedSessionRuntimeRegistry) -> None:
+    def __init__(self, *, attached_session_registry: AgentSessionManager) -> None:
         self._attached_session_registry = attached_session_registry
 
     def attach_initial_sessions(
@@ -56,8 +54,8 @@ class LoadedOperation:
             (record.handle for record in state.sessions if not record.handle.one_shot),
             None,
         )
-        if active is not None:
-            state.active_session = active
+        if active is not None and root_task is not None and root_task.linked_session_id is None:
+            root_task.linked_session_id = active.session_id
 
     def resolve_working_directory(
         self,
@@ -72,8 +70,12 @@ class LoadedOperation:
             record = self.find_session_record(state, task.linked_session_id)
             if record is not None:
                 candidates.append(record.handle)
-        if state.active_session is not None:
-            candidates.append(state.active_session)
+        focused_session = self.focused_session_handle(state)
+        if focused_session is not None:
+            candidates.append(focused_session)
+        latest_non_one_shot = self.latest_non_one_shot_session_handle(state)
+        if latest_non_one_shot is not None:
+            candidates.append(latest_non_one_shot)
         for candidate in candidates:
             working_directory = candidate.metadata.get("working_directory")
             if isinstance(working_directory, str) and working_directory:
@@ -294,9 +296,19 @@ class LoadedOperation:
         requested_session_id: str | None,
         task: TaskState | None,
     ) -> SessionRecord | None:
-        session_id = requested_session_id or (task.linked_session_id if task is not None else None)
-        if session_id is None and state.active_session is not None:
-            session_id = state.active_session.session_id
+        session_id = requested_session_id or (
+            task.linked_session_id if task is not None else None
+        )
+        if (
+            session_id is None
+            and state.current_focus is not None
+            and state.current_focus.kind is FocusKind.SESSION
+        ):
+            session_id = state.current_focus.target_id
+        if session_id is None and task is not None:
+            latest_task_session = self.latest_bound_non_one_shot_session(state, task.task_id)
+            if latest_task_session is not None:
+                session_id = latest_task_session.session_id
         if session_id is None:
             return None
         for record in state.sessions:
@@ -313,8 +325,8 @@ class LoadedOperation:
         preferred_ids: list[str] = []
         if task is not None and task.linked_session_id is not None:
             preferred_ids.append(task.linked_session_id)
-        if state.active_session is not None:
-            preferred_ids.append(state.active_session.session_id)
+        if state.current_focus is not None and state.current_focus.kind is FocusKind.SESSION:
+            preferred_ids.append(state.current_focus.target_id)
         for session_id in preferred_ids:
             record = self.find_session_record(state, session_id)
             if (
@@ -413,12 +425,52 @@ class LoadedOperation:
         state: OperationState,
         session_id: str | None,
     ) -> AgentResult | None:
-        if session_id is None and state.active_session is not None:
-            session_id = state.active_session.session_id
+        if session_id is None:
+            focused = self.focused_session_handle(state)
+            if focused is not None:
+                session_id = focused.session_id
         for iteration in reversed(state.iterations):
             if iteration.result is not None and iteration.result.session_id == session_id:
                 return iteration.result
         return None
+
+    def focused_session_handle(self, state: OperationState) -> AgentSessionHandle | None:
+        if state.current_focus is None or state.current_focus.kind is not FocusKind.SESSION:
+            return None
+        record = self.find_session_record(state, state.current_focus.target_id)
+        return record.handle if record is not None else None
+
+    def latest_non_one_shot_session_handle(
+        self,
+        state: OperationState,
+    ) -> AgentSessionHandle | None:
+        matches = [record for record in state.sessions if not record.handle.one_shot]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: (item.updated_at, item.created_at), reverse=True)
+        return matches[0].handle
+
+    def latest_bound_non_one_shot_session(
+        self,
+        state: OperationState,
+        task_id: str,
+    ) -> SessionRecord | None:
+        matches = [
+            record
+            for record in state.sessions
+            if task_id in record.bound_task_ids and not record.handle.one_shot
+        ]
+        if not matches:
+            return None
+        matches.sort(
+            key=lambda item: (
+                item.latest_iteration or -1,
+                item.updated_at,
+                item.created_at,
+            ),
+            reverse=True,
+        )
+        return matches[0]
 
     def session_has_pending_result_slot(self, record: SessionRecord) -> bool:
         if record.latest_iteration is None:

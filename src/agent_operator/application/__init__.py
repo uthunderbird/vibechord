@@ -1,4 +1,5 @@
 from agent_operator.application.agent_results import AgentResultService
+from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
 from agent_operator.application.attached_turns import AttachedTurnService
 from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.commands.operation_cancellation import OperationCancellationService
@@ -71,6 +72,7 @@ from agent_operator.dtos.requests import AgentRunRequest
 __all__ = [
     "AgentRunRequest",
     "AgentResultService",
+    "RegistryBackedAgentSessionManager",
     "AttachedTurnService",
     "DecisionExecutionService",
     "EventSourcedOperationBirthResult",

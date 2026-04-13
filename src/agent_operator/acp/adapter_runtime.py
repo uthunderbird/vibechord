@@ -45,7 +45,7 @@ class AcpAdapterRuntime:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.cancel(reason="context_exit")
+        await self.close()
 
     async def send(self, command: AdapterCommand) -> None:
         """Send one transport-scoped command through the ACP connection."""
@@ -73,6 +73,10 @@ class AcpAdapterRuntime:
 
     async def cancel(self, reason: str | None = None) -> None:
         """Close transport resources and terminate live event iteration."""
+        await self.close()
+
+    async def close(self) -> None:
+        """Quietly close transport resources and terminate live event iteration."""
         if self._closed:
             return
         self._closed = True

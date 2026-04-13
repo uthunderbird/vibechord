@@ -5038,7 +5038,16 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
                     waiting_reason="Inspecting the repository layout.",
                 )
             ],
-            active_session=session,
+            current_focus=FocusState.model_validate(
+                {
+                    "kind": "session",
+                    "target_id": session.session_id,
+                    "mode": "blocking",
+                    "blocking_reason": "Inspecting the repository layout.",
+                    "interrupt_policy": "terminal_only",
+                    "resume_policy": "replan",
+                }
+            ),
         )
         await store.save_operation(state)
         await event_sink.emit(
@@ -5451,10 +5460,15 @@ def test_interrupt_accepts_short_operation_prefix(tmp_path: Path, monkeypatch) -
                     status=SessionRecordStatus.RUNNING,
                 )
             ],
-            active_session=AgentSessionHandle(
-                adapter_key="codex_acp",
-                session_id="session-prefix",
-                session_name="repo-audit",
+            current_focus=FocusState.model_validate(
+                {
+                    "kind": "session",
+                    "target_id": "session-prefix",
+                    "mode": "blocking",
+                    "blocking_reason": "Waiting for the active turn.",
+                    "interrupt_policy": "terminal_only",
+                    "resume_policy": "replan",
+                }
             ),
         )
         await store.save_operation(state)
@@ -5482,10 +5496,6 @@ def test_interrupt_enqueues_session_targeted_command(tmp_path: Path, monkeypatch
             goal=OperationGoal(objective="Stop the current turn"),
             **state_settings(),
             status=OperationStatus.RUNNING,
-            active_session=AgentSessionHandle(
-                adapter_key="codex_acp",
-                session_id="session-stop-1",
-            ),
             sessions=[
                 SessionRecord(
                     handle=AgentSessionHandle(
@@ -5495,6 +5505,16 @@ def test_interrupt_enqueues_session_targeted_command(tmp_path: Path, monkeypatch
                     status=SessionRecordStatus.RUNNING,
                 )
             ],
+            current_focus=FocusState.model_validate(
+                {
+                    "kind": "session",
+                    "target_id": "session-stop-1",
+                    "mode": "blocking",
+                    "blocking_reason": "Waiting for the active turn.",
+                    "interrupt_policy": "terminal_only",
+                    "resume_policy": "replan",
+                }
+            ),
         )
         await store.save_operation(state)
 

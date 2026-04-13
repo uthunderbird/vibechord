@@ -30,6 +30,7 @@ from agent_operator.application import (
     OperatorService,
     SupervisorBackedOperationRuntime,
 )
+from agent_operator.application.agent_session_manager import RegistryBackedAgentSessionManager
 from agent_operator.application.attached_session_registry import AttachedSessionRuntimeRegistry
 from agent_operator.application.commands.operation_cancellation import OperationCancellationService
 from agent_operator.application.event_sourcing.event_sourced_birth import (
@@ -633,6 +634,7 @@ class _TestServiceProvider(Provider):
 
             attached_turn_timeout = timedelta(minutes=30)
         attached_session_registry = AttachedSessionRuntimeRegistry(agent_runtime_bindings)
+        session_manager = RegistryBackedAgentSessionManager(attached_session_registry)
         loaded_operation = LoadedOperation(attached_session_registry=attached_session_registry)
         runtime_context = OperationRuntimeContext(
             loaded_operation=loaded_operation,
@@ -860,6 +862,7 @@ class _TestServiceProvider(Provider):
             trace_store=trace_store,
             event_sink=event_sink,
             agent_runtime_bindings=agent_runtime_bindings,
+            session_manager=session_manager,
             wakeup_inbox=wakeup_inbox,
             command_inbox=command_inbox,
             planning_trigger_bus=planning_trigger_bus,

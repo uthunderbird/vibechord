@@ -136,12 +136,11 @@ class StartThenContinueBackgroundTurnBrain:
                 rationale="Start the first attached-live background turn.",
             )
         if self.calls == 2:
+            active_session = state.active_session_record
             return BrainDecision(
                 action_type=BrainActionType.CONTINUE_AGENT,
                 target_agent="claude_acp",
-                session_id=(
-                    state.active_session.session_id if state.active_session is not None else None
-                ),
+                session_id=(active_session.session_id if active_session is not None else None),
                 instruction="run background turn two",
                 rationale="Continue automatically into the next attached-live turn.",
             )
