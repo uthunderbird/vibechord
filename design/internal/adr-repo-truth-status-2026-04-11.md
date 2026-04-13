@@ -395,15 +395,15 @@ Shared evidence anchors used throughout this matrix:
 - `ADR 0025` - implemented. Project-profile init CLI surface exists.
 - `ADR 0026` - implemented. Live one-operation dashboard surface exists.
 - `ADR 0027` - implemented. Live fleet dashboard surface exists.
-- `ADR 0028` `condensed-claude-session-log-view` - implemented in spirit but numbering is ambiguous.
-- `ADR 0028` `explicit-answer-time-policy-promotion` - implemented in policy mutation flow but numbering is ambiguous.
-- `ADR 0028` `policy-applicability-and-matching-semantics` - implemented but numbering is ambiguous; see also `ADR 0029`.
+- `ADR 0163` `initial-condensed-claude-session-log-view` - superseded historical predecessor retained for provenance.
+- `ADR 0028` `explicit-answer-time-policy-promotion` - implemented in policy mutation flow.
+- `ADR 0164` `initial-policy-applicability-and-matching-semantics` - superseded historical predecessor; see `ADR 0029`.
 - `ADR 0029` - implemented. Policy applicability matching exists in domain/runtime/CLI coverage.
-- `ADR 0030` `condensed-claude-session-log-view` - historical duplicate/provenance problem.
-- `ADR 0030` `live-project-dashboard-cli-surface` - implemented but numbering is ambiguous.
-- `ADR 0030` `policy-coverage-and-explainability` - implemented but numbering is ambiguous.
-- `ADR 0031` `deterministic-policy-gap-guardrail` - implemented but numbering is ambiguous.
-- `ADR 0031` `installed-cli-launch-mode-and-local-project-profile-discovery` - implemented but numbering is ambiguous.
+- `ADR 0165` `condensed-claude-session-log-view` - implemented.
+- `ADR 0030` `live-project-dashboard-cli-surface` - implemented.
+- `ADR 0166` `policy-coverage-and-explainability` - implemented.
+- `ADR 0167` `deterministic-policy-gap-guardrail` - implemented.
+- `ADR 0031` `installed-cli-launch-mode-and-local-project-profile-discovery` - implemented.
 - `ADR 0032` - partial. Goal-patching slice exists in design history but is not a strongly closed current public-product front.
 - `ADR 0034` - implemented. Standard coding-agent tool capability framing matches current adapters.
 - `ADR 0035` - implemented. Project profiles may carry default objective.
@@ -543,22 +543,9 @@ Supporting documents best treated as historical/process artifacts rather than cu
 
 ## Duplicate ADR Numbers
 
-Current corpus defect:
-
-- `0028` is reused by:
-  - `0028-condensed-claude-session-log-view.md`
-  - `0028-explicit-answer-time-policy-promotion.md`
-  - `0028-policy-applicability-and-matching-semantics.md`
-- `0030` is reused by:
-  - `0030-condensed-claude-session-log-view.md`
-  - `0030-live-project-dashboard-cli-surface.md`
-  - `0030-policy-coverage-and-explainability.md`
-- `0031` is reused by:
-  - `0031-deterministic-policy-gap-guardrail.md`
-  - `0031-installed-cli-launch-mode-and-local-project-profile-discovery.md`
-
-This does not block code execution, but it does block precise design provenance and should be
-treated as real design debt.
+Prior to 2026-04-13, `0028`, `0030`, and `0031` were each reused by multiple files.
+That ambiguity has since been resolved by renumbering the extra ADRs to `0163` through `0167`
+and marking the two predecessor drafts as superseded.
 
 ## Highest-Value Next Slice
 

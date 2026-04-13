@@ -1,8 +1,19 @@
-# ADR 0030: Expose A Condensed Claude Session Log View
+# ADR 0165: Condensed Claude Session Log View
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
+
+Implementation grounding on 2026-04-13:
+
+- `implemented`: `operator claude-log <operation-id>` exists as a dedicated CLI surface
+- `implemented`: Claude log parsing and formatting remain thin projections over the authoritative
+  upstream log path
+- `verified`: focused CLI coverage exists in `tests/test_cli.py`
 
 ## Context
 

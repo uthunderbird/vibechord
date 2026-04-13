@@ -103,5 +103,5 @@ The repository should preserve these conditions:
 
 - [ADR 0019](./0019-policy-memory-and-promotion-workflow.md)
 - [ADR 0024](./0024-effective-control-context-cli-surface.md)
-- [ADR 0030](./0030-policy-coverage-and-explainability.md)
+- [ADR 0166](./0166-policy-coverage-and-explainability.md)
 - [RFC 0014](../rfc/0014-cli-output-contract-and-example-corpus.md)

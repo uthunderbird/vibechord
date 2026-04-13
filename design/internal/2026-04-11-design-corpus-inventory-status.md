@@ -101,14 +101,14 @@ design/adr/0024-effective-control-context-cli-surface.md
 design/adr/0025-project-profile-init-cli-surface.md
 design/adr/0026-live-operation-dashboard-cli-surface.md
 design/adr/0027-live-fleet-dashboard-cli-surface.md
-design/adr/0028-condensed-claude-session-log-view.md
+design/adr/0163-initial-condensed-claude-session-log-view.md
 design/adr/0028-explicit-answer-time-policy-promotion.md
-design/adr/0028-policy-applicability-and-matching-semantics.md
+design/adr/0164-initial-policy-applicability-and-matching-semantics.md
 design/adr/0029-policy-applicability-matching.md
-design/adr/0030-condensed-claude-session-log-view.md
+design/adr/0165-condensed-claude-session-log-view.md
 design/adr/0030-live-project-dashboard-cli-surface.md
-design/adr/0030-policy-coverage-and-explainability.md
-design/adr/0031-deterministic-policy-gap-guardrail.md
+design/adr/0166-policy-coverage-and-explainability.md
+design/adr/0167-deterministic-policy-gap-guardrail.md
 design/adr/0031-installed-cli-launch-mode-and-local-project-profile-discovery.md
 design/adr/0032-live-goal-patching-command-slice.md
 design/adr/0034-standard-coding-agent-tool-capabilities.md
@@ -482,21 +482,12 @@ These are repo-observable gaps or friction points, not speculative architecture 
 
 ### 1. ADR numeric identifiers are not unique
 
-Observed directly from `design/adr/`:
+Observed directly from `design/adr/` on 2026-04-11:
 
-- `0028` is used by three files:
-  - `design/adr/0028-condensed-claude-session-log-view.md`
-  - `design/adr/0028-explicit-answer-time-policy-promotion.md`
-  - `design/adr/0028-policy-applicability-and-matching-semantics.md`
-- `0030` is used by three files:
-  - `design/adr/0030-condensed-claude-session-log-view.md`
-  - `design/adr/0030-live-project-dashboard-cli-surface.md`
-  - `design/adr/0030-policy-coverage-and-explainability.md`
-- `0031` is used by two files:
-  - `design/adr/0031-deterministic-policy-gap-guardrail.md`
-  - `design/adr/0031-installed-cli-launch-mode-and-local-project-profile-discovery.md`
+- duplicate-number ambiguity existed for `0028`, `0030`, and `0031`
+- that ambiguity was later resolved by renumbering the extra ADR files to `0163` through `0167`
 
-Impact:
+Impact at the time:
 
 - Any tooling or human workflow that assumes one ADR number maps to one decision document is currently unsafe.
 

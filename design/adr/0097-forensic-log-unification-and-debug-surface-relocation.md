@@ -6,7 +6,7 @@ Accepted
 
 ## Extends
 
-- [ADR 0030](./0030-condensed-claude-session-log-view.md)
+- [ADR 0165](./0165-condensed-claude-session-log-view.md)
 - [Vision](../VISION.md)
 - [CLI UX Vision](../CLI-UX-VISION.md)
 

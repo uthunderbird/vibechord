@@ -1,8 +1,20 @@
-# ADR 0030: Expose Policy Coverage And Explainability
+# ADR 0166: Policy Coverage And Explainability
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
+
+Implementation grounding on 2026-04-13:
+
+- `implemented`: policy coverage is persisted as operation truth and surfaced through deterministic
+  explainability paths
+- `implemented`: `operator policy explain` exists as the dedicated coverage/explainability command
+- `verified`: policy coverage and explainability coverage exists in `tests/test_policy_coverage.py`,
+  `tests/test_policy_coverage_cli.py`, and `tests/test_policy_cli.py`
 
 ## Context
 

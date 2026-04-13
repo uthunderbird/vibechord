@@ -1,8 +1,18 @@
-# ADR 0028: Add Policy Applicability And Matching Semantics
+# ADR 0164: Initial Policy Applicability And Matching Semantics
 
-## Status
+## Decision Status
 
-Accepted
+Superseded
+
+## Implementation Status
+
+N/A
+
+Repository-governance note on 2026-04-13:
+
+- this document was renumbered from duplicate `ADR 0028` to remove identifier ambiguity
+- its decision text is retained as historical design provenance only
+- the canonical accepted policy-applicability ADR is [ADR 0029](./0029-policy-applicability-matching.md)
 
 ## Context
 

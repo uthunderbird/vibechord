@@ -1,8 +1,18 @@
-# ADR 0028: Expose A Condensed Claude Session Log View
+# ADR 0163: Initial Condensed Claude Session Log View
 
-## Status
+## Decision Status
 
-Accepted
+Superseded
+
+## Implementation Status
+
+N/A
+
+Repository-governance note on 2026-04-13:
+
+- this document was renumbered from duplicate `ADR 0028` to remove identifier ambiguity
+- its decision text is retained as historical design provenance only
+- the canonical accepted Claude log ADR is [ADR 0165](./0165-condensed-claude-session-log-view.md)
 
 ## Context
 

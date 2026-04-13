@@ -1,8 +1,20 @@
 # ADR 0028: Add Explicit Answer-Time Policy Promotion
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
+
+Implementation grounding on 2026-04-13:
+
+- `implemented`: `operator answer` exposes explicit opt-in answer-time promotion via `--promote`
+- `implemented`: the delivery command path preserves explicit promotion options instead of folding
+  durable policy mutation into a hidden side effect
+- `verified`: CLI and delivery-path coverage exists in `tests/test_cli.py` and
+  `tests/test_operation_delivery_commands.py`
 
 ## Context
 

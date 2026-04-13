@@ -1,8 +1,21 @@
-# ADR 0031: Deterministic Policy-Gap Guardrail
+# ADR 0167: Deterministic Policy-Gap Guardrail
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
+
+Implementation grounding on 2026-04-13:
+
+- `implemented`: runtime guardrail logic checks policy coverage and
+  `metadata.requires_policy_decision` before allowing policy-shaped decisions to proceed silently
+- `implemented`: the attention path can force `policy_gap` when the bounded guardrail conditions
+  are met
+- `verified`: prompt and runtime behavior are covered in `tests/test_decision_execution_service.py`
+  and `tests/test_policy_coverage.py`
 
 ## Context
 

@@ -1,8 +1,22 @@
 # ADR 0031: Installed CLI Launch Mode And Local Project Profile Discovery
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
+
+Implementation grounding on 2026-04-13:
+
+- `implemented`: local project discovery uses `operator-profile.yaml` in the launch directory
+- `implemented`: installed CLI startup preserves the launch directory as the working-directory
+  anchor unless explicitly overridden
+- `implemented`: no-profile startup follows an explicit free-mode stub path rather than pretending
+  the full interactive harness already exists
+- `verified`: startup/profile-discovery behavior is covered in `tests/test_runtime.py` and
+  `tests/test_cli.py`
 
 ## Context
 

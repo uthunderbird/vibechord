@@ -1,8 +1,20 @@
 # ADR 0030: Add A Live Project Dashboard CLI Surface
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
+
+Implementation grounding on 2026-04-13:
+
+- `implemented`: `operator project dashboard` exists as a project-scoped CLI surface
+- `implemented`: the dashboard is assembled as a thin query/projection over persisted project and
+  operation truth rather than a dashboard-local store
+- `verified`: CLI coverage exists in `tests/test_project_cli.py`
+- `verified`: payload/query coverage exists in `tests/test_operation_project_dashboard_queries.py`
 
 ## Context
 
