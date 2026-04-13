@@ -115,7 +115,7 @@ class OperationLifecycleCoordinator:
             ended_at=datetime.now(UTC),
             final_result=final_result,
         )
-        await self.store.save_operation(state)
+        await self._persist_terminal_status(state)
         await self.store.save_outcome(outcome)
         if self.history_ledger is not None and state.status in history_statuses:
             await self.history_ledger.append(state, outcome)
@@ -179,30 +179,55 @@ class OperationLifecycleCoordinator:
         record: SessionState,
         state: OperationState,
     ) -> None:
+        await self._append_and_materialize(
+            state,
+            [
+                OperationDomainEventDraft(
+                    event_type="session.observed_state.changed",
+                    payload={
+                        "session_id": record.session_id,
+                        "observed_state": record.observed_state.value,
+                        "terminal_state": record.terminal_state.value,
+                        "updated_at": record.updated_at.isoformat(),
+                    },
+                )
+            ],
+        )
+
+    async def _persist_terminal_status(self, state: OperationState) -> None:
+        await self._append_and_materialize(
+            state,
+            [
+                OperationDomainEventDraft(
+                    event_type="operation.status.changed",
+                    payload={
+                        "status": state.status.value,
+                        "final_summary": state.final_summary,
+                    },
+                )
+            ],
+        )
+
+    async def _append_and_materialize(
+        self,
+        state: OperationState,
+        drafts: list[OperationDomainEventDraft],
+    ) -> None:
         if (
-            state.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
-            and self.event_store is not None
-            and self.replay_service is not None
+            state.canonical_persistence_mode is not CanonicalPersistenceMode.EVENT_SOURCED
+            or self.event_store is None
+            or self.replay_service is None
         ):
-            replay_state = await self.replay_service.load(state.operation_id)
-            stored_events = await self.event_store.append(
-                state.operation_id,
-                replay_state.last_applied_sequence,
-                [
-                    OperationDomainEventDraft(
-                        event_type="session.observed_state.changed",
-                        payload={
-                            "session_id": record.session_id,
-                            "observed_state": record.observed_state.value,
-                            "terminal_state": record.terminal_state.value,
-                            "updated_at": record.updated_at.isoformat(),
-                        },
-                    )
-                ],
-            )
-            await self.replay_service.materialize(
-                self.replay_service.advance(replay_state, stored_events)
-            )
+            return
+        replay_state = await self.replay_service.load(state.operation_id)
+        stored_events = await self.event_store.append(
+            state.operation_id,
+            replay_state.last_applied_sequence,
+            drafts,
+        )
+        await self.replay_service.materialize(
+            self.replay_service.advance(replay_state, stored_events)
+        )
 
     async def fold_reconciled_terminal_result(
         self,

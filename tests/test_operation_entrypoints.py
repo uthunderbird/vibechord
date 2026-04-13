@@ -510,6 +510,64 @@ async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced
 
 
 @pytest.mark.anyio
+async def test_finalize_outcome_persists_terminal_status_via_event_sourced_replay(
+    tmp_path,
+) -> None:
+    store = FileOperationStore(tmp_path / "operations")
+    event_store = FileOperationEventStore(tmp_path / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    lifecycle = OperationLifecycleCoordinator(
+        store=store,
+        event_store=event_store,
+        replay_service=replay,
+    )
+    entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_replay_service=replay,
+    )
+    state = OperationState(
+        operation_id="op-es-terminal",
+        goal=OperationGoal(objective="Finish cleanly."),
+        policy=OperationPolicy(),
+    )
+    await birth.birth(state)
+    await store.save_operation(state)
+
+    lifecycle.mark_completed(state, summary="Task completed canonically.")
+    outcome = await lifecycle.finalize_outcome(state)
+
+    snapshot_state = await store.load_operation("op-es-terminal")
+    resumed = await entrypoints.load_for_resume(
+        operation_id="op-es-terminal",
+        options=RunOptions(),
+        merge_runtime_flags=lambda budget, _options: budget,
+    )
+    stored_events = await event_store.load_after("op-es-terminal", after_sequence=0)
+    persisted_outcome = await store.load_outcome("op-es-terminal")
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert outcome.summary == "Task completed canonically."
+    assert snapshot_state is not None
+    assert snapshot_state.status is OperationStatus.RUNNING
+    assert [event.event_type for event in stored_events][-1] == "operation.status.changed"
+    assert resumed.status is OperationStatus.COMPLETED
+    assert resumed.final_summary == "Task completed canonically."
+    assert persisted_outcome is not None
+    assert persisted_outcome.status is OperationStatus.COMPLETED
+
+
+@pytest.mark.anyio
 async def test_operation_cancellation_service_cancels_whole_operation() -> None:
     """Whole-operation cancellation persists terminal outcome outside the facade."""
     store = MemoryStore()
