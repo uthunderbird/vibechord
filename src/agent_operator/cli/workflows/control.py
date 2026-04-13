@@ -23,6 +23,7 @@ from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AgentSessionHandle,
     BackgroundRuntimeMode,
+    CommandStatus,
     CommandTargetScope,
     ExecutionBudget,
     InvolvementLevel,
@@ -35,6 +36,7 @@ from agent_operator.domain import (
     RunMode,
     RunOptions,
     RuntimeHints,
+    SchedulerState,
 )
 from agent_operator.runtime import (
     apply_effective_adapter_settings_snapshot,
@@ -718,6 +720,7 @@ async def enqueue_command_async(
     clear_success_criteria: bool = False,
     allowed_agents: list[str] | None = None,
     max_iterations: int | None = None,
+    wait_for_ack: bool = False,
 ) -> None:
     service = delivery_commands_service()
     try:
@@ -740,6 +743,38 @@ async def enqueue_command_async(
         auto_resume_when_paused=auto_resume_when_paused,
         auto_resume_blocked_attention_id=auto_resume_blocked_attention_id,
     )
+    if wait_for_ack:
+        operation = await service.store.load_operation(operation_id)
+        if (
+            operation is not None
+            and (
+                operation.status
+                in {
+                    OperationStatus.COMPLETED,
+                    OperationStatus.FAILED,
+                    OperationStatus.CANCELLED,
+                }
+                or operation.scheduler_state is SchedulerState.PAUSED
+            )
+        ):
+            await service.tick(operation_id)
+        for _ in range(20):
+            commands = await service.command_inbox.list(operation_id)
+            updated = next(
+                (item for item in commands if item.command_id == command.command_id),
+                None,
+            )
+            if updated is None or updated.status is CommandStatus.PENDING:
+                await anyio.sleep(0.05)
+                continue
+            if updated.status is CommandStatus.REJECTED:
+                typer.echo(
+                    "Error: patch rejected - "
+                    f"{updated.rejection_reason or 'unknown_rejection'}"
+                )
+                raise typer.Exit(1)
+            typer.echo(f"accepted: {updated.command_type.value} [{updated.command_id}]")
+            return
     typer.echo(f"enqueued: {command.command_type.value} [{command.command_id}]")
     if note is not None:
         typer.echo(note)

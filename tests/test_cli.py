@@ -25,6 +25,7 @@ from agent_operator.domain import (
     AttentionType,
     BackgroundRunHandle,
     BackgroundRunStatus,
+    CommandStatus,
     CommandTargetScope,
     DecisionMemo,
     ExecutionBudget,
@@ -127,6 +128,80 @@ def _read_control_intents(tmp_path: Path) -> list[StoredControlIntent]:
         StoredControlIntent.model_validate_json(path.read_text(encoding="utf-8"))
         for path in sorted((tmp_path / "commands").glob("*.json"))
     ]
+
+
+def _install_patch_delivery_stub(
+    monkeypatch,
+    *,
+    tmp_path: Path,
+    command_type: OperationCommandType,
+    status: CommandStatus = CommandStatus.APPLIED,
+    rejection_reason: str | None = None,
+) -> None:
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+    store = FileOperationStore(tmp_path / "runs")
+
+    class FakeDeliveryService:
+        def __init__(self) -> None:
+            self.command_inbox = inbox
+            self.store = store
+
+        async def enqueue_command(
+            self,
+            operation_id: str,
+            received_type: OperationCommandType,
+            payload: dict[str, object],
+            *,
+            target_scope: CommandTargetScope,
+            target_id: str,
+            auto_resume_when_paused: bool = False,
+            auto_resume_blocked_attention_id: str | None = None,
+        ):
+            command = OperationCommand(
+                operation_id=operation_id,
+                command_type=received_type,
+                target_scope=target_scope,
+                target_id=target_id,
+                payload=payload,
+            )
+            await inbox.enqueue(command)
+            return command, None, None
+
+        async def tick(self, operation_id: str) -> OperationOutcome:
+            commands = await inbox.list(operation_id)
+            assert len(commands) == 1
+            await inbox.update_status(
+                commands[0].command_id,
+                status,
+                rejection_reason=rejection_reason,
+            )
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="processed patch command",
+            )
+
+        def build_command_payload(
+            self,
+            received_type: OperationCommandType,
+            text: str | None,
+            success_criteria: list[str] | None = None,
+            clear_success_criteria: bool = False,
+            allowed_agents: list[str] | None = None,
+            max_iterations: int | None = None,
+        ) -> dict[str, object]:
+            assert received_type is command_type
+            if received_type is OperationCommandType.PATCH_SUCCESS_CRITERIA:
+                if clear_success_criteria:
+                    return {"success_criteria": []}
+                return {"success_criteria": list(success_criteria or [])}
+            assert text is not None
+            return {"text": text}
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.delivery_commands_service",
+        lambda: FakeDeliveryService(),
+    )
 
 
 def _seed_operation(tmp_path: Path) -> str:
@@ -3058,6 +3133,11 @@ def test_command_can_clear_success_criteria(tmp_path: Path, monkeypatch) -> None
 def test_patch_objective_command_enqueues_patch_objective(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _install_patch_delivery_stub(
+        monkeypatch,
+        tmp_path=tmp_path,
+        command_type=OperationCommandType.PATCH_OBJECTIVE,
+    )
 
     result = runner.invoke(
         app,
@@ -3065,6 +3145,7 @@ def test_patch_objective_command_enqueues_patch_objective(tmp_path: Path, monkey
     )
 
     assert result.exit_code == 0
+    assert "accepted: patch_objective [" in result.stdout
     record = _read_control_intent(tmp_path)
     assert record.command is not None
     assert record.command.command_type is OperationCommandType.PATCH_OBJECTIVE
@@ -3074,6 +3155,11 @@ def test_patch_objective_command_enqueues_patch_objective(tmp_path: Path, monkey
 def test_patch_harness_command_enqueues_patch_harness(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _install_patch_delivery_stub(
+        monkeypatch,
+        tmp_path=tmp_path,
+        command_type=OperationCommandType.PATCH_HARNESS,
+    )
 
     result = runner.invoke(
         app,
@@ -3081,10 +3167,82 @@ def test_patch_harness_command_enqueues_patch_harness(tmp_path: Path, monkeypatc
     )
 
     assert result.exit_code == 0
+    assert "accepted: patch_harness [" in result.stdout
     record = _read_control_intent(tmp_path)
     assert record.command is not None
     assert record.command.command_type is OperationCommandType.PATCH_HARNESS
     assert record.command.payload["text"] == "Prefer the smallest verifiable change."
+
+
+def test_patch_objective_command_reports_acceptance_after_immediate_tick(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+    store = FileOperationStore(tmp_path / "runs")
+
+    class FakeDeliveryService:
+        def __init__(self) -> None:
+            self.command_inbox = inbox
+            self.store = store
+
+        async def enqueue_command(
+            self,
+            operation_id: str,
+            command_type: OperationCommandType,
+            payload: dict[str, object],
+            *,
+            target_scope: CommandTargetScope,
+            target_id: str,
+            auto_resume_when_paused: bool = False,
+            auto_resume_blocked_attention_id: str | None = None,
+        ):
+            command = OperationCommand(
+                operation_id=operation_id,
+                command_type=command_type,
+                target_scope=target_scope,
+                target_id=target_id,
+                payload=payload,
+            )
+            await inbox.enqueue(command)
+            return command, None, None
+
+        async def tick(self, operation_id: str) -> OperationOutcome:
+            commands = await inbox.list(operation_id)
+            assert len(commands) == 1
+            await inbox.update_status(commands[0].command_id, CommandStatus.APPLIED)
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="processed patch command",
+            )
+
+        def build_command_payload(
+            self,
+            command_type: OperationCommandType,
+            text: str | None,
+            success_criteria: list[str] | None = None,
+            clear_success_criteria: bool = False,
+            allowed_agents: list[str] | None = None,
+            max_iterations: int | None = None,
+        ) -> dict[str, object]:
+            assert command_type is OperationCommandType.PATCH_OBJECTIVE
+            assert text is not None
+            return {"text": text}
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.delivery_commands_service",
+        lambda: FakeDeliveryService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["patch-objective", operation_id, "Audit the release flow and trim dead steps."],
+    )
+
+    assert result.exit_code == 0
+    assert "accepted: patch_objective [" in result.stdout
 
 
 def test_patch_criteria_command_enqueues_patch_success_criteria(
@@ -3092,6 +3250,11 @@ def test_patch_criteria_command_enqueues_patch_success_criteria(
 ) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _install_patch_delivery_stub(
+        monkeypatch,
+        tmp_path=tmp_path,
+        command_type=OperationCommandType.PATCH_SUCCESS_CRITERIA,
+    )
 
     result = runner.invoke(
         app,
@@ -3106,19 +3269,101 @@ def test_patch_criteria_command_enqueues_patch_success_criteria(
     )
 
     assert result.exit_code == 0
+    assert "accepted: patch_success_criteria [" in result.stdout
     record = _read_control_intent(tmp_path)
     assert record.command is not None
     assert record.command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA
     assert record.command.payload["success_criteria"] == ["Tests pass", "Docs updated"]
 
 
+def test_patch_objective_command_reports_terminal_rejection_after_immediate_tick(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+    store = FileOperationStore(tmp_path / "runs")
+
+    class FakeDeliveryService:
+        def __init__(self) -> None:
+            self.command_inbox = inbox
+            self.store = store
+
+        async def enqueue_command(
+            self,
+            operation_id: str,
+            command_type: OperationCommandType,
+            payload: dict[str, object],
+            *,
+            target_scope: CommandTargetScope,
+            target_id: str,
+            auto_resume_when_paused: bool = False,
+            auto_resume_blocked_attention_id: str | None = None,
+        ):
+            command = OperationCommand(
+                operation_id=operation_id,
+                command_type=command_type,
+                target_scope=target_scope,
+                target_id=target_id,
+                payload=payload,
+            )
+            await inbox.enqueue(command)
+            return command, None, None
+
+        async def tick(self, operation_id: str) -> OperationOutcome:
+            commands = await inbox.list(operation_id)
+            assert len(commands) == 1
+            await inbox.update_status(
+                commands[0].command_id,
+                CommandStatus.REJECTED,
+                rejection_reason="operation_terminal",
+            )
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="already completed",
+            )
+
+        def build_command_payload(
+            self,
+            command_type: OperationCommandType,
+            text: str | None,
+            success_criteria: list[str] | None = None,
+            clear_success_criteria: bool = False,
+            allowed_agents: list[str] | None = None,
+            max_iterations: int | None = None,
+        ) -> dict[str, object]:
+            assert command_type is OperationCommandType.PATCH_OBJECTIVE
+            assert text is not None
+            return {"text": text}
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.delivery_commands_service",
+        lambda: FakeDeliveryService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["patch-objective", operation_id, "Audit the release flow and trim dead steps."],
+    )
+
+    assert result.exit_code == 1
+    assert "Error: patch rejected - operation_terminal" in result.stdout
+
+
 def test_patch_criteria_command_can_clear_criteria(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _install_patch_delivery_stub(
+        monkeypatch,
+        tmp_path=tmp_path,
+        command_type=OperationCommandType.PATCH_SUCCESS_CRITERIA,
+    )
 
     result = runner.invoke(app, ["patch-criteria", operation_id, "--clear"])
 
     assert result.exit_code == 0
+    assert "accepted: patch_success_criteria [" in result.stdout
     record = _read_control_intent(tmp_path)
     assert record.command is not None
     assert record.command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA

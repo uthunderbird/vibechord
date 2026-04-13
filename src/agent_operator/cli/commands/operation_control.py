@@ -184,6 +184,15 @@ def patch_objective(operation_ref: str, text: str) -> None:
         resolve_operation_id(operation_ref),
         OperationCommandType.PATCH_OBJECTIVE,
         text,
+        False,
+        CommandTargetScope.OPERATION,
+        None,
+        None,
+        None,
+        False,
+        None,
+        None,
+        True,
     )
 
 
@@ -194,6 +203,15 @@ def patch_harness(operation_ref: str, text: str) -> None:
         resolve_operation_id(operation_ref),
         OperationCommandType.PATCH_HARNESS,
         text,
+        False,
+        CommandTargetScope.OPERATION,
+        None,
+        None,
+        None,
+        False,
+        None,
+        None,
+        True,
     )
 
 
@@ -214,6 +232,9 @@ def patch_criteria(
         None,
         criteria,
         clear,
+        None,
+        None,
+        True,
     )
 
 
