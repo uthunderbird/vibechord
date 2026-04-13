@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import shlex
 from collections.abc import Callable
 from pathlib import Path
@@ -11,16 +10,7 @@ from agent_operator.acp import (
     AcpSdkConnection,
     AcpSubprocessConnection,
 )
-from agent_operator.acp.permissions import (
-    AcpPermissionDecision,
-    PermissionEvaluationResult,
-    evaluate_permission_request,
-    normalize_permission_request,
-    permission_signature_for_request,
-    render_permission_decision,
-    serialize_permission_request,
-    waiting_message_for_request,
-)
+from agent_operator.acp.runtime_permissions import handle_permission_server_request
 from agent_operator.acp.session_runner import (
     AcpCollectErrorClassification,
     AcpSessionRunner,
@@ -150,63 +140,14 @@ class _OpencodeAcpHooks:
         await self._owner._configure_session(connection, session_id)
 
     async def handle_server_request(self, session: AcpSessionState, payload: JsonObject) -> None:
-        request = normalize_permission_request(
+        await handle_permission_server_request(
             adapter_key=self.adapter_key,
-            working_directory=session.working_directory,
+            session=session,
             payload=payload,
-        )
-        if request is None:
-            return
-        decision = evaluate_permission_request(
-            request,
             auto_approve=False,
+            permission_evaluator=self._owner._permission_evaluator,
+            close_session_connection=self._owner._close_session_connection,
         )
-        evaluation = PermissionEvaluationResult(decision=decision)
-        if (
-            decision is AcpPermissionDecision.ESCALATE
-            and self._owner._permission_evaluator is not None
-            and isinstance(session.handle.metadata.get("operation_id"), str)
-        ):
-            evaluation = await self._owner._permission_evaluator.evaluate(
-                operation_id=str(session.handle.metadata["operation_id"]),
-                working_directory=session.working_directory,
-                request=request,
-            )
-            decision = evaluation.decision
-        if decision is AcpPermissionDecision.APPROVE:
-            session.pending_input_message = None
-            session.pending_input_raw = None
-        elif decision is AcpPermissionDecision.ESCALATE:
-            session.pending_input_message = waiting_message_for_request(request)
-            session.pending_input_raw = {
-                "kind": "permission_escalation",
-                "request": serialize_permission_request(request),
-                "signature": permission_signature_for_request(request).model_dump(mode="json"),
-                "rationale": evaluation.rationale,
-                "suggested_options": list(evaluation.suggested_options),
-                "policy_title": evaluation.policy_title,
-                "policy_rule_text": evaluation.policy_rule_text,
-                "raw_payload": payload,
-            }
-        else:
-            session.pending_input_message = None
-            session.pending_input_raw = None
-            session.last_error = (
-                evaluation.rationale
-                or "Permission request rejected by operator policy."
-            )
-            await _replace_active_prompt_with_error(session, session.last_error)
-        if session.connection is not None:
-            await session.connection.respond(
-                request.request_id,
-                result=render_permission_decision(request=request, decision=decision),
-            )
-        if decision in {
-            AcpPermissionDecision.REJECT,
-            AcpPermissionDecision.WAIT_INPUT,
-            AcpPermissionDecision.ESCALATE,
-        }:
-            await self._owner._close_session_connection(session)
 
     def classify_collect_exception(
         self,
@@ -239,16 +180,6 @@ def _build_opencode_acp_command(command: str) -> str:
     if not argv:
         raise ValueError("ACP command must not be empty.")
     return shlex.join(argv)
-
-
-async def _replace_active_prompt_with_error(session: AcpSessionState, message: str) -> None:
-    if session.active_prompt is not None and not session.active_prompt.done():
-        session.active_prompt.cancel()
-    session.active_prompt = asyncio.create_task(_raise_runtime_error(message))
-
-
-async def _raise_runtime_error(message: str) -> JsonObject:
-    raise RuntimeError(message)
 
 
 def _classify_opencode_acp_error(

@@ -1,15 +1,43 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import cast
 
+import pytest
+
+from agent_operator.acp import AcpConnection
 from agent_operator.acp.permissions import (
     AcpPermissionDecision,
     AcpPermissionInteraction,
+    PermissionEvaluationResult,
     evaluate_permission_request,
     normalize_permission_request,
     render_permission_decision,
     waiting_message_for_request,
 )
+from agent_operator.acp.runtime_permissions import handle_permission_server_request
+from agent_operator.acp.session_runner import AcpSessionState
+from agent_operator.domain import AgentSessionHandle
+
+
+class _FakeConnection:
+    def __init__(self) -> None:
+        self.responses: list[tuple[int, dict[str, object] | None, dict[str, object] | None]] = []
+
+    async def respond(
+        self,
+        request_id: int,
+        *,
+        result: dict[str, object] | None = None,
+        error: dict[str, object] | None = None,
+    ) -> None:
+        self.responses.append((request_id, result, error))
+
+
+class _FakePermissionEvaluator:
+    async def evaluate(self, **_: object) -> PermissionEvaluationResult:
+        return PermissionEvaluationResult(decision=AcpPermissionDecision.ESCALATE)
 
 
 def test_normalize_and_render_claude_session_permission_request() -> None:
@@ -126,3 +154,83 @@ def test_permission_decision_prompt_for_approval_heavy_allows_escalation() -> No
     )
 
     assert "Escalation to a blocking human attention request is allowed" in prompt
+
+
+async def _close_connection(session: AcpSessionState) -> None:
+    session.handle.metadata["closed"] = "yes"
+
+
+def _session_state() -> AcpSessionState:
+    return AcpSessionState(
+        handle=AgentSessionHandle(adapter_key="codex_acp", session_id="sess-1", metadata={}),
+        working_directory=Path("/tmp/repo"),
+        acp_session_id="sess-1",
+        connection=cast(AcpConnection, _FakeConnection()),
+        active_prompt=asyncio.create_task(asyncio.sleep(60, result={})),
+    )
+
+
+@pytest.mark.anyio
+async def test_shared_permission_helper_records_escalation_payload() -> None:
+    session = _session_state()
+    try:
+        handled = await handle_permission_server_request(
+            adapter_key="codex_acp",
+            session=session,
+            payload={
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Run git add",
+                        "rawInput": {"command": ["git", "add", "x"]},
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            },
+            auto_approve=False,
+            permission_evaluator=_FakePermissionEvaluator(),
+            close_session_connection=_close_connection,
+        )
+
+        assert handled is True
+        assert session.pending_input_message == "Codex ACP turn is waiting for approval."
+        assert isinstance(session.pending_input_raw, dict)
+        assert session.pending_input_raw["kind"] == "permission_escalation"
+        assert session.handle.metadata["closed"] == "yes"
+    finally:
+        assert session.active_prompt is not None
+        session.active_prompt.cancel()
+
+
+@pytest.mark.anyio
+async def test_shared_permission_helper_records_user_input_wait() -> None:
+    session = _session_state()
+    try:
+        handled = await handle_permission_server_request(
+            adapter_key="codex_acp",
+            session=session,
+            payload={
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "item/tool/requestUserInput",
+                "params": {"sessionId": "sess-1"},
+            },
+            auto_approve=False,
+            permission_evaluator=None,
+            close_session_connection=_close_connection,
+        )
+
+        assert handled is True
+        assert session.pending_input_message == "Codex ACP turn requested user input."
+        assert isinstance(session.pending_input_raw, dict)
+        assert session.pending_input_raw["kind"] == "user_input_request"
+        assert session.handle.metadata["closed"] == "yes"
+    finally:
+        assert session.active_prompt is not None
+        session.active_prompt.cancel()

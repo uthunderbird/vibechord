@@ -4,11 +4,26 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Implemented in this tranche:
+
+- shared ACP permission/input orchestration now lives in
+  `src/agent_operator/acp/runtime_permissions.py`
+- `claude_acp`, `codex_acp`, and `opencode_acp` now delegate their runtime server-request
+  handling through that shared helper
+- shared regression tests now cover both permission escalation payload shaping and
+  user-input waiting semantics
+
+Remaining work before `Implemented`:
+
+- add explicit adapter-level permission-path coverage for `opencode_acp`
+- add stronger end-to-end evidence for attached/background runtime forwarding through the
+  shared helper path
 
 ## Context
 
