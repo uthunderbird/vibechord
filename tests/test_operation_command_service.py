@@ -22,6 +22,7 @@ from agent_operator.application.event_sourcing.event_sourced_birth import (
 )
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
 from agent_operator.application.operation_entrypoints import OperationEntrypointService
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
 from agent_operator.application.runtime.operation_process_dispatch import (
     OperationProcessSignalDispatcher,
@@ -31,10 +32,12 @@ from agent_operator.domain import (
     AttentionRequest,
     AttentionStatus,
     AttentionType,
+    BackgroundRunStatus,
     BrainActionType,
     BrainDecision,
     CommandStatus,
     CommandTargetScope,
+    ExecutionState,
     FocusKind,
     FocusMode,
     FocusState,
@@ -1495,6 +1498,175 @@ async def test_stop_agent_turn_command_service_uses_replay_backed_persistence(
     assert replayed.current_focus.kind is FocusKind.SESSION
     assert replayed.current_focus.target_id == attached_session.session_id
     assert replayed.sessions[0].waiting_reason == "Stopping the active attached agent turn."
+    assert command.command_id in replayed.processed_command_ids
+
+
+@pytest.mark.anyio
+async def test_stop_operation_command_service_uses_replay_backed_persistence(
+    tmp_path: Path,
+) -> None:
+    class _CancellingAttachedRegistry:
+        def __init__(self) -> None:
+            self.cancelled: list[str] = []
+
+        def has(self, adapter_key: str) -> bool:
+            return adapter_key == "claude_acp"
+
+        async def cancel(self, handle: AgentSessionHandle) -> None:
+            self.cancelled.append(handle.session_id)
+
+    class _CancellingOperationRuntime:
+        def __init__(self) -> None:
+            self.cancelled_run_ids: list[str] = []
+
+        async def cancel_operation_runs(self, run_ids: list[str]) -> None:
+            self.cancelled_run_ids.extend(run_ids)
+
+    store = _CountingMemoryStore()
+    trace_store = MemoryTraceStore()
+    event_sink = MemoryEventSink()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionRuntimeRegistry({}))
+    runtime_context = OperationRuntimeContext(
+        loaded_operation=loaded_operation,
+        attached_session_registry=AttachedSessionRuntimeRegistry({}),
+    )
+    traceability_service = OperationTraceabilityService(
+        loaded_operation=loaded_operation,
+        trace_store=trace_store,
+        runtime_context=runtime_context,
+    )
+    attached_registry = _CancellingAttachedRegistry()
+    operation_runtime = _CancellingOperationRuntime()
+    command_service = OperationCommandService(
+        loaded_operation=loaded_operation,
+        command_inbox=None,
+        trace_store=trace_store,
+        policy_context_coordinator=OperationPolicyContextCoordinator(policy_store=None),
+        attention_coordinator=OperationAttentionCoordinator(),
+        attached_session_registry=attached_registry,
+        operation_runtime=operation_runtime,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+        event_relay=OperationEventRelay(event_sink=event_sink, wakeup_inbox=None),
+        control_state_coordinator=OperationControlStateCoordinator(
+            store=store,
+            traceability_service=traceability_service,
+        ),
+        lifecycle_coordinator=OperationLifecycleCoordinator(store=store),
+        process_signal_dispatcher=OperationProcessSignalDispatcher(
+            planning_trigger_bus=None,
+            process_managers=[],
+            emit=OperationEventRelay(event_sink=event_sink, wakeup_inbox=None).emit,
+        ),
+        runtime_context=runtime_context,
+    )
+
+    attached_session = AgentSessionHandle(
+        session_id="session-stop-operation-1",
+        adapter_key="claude_acp",
+        status=SessionStatus.RUNNING,
+        session_name="Stop operation session",
+    )
+    operation = OperationState(
+        operation_id="op-event-stop-operation",
+        goal=OperationGoal(objective="stop the whole operation"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        active_session=attached_session,
+        sessions=[],
+    )
+    operation.background_runs = [
+        ExecutionState(
+            execution_id="run-stop-1",
+            operation_id=operation.operation_id,
+            adapter_key="claude_acp",
+            session_id=attached_session.session_id,
+            observed_state="running",
+        )
+    ]
+    await store.save_operation(operation)
+    await birth_service.birth(operation)
+    replay_state = await replay_service.load(operation.operation_id)
+    await event_store.append(
+        operation.operation_id,
+        replay_state.last_applied_sequence,
+        [
+            OperationDomainEventDraft(
+                event_type="execution.registered",
+                payload=operation.background_runs[0].model_dump(mode="json"),
+            )
+        ],
+    )
+    replay_state = await replay_service.load(operation.operation_id)
+    state_view_service = OperationStateViewService()
+    state_from_checkpoint = OperationState.model_validate(
+        state_view_service.from_checkpoint(replay_state.checkpoint).model_dump(mode="json")
+    )
+    operation.executions = state_from_checkpoint.executions
+    stale_snapshot = operation.model_copy(deep=True)
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.STOP_OPERATION,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id=operation.operation_id,
+    )
+
+    applied = await command_service.apply_command(
+        operation,
+        command,
+        iteration=IterationState(index=0, session=attached_session),
+    )
+
+    assert applied is True
+    assert store.save_calls == 1
+    assert attached_registry.cancelled == [attached_session.session_id]
+    assert operation_runtime.cancelled_run_ids == ["run-stop-1"]
+    assert operation.status is OperationStatus.CANCELLED
+    assert operation.final_summary == "Operation cancelled."
+    assert operation.current_focus is None
+    assert operation.scheduler_state is SchedulerState.ACTIVE
+    assert operation.background_runs[0].status is BackgroundRunStatus.CANCELLED
+    assert command.command_id in operation.processed_command_ids
+
+    events = await event_store.load_after(operation.operation_id, after_sequence=0)
+    assert [event.event_type for event in events][-5:] == [
+        "command.accepted",
+        "execution.observed_state.changed",
+        "operation.status.changed",
+        "operation.focus.updated",
+        "scheduler.state.changed",
+    ]
+
+    replayed = await operation_entrypoints._load_event_sourced(  # noqa: SLF001 - regression check
+        operation.operation_id,
+        fallback_state=stale_snapshot,
+    )
+    assert replayed.status is OperationStatus.CANCELLED
+    assert replayed.final_summary == "Operation cancelled."
+    assert replayed.current_focus is None
+    assert replayed.scheduler_state is SchedulerState.ACTIVE
+    assert replayed.background_runs[0].status is BackgroundRunStatus.CANCELLED
     assert command.command_id in replayed.processed_command_ids
 
 

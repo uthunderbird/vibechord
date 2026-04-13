@@ -37,6 +37,7 @@ from agent_operator.domain import (
     OperationCommandType,
     OperationDomainEventDraft,
     OperationState,
+    OperationStatus,
     PermissionRequestSignature,
     PolicyApplicability,
     PolicyCategory,
@@ -1016,19 +1017,87 @@ class OperationCommandService:
         ]
         if running_run_ids and self._operation_runtime is not None:
             await self._operation_runtime.cancel_operation_runs(running_run_ids)
-        for run in state.background_runs:
-            if run.status is BackgroundRunStatus.RUNNING:
-                run.status = BackgroundRunStatus.CANCELLED
-        self._lifecycle_coordinator.mark_cancelled(state, summary="Operation cancelled.")
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "STOP_OPERATION requires EventSourcedCommandApplicationService."
+            )
+        applied_at = datetime.now(UTC)
+        result = await self._event_sourced_command_service.append_domain_events(
+            state.operation_id,
+            [
+                OperationDomainEventDraft(
+                    event_type="command.accepted",
+                    payload={
+                        "command_id": command.command_id,
+                        "command_type": command.command_type.value,
+                        "target_scope": command.target_scope.value,
+                        "target_id": command.target_id,
+                        "submitted_by": command.submitted_by,
+                        "submitted_at": command.submitted_at.isoformat(),
+                    },
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+                *[
+                    OperationDomainEventDraft(
+                        event_type="execution.observed_state.changed",
+                        payload={
+                            "execution_id": run.run_id,
+                            "observed_state": BackgroundRunStatus.CANCELLED.value,
+                            "completed_at": applied_at.isoformat(),
+                            "updated_at": applied_at.isoformat(),
+                        },
+                        timestamp=applied_at,
+                        causation_id=command.command_id,
+                        correlation_id=command.command_id,
+                    )
+                    for run in state.background_runs
+                    if run.status is BackgroundRunStatus.RUNNING
+                ],
+                OperationDomainEventDraft(
+                    event_type="operation.status.changed",
+                    payload={
+                        "status": OperationStatus.CANCELLED.value,
+                        "final_summary": "Operation cancelled.",
+                    },
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+                OperationDomainEventDraft(
+                    event_type="operation.focus.updated",
+                    payload={"focus": None},
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+                OperationDomainEventDraft(
+                    event_type="scheduler.state.changed",
+                    payload={"scheduler_state": SchedulerState.ACTIVE.value},
+                    timestamp=applied_at,
+                    causation_id=command.command_id,
+                    correlation_id=command.command_id,
+                ),
+            ],
+        )
+        state.background_runs = [
+            item.model_copy(deep=True) for item in result.checkpoint.executions
+        ]
+        state.status = result.checkpoint.status
+        state.final_summary = result.checkpoint.final_summary
+        if state.objective is not None:
+            state.objective.summary = result.checkpoint.final_summary
         state.current_focus = None
-        state.scheduler_state = SchedulerState.ACTIVE
-        self._control_state_coordinator.remember_processed_command(state, command.command_id)
-        await self._control_state_coordinator.persist_legacy_snapshot_command_effect_state(state)
+        state.scheduler_state = result.checkpoint.scheduler_state
+        state.processed_command_ids = list(result.checkpoint.processed_command_ids)
+        await self._control_state_coordinator.persist_command_effect_state(state)
         await self.mark_command_applied(
             state,
             command,
             trace_iteration,
             "Operation cancelled by command.",
+            applied_at=applied_at,
         )
         return True
 
