@@ -87,6 +87,17 @@ class _LiveAttachedSession:
         self.active_turn = True
 
 
+@dataclass(slots=True)
+class _TerminalAttachedSession:
+    """Retain terminal session truth after live runtime disposal."""
+
+    handle: AgentSessionHandle
+    result: AgentResult
+    updated_at: datetime
+    last_event_at: datetime | None
+    log_path: Path
+
+
 class AttachedSessionRuntimeRegistry:
     """Runtime-backed registry for attached and in-process session execution.
 
@@ -102,6 +113,7 @@ class AttachedSessionRuntimeRegistry:
     def __init__(self, bindings: Mapping[str, AttachedRuntimeBinding]) -> None:
         self._bindings = dict(bindings)
         self._sessions: dict[str, _LiveAttachedSession] = {}
+        self._terminal_sessions: dict[str, _TerminalAttachedSession] = {}
 
     def keys(self) -> list[str]:
         """Return configured agent keys."""
@@ -186,6 +198,9 @@ class AttachedSessionRuntimeRegistry:
 
     async def poll(self, handle: AgentSessionHandle) -> AgentProgress:
         """Return the latest synthesized progress snapshot for one session."""
+        terminal = self._terminal_sessions.get(handle.session_id)
+        if terminal is not None:
+            return self._progress_from_terminal_session(terminal)
         live = await self._ensure_live_session(handle)
         state = AgentProgressState.RUNNING
         message = live.progress_message
@@ -222,6 +237,9 @@ class AttachedSessionRuntimeRegistry:
 
     async def collect(self, handle: AgentSessionHandle) -> AgentResult:
         """Wait for one terminal result and return it."""
+        terminal = self._terminal_sessions.get(handle.session_id)
+        if terminal is not None:
+            return terminal.result.model_copy(deep=True)
         live = await self._ensure_live_session(handle)
         await live.terminal_event.wait()
         assert live.result is not None
@@ -230,24 +248,37 @@ class AttachedSessionRuntimeRegistry:
     async def cancel(self, handle: AgentSessionHandle) -> None:
         """Cancel one live session and dispose its runtime."""
         live = await self._ensure_live_session(handle)
-        await live.runtime.cancel(reason="attached_session_cancelled")
-        if live.result is None:
-            now = datetime.now(UTC)
-            live.result = AgentResult(
-                session_id=handle.session_id,
-                status=AgentResultStatus.CANCELLED,
-                completed_at=now,
-                error=AgentError(
-                    code="agent_session_cancelled",
-                    message="Agent session cancelled.",
-                    retryable=False,
-                ),
+        try:
+            await live.runtime.cancel(reason="attached_session_cancelled")
+        finally:
+            if live.result is None:
+                now = datetime.now(UTC)
+                live.result = AgentResult(
+                    session_id=handle.session_id,
+                    status=AgentResultStatus.CANCELLED,
+                    completed_at=now,
+                    error=AgentError(
+                        code="agent_session_cancelled",
+                        message="Agent session cancelled.",
+                        retryable=False,
+                    ),
+                )
+                live.updated_at = now
+                live.last_event_at = now
+                live.terminal_event.set()
+            assert live.handle is not None
+            self._terminal_sessions[handle.session_id] = _TerminalAttachedSession(
+                handle=live.handle.model_copy(deep=True),
+                result=live.result.model_copy(deep=True),
+                updated_at=live.updated_at,
+                last_event_at=live.last_event_at,
+                log_path=live.log_path,
             )
-            live.updated_at = now
-            live.terminal_event.set()
+            await self._dispose_by_session_id(handle.session_id)
 
     async def close(self, handle: AgentSessionHandle) -> None:
         """Dispose one runtime instance without surfacing a cancellation."""
+        self._terminal_sessions.pop(handle.session_id, None)
         await self._dispose_by_session_id(handle.session_id)
 
     def _require_session(self, handle: AgentSessionHandle) -> _LiveAttachedSession:
@@ -257,6 +288,10 @@ class AttachedSessionRuntimeRegistry:
             raise RuntimeError(f"Unknown attached session: {handle.session_id}") from exc
 
     async def _ensure_live_session(self, handle: AgentSessionHandle) -> _LiveAttachedSession:
+        if handle.session_id in self._terminal_sessions:
+            raise RuntimeError(
+                f"Attached session {handle.session_id!r} is terminal and cannot continue."
+            )
         live = self._sessions.get(handle.session_id)
         if live is not None:
             return live
@@ -481,3 +516,34 @@ class AttachedSessionRuntimeRegistry:
     @staticmethod
     def _payload_str(value: object) -> str | None:
         return value if isinstance(value, str) else None
+
+    def _progress_from_terminal_session(
+        self,
+        terminal: _TerminalAttachedSession,
+    ) -> AgentProgress:
+        result = terminal.result
+        state = {
+            AgentResultStatus.SUCCESS: AgentProgressState.COMPLETED,
+            AgentResultStatus.INCOMPLETE: AgentProgressState.WAITING_INPUT,
+            AgentResultStatus.FAILED: AgentProgressState.FAILED,
+            AgentResultStatus.CANCELLED: AgentProgressState.CANCELLED,
+            AgentResultStatus.DISCONNECTED: AgentProgressState.FAILED,
+        }[result.status]
+        message = "Agent session completed."
+        if result.error is not None:
+            message = result.error.message
+        return AgentProgress(
+            session_id=terminal.handle.session_id,
+            state=state,
+            message=message,
+            updated_at=terminal.updated_at,
+            partial_output=(result.output_text or "")[-2000:],
+            raw={
+                "last_event_at": (
+                    terminal.last_event_at.isoformat()
+                    if terminal.last_event_at is not None
+                    else None
+                ),
+                "log_path": str(terminal.log_path),
+            },
+        )

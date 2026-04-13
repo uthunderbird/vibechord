@@ -94,6 +94,48 @@ class FakeSessionRuntime:
         await self._queue.put(None)
 
 
+class CancelTrackingSessionRuntime(FakeSessionRuntime):
+    """Fake runtime that exposes cancel/close counts for disposal assertions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancel_calls = 0
+        self.close_calls = 0
+        self.enter_calls = 0
+
+    async def __aenter__(self) -> CancelTrackingSessionRuntime:
+        self.enter_calls += 1
+        return self
+
+    async def send(self, command: AgentSessionCommand) -> None:
+        self.commands.append(command)
+        if command.command_type == AgentSessionCommandType.START_SESSION:
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.started",
+                    payload={"session_id": "sess-1"},
+                    session_id="sess-1",
+                )
+            )
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.output_chunk_observed",
+                    payload={"text": "hello"},
+                    session_id="sess-1",
+                )
+            )
+            return
+        await super().send(command)
+
+    async def cancel(self, reason: str | None = None) -> None:
+        self.cancel_calls += 1
+        await super().cancel(reason=reason)
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        await super().close()
+
+
 @pytest.mark.anyio
 async def test_attached_session_runtime_registry_synthesizes_start_poll_collect_and_follow_up(
 ) -> None:
@@ -128,3 +170,40 @@ async def test_attached_session_runtime_registry_synthesizes_start_poll_collect_
     follow_up = await registry.collect(handle)
 
     assert follow_up.output_text == "follow-up"
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_cancel_disposes_runtime_and_keeps_terminal_truth(
+) -> None:
+    runtime = CancelTrackingSessionRuntime()
+    registry = AttachedSessionRuntimeRegistry(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *, working_directory, log_path: runtime,
+            )
+        }
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            working_directory=Path.cwd(),
+        ),
+    )
+
+    await registry.cancel(handle)
+    progress = await registry.poll(handle)
+    result = await registry.collect(handle)
+
+    assert runtime.cancel_calls == 1
+    assert runtime.close_calls == 1
+    assert progress.state.value == "cancelled"
+    assert result.status.value == "cancelled"
+
+    with pytest.raises(RuntimeError, match="terminal and cannot continue"):
+        await registry.send(handle, "continue")
