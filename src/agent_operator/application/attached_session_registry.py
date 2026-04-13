@@ -243,7 +243,10 @@ class AttachedSessionRuntimeRegistry:
         live = await self._ensure_live_session(handle)
         await live.terminal_event.wait()
         assert live.result is not None
-        return live.result.model_copy(deep=True)
+        result = live.result.model_copy(deep=True)
+        if self._should_retire_terminal_session(live):
+            await self._retire_terminal_session(live)
+        return result
 
     async def cancel(self, handle: AgentSessionHandle) -> None:
         """Cancel one live session and dispose its runtime."""
@@ -266,15 +269,7 @@ class AttachedSessionRuntimeRegistry:
                 live.updated_at = now
                 live.last_event_at = now
                 live.terminal_event.set()
-            assert live.handle is not None
-            self._terminal_sessions[handle.session_id] = _TerminalAttachedSession(
-                handle=live.handle.model_copy(deep=True),
-                result=live.result.model_copy(deep=True),
-                updated_at=live.updated_at,
-                last_event_at=live.last_event_at,
-                log_path=live.log_path,
-            )
-            await self._dispose_by_session_id(handle.session_id)
+            await self._retire_terminal_session(live)
 
     async def close(self, handle: AgentSessionHandle) -> None:
         """Dispose one runtime instance without surfacing a cancellation."""
@@ -547,3 +542,26 @@ class AttachedSessionRuntimeRegistry:
                 "log_path": str(terminal.log_path),
             },
         )
+
+    def _should_retire_terminal_session(self, live: _LiveAttachedSession) -> bool:
+        result = live.result
+        if result is None:
+            return False
+        if live.one_shot:
+            return True
+        return result.status in {
+            AgentResultStatus.CANCELLED,
+            AgentResultStatus.FAILED,
+        }
+
+    async def _retire_terminal_session(self, live: _LiveAttachedSession) -> None:
+        assert live.handle is not None
+        assert live.result is not None
+        self._terminal_sessions[live.handle.session_id] = _TerminalAttachedSession(
+            handle=live.handle.model_copy(deep=True),
+            result=live.result.model_copy(deep=True),
+            updated_at=live.updated_at,
+            last_event_at=live.last_event_at,
+            log_path=live.log_path,
+        )
+        await self._dispose_by_session_id(live.handle.session_id)

@@ -136,6 +136,52 @@ class CancelTrackingSessionRuntime(FakeSessionRuntime):
         await super().close()
 
 
+class TerminalTrackingSessionRuntime(FakeSessionRuntime):
+    """Fake runtime that emits one chosen terminal fact and records disposal."""
+
+    def __init__(
+        self,
+        *,
+        terminal_fact_type: str,
+        terminal_payload: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__()
+        self.terminal_fact_type = terminal_fact_type
+        self.terminal_payload = terminal_payload or {}
+        self.close_calls = 0
+
+    async def send(self, command: AgentSessionCommand) -> None:
+        self.commands.append(command)
+        if command.command_type == AgentSessionCommandType.START_SESSION:
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.started",
+                    payload={"session_id": "sess-1"},
+                    session_id="sess-1",
+                )
+            )
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.output_chunk_observed",
+                    payload={"text": "hello"},
+                    session_id="sess-1",
+                )
+            )
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type=self.terminal_fact_type,
+                    payload=self.terminal_payload,
+                    session_id="sess-1",
+                )
+            )
+            return
+        await super().send(command)
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        await super().close()
+
+
 @pytest.mark.anyio
 async def test_attached_session_runtime_registry_synthesizes_start_poll_collect_and_follow_up(
 ) -> None:
@@ -204,6 +250,80 @@ async def test_attached_session_runtime_registry_cancel_disposes_runtime_and_kee
     assert runtime.close_calls == 1
     assert progress.state.value == "cancelled"
     assert result.status.value == "cancelled"
+
+    with pytest.raises(RuntimeError, match="terminal and cannot continue"):
+        await registry.send(handle, "continue")
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_collect_retires_completed_one_shot_session(
+) -> None:
+    runtime = TerminalTrackingSessionRuntime(terminal_fact_type="session.completed")
+    registry = AttachedSessionRuntimeRegistry(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *, working_directory, log_path: runtime,
+            )
+        }
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            one_shot=True,
+            working_directory=Path.cwd(),
+        ),
+    )
+
+    result = await registry.collect(handle)
+    progress = await registry.poll(handle)
+
+    assert result.status.value == "success"
+    assert runtime.close_calls == 1
+    assert progress.state.value == "completed"
+
+    with pytest.raises(RuntimeError, match="terminal and cannot continue"):
+        await registry.send(handle, "continue")
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_collect_retires_failed_session(
+) -> None:
+    runtime = TerminalTrackingSessionRuntime(
+        terminal_fact_type="session.failed",
+        terminal_payload={"message": "boom"},
+    )
+    registry = AttachedSessionRuntimeRegistry(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *, working_directory, log_path: runtime,
+            )
+        }
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            working_directory=Path.cwd(),
+        ),
+    )
+
+    result = await registry.collect(handle)
+    progress = await registry.poll(handle)
+
+    assert result.status.value == "failed"
+    assert progress.state.value == "failed"
+    assert runtime.close_calls == 1
 
     with pytest.raises(RuntimeError, match="terminal and cannot continue"):
         await registry.send(handle, "continue")
