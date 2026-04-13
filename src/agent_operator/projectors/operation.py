@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from agent_operator.domain import (
     AttentionRequest,
     AttentionStatus,
+    AttentionType,
+    CommandTargetScope,
     ExecutionObservedState,
     ExecutionState,
     InvolvementLevel,
@@ -268,10 +270,52 @@ class DefaultOperationProjector:
         event: StoredOperationDomainEvent,
     ) -> OperationCheckpoint:
         if event.event_type == "attention.request.created":
-            request = self._payload_model(event.payload, AttentionRequest)
+            request = AttentionRequest(
+                attention_id=str(event.payload["attention_id"]),
+                operation_id=str(event.payload["operation_id"]),
+                attention_type=AttentionType(event.payload["attention_type"]),
+                target_scope=CommandTargetScope(event.payload.get("target_scope", "operation")),
+                target_id=self._payload_optional_string(event.payload, "target_id"),
+                title=str(event.payload["title"]),
+                question=str(event.payload["question"]),
+                context_brief=self._payload_optional_string(event.payload, "context_brief"),
+                suggested_options=self._payload_string_list(event.payload, "suggested_options"),
+                blocking=bool(event.payload.get("blocking", True)),
+                status=AttentionStatus(event.payload.get("status", AttentionStatus.OPEN.value)),
+                answer_text=self._payload_optional_string(event.payload, "answer_text"),
+                answer_source_command_id=self._payload_optional_string(
+                    event.payload,
+                    "answer_source_command_id",
+                ),
+                created_at=self._payload_datetime(event.payload, "created_at", event.timestamp),
+                answered_at=self._payload_optional_datetime(event.payload, "answered_at"),
+                resolved_at=self._payload_optional_datetime(event.payload, "resolved_at"),
+                resolution_summary=self._payload_optional_string(
+                    event.payload,
+                    "resolution_summary",
+                ),
+                metadata=self._payload_dict(event.payload, "metadata"),
+            )
             checkpoint.attention_requests.append(request)
             if request.blocking and checkpoint.status is OperationStatus.RUNNING:
                 checkpoint.status = OperationStatus.NEEDS_HUMAN
+        elif event.event_type == "attention.request.answered":
+            attention = self._find_by_attr(
+                checkpoint.attention_requests,
+                "attention_id",
+                event.payload["attention_id"],
+            )
+            if attention is not None:
+                attention.status = AttentionStatus(event.payload["status"])
+                attention.answer_text = self._payload_optional_string(event.payload, "answer_text")
+                attention.answer_source_command_id = self._payload_optional_string(
+                    event.payload,
+                    "source_command_id",
+                )
+                attention.answered_at = self._payload_optional_datetime(
+                    event.payload,
+                    "answered_at",
+                )
         elif event.event_type == "attention.request.resolved":
             attention = self._find_by_attr(
                 checkpoint.attention_requests,
@@ -280,6 +324,14 @@ class DefaultOperationProjector:
             )
             if attention is not None:
                 attention.status = AttentionStatus(event.payload["status"])
+                attention.resolution_summary = self._payload_optional_string(
+                    event.payload,
+                    "resolution_summary",
+                )
+                attention.resolved_at = self._payload_optional_datetime(
+                    event.payload,
+                    "resolved_at",
+                )
                 blocking_open = any(
                     request.blocking and request.status is AttentionStatus.OPEN
                     for request in checkpoint.attention_requests
@@ -371,6 +423,18 @@ class DefaultOperationProjector:
         if raw is None:
             return None
         return str(raw)
+
+    def _payload_string_list(self, payload: dict[str, Any], key: str) -> list[str]:
+        raw = payload.get(key)
+        if not isinstance(raw, list):
+            return []
+        return [str(item) for item in raw]
+
+    def _payload_dict(self, payload: dict[str, Any], key: str) -> dict[str, Any]:
+        raw = payload.get(key)
+        if not isinstance(raw, dict):
+            return {}
+        return dict(raw)
 
     def _payload_enum(self, payload: dict[str, Any], key: str, enum_type: type[Any]) -> Any:
         return enum_type(payload[key])

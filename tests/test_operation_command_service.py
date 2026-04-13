@@ -61,11 +61,12 @@ from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
 async def test_answer_attention_request_resolves_after_replan() -> None:
     store = MemoryStore()
     inbox = MemoryCommandInbox()
+    event_sink = MemoryEventSink()
     service = make_service(
         brain=AnswerThenStopBrain(),
         store=store,
         trace_store=MemoryTraceStore(),
-        event_sink=MemoryEventSink(),
+        event_sink=event_sink,
         agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
         command_inbox=inbox,
     )
@@ -100,6 +101,16 @@ async def test_answer_attention_request_resolves_after_replan() -> None:
     assert resolved.answer_text == "Use staging first."
     stored_command = inbox.commands[command.command_id]
     assert stored_command.status is CommandStatus.APPLIED
+    attention_events = [
+        event.event_type
+        for event in event_sink.events
+        if event.event_type.startswith("attention.request.")
+    ]
+    assert attention_events == [
+        "attention.request.created",
+        "attention.request.answered",
+        "attention.request.resolved",
+    ]
 
 
 @pytest.mark.anyio

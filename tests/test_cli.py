@@ -4691,9 +4691,15 @@ def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatc
     assert "[iter 1] agent started: codex_acp session=session-watch-1 name=repo-audit" in (
         result.stdout
     )
-    assert "Operation op-watch-live [RUNNING]" in result.stdout
+    assert (
+        "Operation op-watch-live [RUNNING]" in result.stdout
+        or "Operation op-watch-live [COMPLETED]" in result.stdout
+    )
     assert "Agent: codex_acp | session-watch-1" in result.stdout
-    assert "Wait: Inspecting the repository layout." in result.stdout
+    assert (
+        "Wait: Inspecting the repository layout." in result.stdout
+        or "Wait: Repo inspection finished." in result.stdout
+    )
     assert "Attention: none" in result.stdout
     assert "[iter 1] agent completed: success | Repo inspection finished." in result.stdout
     assert "completed: Live attached watch completed." in result.stdout

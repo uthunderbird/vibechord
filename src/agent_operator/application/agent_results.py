@@ -167,6 +167,14 @@ class AgentResultService:
                 result,
             )
             if attention is not None:
+                await self._event_relay.emit(
+                    "attention.request.created",
+                    state,
+                    iteration.index,
+                    self._attention_coordinator.event_payload(attention),
+                    task_id=task.task_id if task is not None else None,
+                    session_id=session.session_id,
+                )
                 self._lifecycle_coordinator.mark_needs_human(
                     state,
                     summary=f"Blocked on attention request: {attention.title}.",

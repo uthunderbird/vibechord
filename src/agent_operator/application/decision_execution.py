@@ -7,6 +7,7 @@ from agent_operator.application.commands.operation_attention import OperationAtt
 from agent_operator.application.loaded_operation import LoadedOperation
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
 from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
+from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
 from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.domain import (
     AttentionRequest,
@@ -37,6 +38,7 @@ class DecisionExecutionService:
         loaded_operation: LoadedOperation,
         attached_session_registry: object,
         attention_coordinator: OperationAttentionCoordinator,
+        event_relay: OperationEventRelay,
         lifecycle_coordinator: OperationLifecycleCoordinator,
         runtime_context: OperationRuntimeContext,
         turn_execution_service: OperationTurnExecutionService,
@@ -45,10 +47,12 @@ class DecisionExecutionService:
         self._loaded_operation = loaded_operation
         self._attached_session_registry = attached_session_registry
         self._attention_coordinator = attention_coordinator
+        self._event_relay = event_relay
         self._lifecycle_coordinator = lifecycle_coordinator
         self._runtime_context = runtime_context
         self._turn_execution_service = turn_execution_service
         self._agent_result_service = agent_result_service
+
     async def execute_decision(
         self,
         state: OperationState,
@@ -100,19 +104,19 @@ class DecisionExecutionService:
             decision.action_type is not BrainActionType.REQUEST_CLARIFICATION
             and self._attention_coordinator.decision_requires_policy_gap(state, decision)
         ):
-            return self._block_or_defer_attention(
+            return await self._block_or_defer_attention(
                 state,
                 iteration,
                 task,
                 self._attention_coordinator.open_policy_gap_attention(state, decision, task),
-                "Deferred policy-shaped action until attention request "
+                "Deferred policy-shaped action until attention request ",
             )
 
         if (
             decision.action_type is not BrainActionType.REQUEST_CLARIFICATION
             and self._attention_coordinator.decision_requires_novel_strategic_fork(decision)
         ):
-            return self._block_or_defer_attention(
+            return await self._block_or_defer_attention(
                 state,
                 iteration,
                 task,
@@ -149,7 +153,7 @@ class DecisionExecutionService:
                 blocking=True,
                 suggested_options=self._attention_coordinator.attention_options_from_decision(decision),
             )
-            return self._block_or_defer_attention(
+            return await self._block_or_defer_attention(
                 state,
                 iteration,
                 task,
@@ -204,7 +208,7 @@ class DecisionExecutionService:
         )
         return True
 
-    def _block_or_defer_attention(
+    async def _block_or_defer_attention(
         self,
         state: OperationState,
         iteration: IterationState,
@@ -212,6 +216,13 @@ class DecisionExecutionService:
         attention: AttentionRequest,
         deferred_prefix: str,
     ) -> bool:
+        await self._event_relay.emit(
+            "attention.request.created",
+            state,
+            iteration.index,
+            self._attention_coordinator.event_payload(attention),
+            task_id=task.task_id if task is not None else None,
+        )
         if not attention.blocking:
             iteration.notes.append(f"{deferred_prefix}{attention.attention_id}.")
             return False

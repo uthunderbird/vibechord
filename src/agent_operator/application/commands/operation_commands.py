@@ -470,6 +470,18 @@ class OperationCommandService:
             attention.resolved_at = resolved_at
             attention.resolution_summary = "Resolved via operator replanning after human answer."
             changed = True
+            await self._event_relay.emit(
+                "attention.request.resolved",
+                state,
+                len(state.iterations),
+                {
+                    "attention_id": attention.attention_id,
+                    "attention_type": attention.attention_type.value,
+                    "status": attention.status.value,
+                    "resolution_summary": attention.resolution_summary,
+                    "resolved_at": attention.resolved_at.isoformat(),
+                },
+            )
             if attention.attention_type.value == "approval_request":
                 policy_written = await self.auto_record_approval_attention_policy(state, attention)
                 if policy_written:
@@ -691,6 +703,19 @@ class OperationCommandService:
         attention.answer_text = text
         attention.answer_source_command_id = command.command_id
         attention.answered_at = datetime.now(UTC)
+        await self._event_relay.emit(
+            "attention.request.answered",
+            state,
+            trace_iteration,
+            {
+                "attention_id": attention.attention_id,
+                "attention_type": attention.attention_type.value,
+                "status": attention.status.value,
+                "answer_text": attention.answer_text,
+                "source_command_id": attention.answer_source_command_id,
+                "answered_at": attention.answered_at.isoformat(),
+            },
+        )
         if attention.attention_id not in state.pending_attention_resolution_ids:
             state.pending_attention_resolution_ids.append(attention.attention_id)
         if (

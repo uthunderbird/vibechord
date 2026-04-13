@@ -18,6 +18,37 @@ from agent_operator.domain import (
 class OperationAttentionCoordinator:
     """Own one-operation attention lookup and construction rules."""
 
+    def event_payload(self, attention: AttentionRequest) -> dict[str, object]:
+        """Return the canonical lifecycle event payload for one attention request.
+
+        Args:
+            attention: Attention request to serialize for domain events.
+
+        Returns:
+            Stable JSON-serializable payload for attention lifecycle events.
+        """
+
+        return {
+            "attention_id": attention.attention_id,
+            "operation_id": attention.operation_id,
+            "attention_type": attention.attention_type.value,
+            "title": attention.title,
+            "question": attention.question,
+            "context_brief": attention.context_brief,
+            "target_scope": attention.target_scope.value,
+            "target_id": attention.target_id,
+            "blocking": attention.blocking,
+            "suggested_options": list(attention.suggested_options),
+            "status": attention.status.value,
+            "answer_text": attention.answer_text,
+            "answer_source_command_id": attention.answer_source_command_id,
+            "created_at": attention.created_at.isoformat(),
+            "answered_at": attention.answered_at.isoformat() if attention.answered_at else None,
+            "resolved_at": attention.resolved_at.isoformat() if attention.resolved_at else None,
+            "resolution_summary": attention.resolution_summary,
+            "metadata": dict(attention.metadata),
+        }
+
     def find_attention_request(
         self,
         state: OperationState,

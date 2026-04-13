@@ -267,11 +267,12 @@ async def test_agent_escalation_request_is_flagged_as_incomplete() -> None:
 @pytest.mark.anyio
 async def test_attached_run_surfaces_waiting_input_as_incomplete_result() -> None:
     store = MemoryStore()
+    event_sink = MemoryEventSink()
     service = make_service(
         brain=StartThenBlockBrain(),
         store=store,
         trace_store=MemoryTraceStore(),
-        event_sink=MemoryEventSink(),
+        event_sink=event_sink,
         agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": WaitingInputAgent()}),
     )
 
@@ -289,6 +290,11 @@ async def test_attached_run_surfaces_waiting_input_as_incomplete_result() -> Non
     assert operation is not None
     assert len(operation.attention_requests) == 1
     assert operation.attention_requests[0].attention_type is AttentionType.APPROVAL_REQUEST
+    created = [
+        event for event in event_sink.events if event.event_type == "attention.request.created"
+    ]
+    assert len(created) == 1
+    assert created[0].session_id == operation.sessions[0].handle.session_id
 
 
 @pytest.mark.anyio

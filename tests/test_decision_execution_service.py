@@ -278,11 +278,12 @@ class NovelStrategicForkGuardrailClarificationBrain(NovelStrategicForkBrain):
 @pytest.mark.anyio
 async def test_request_clarification_creates_blocking_attention_request() -> None:
     store = MemoryStore()
+    event_sink = MemoryEventSink()
     service = make_service(
         brain=ClarificationBrain(),
         store=store,
         trace_store=MemoryTraceStore(),
-        event_sink=MemoryEventSink(),
+        event_sink=event_sink,
         agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
     )
 
@@ -297,6 +298,13 @@ async def test_request_clarification_creates_blocking_attention_request() -> Non
     assert operation.attention_requests[0].blocking is True
     assert operation.current_focus is not None
     assert operation.current_focus.kind is FocusKind.ATTENTION_REQUEST
+    created = [
+        event for event in event_sink.events if event.event_type == "attention.request.created"
+    ]
+    assert len(created) == 1
+    assert created[0].payload["attention_id"] == operation.attention_requests[0].attention_id
+    assert created[0].payload["attention_type"] == AttentionType.QUESTION.value
+    assert created[0].payload["status"] == "open"
 
 
 @pytest.mark.anyio

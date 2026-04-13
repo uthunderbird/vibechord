@@ -162,22 +162,63 @@ def test_operation_projector_updates_attention_scheduler_and_optional_subslices(
     projected = projector.project(
         checkpoint,
         [
-            _event("attention.request.created", sequence=1, payload=attention.model_dump()),
+            _event(
+                "attention.request.created",
+                sequence=1,
+                payload={
+                    "attention_id": attention.attention_id,
+                    "operation_id": attention.operation_id,
+                    "attention_type": attention.attention_type.value,
+                    "title": attention.title,
+                    "question": attention.question,
+                    "context_brief": attention.context_brief,
+                    "target_scope": attention.target_scope.value,
+                    "target_id": attention.target_id,
+                    "blocking": attention.blocking,
+                    "suggested_options": list(attention.suggested_options),
+                    "status": attention.status.value,
+                    "answer_text": attention.answer_text,
+                    "answer_source_command_id": attention.answer_source_command_id,
+                    "created_at": attention.created_at.isoformat(),
+                    "answered_at": None,
+                    "resolved_at": None,
+                    "resolution_summary": None,
+                    "metadata": {},
+                },
+            ),
+            _event(
+                "attention.request.answered",
+                sequence=2,
+                payload={
+                    "attention_id": "attention-1",
+                    "attention_type": "question",
+                    "status": "answered",
+                    "answer_text": "Take the fast path.",
+                    "source_command_id": "cmd-1",
+                    "answered_at": "2026-04-03T12:00:02+00:00",
+                },
+            ),
             _event(
                 "scheduler.state.changed",
-                sequence=2,
+                sequence=3,
                 payload={"scheduler_state": "paused"},
             ),
-            _event("operator_message.received", sequence=3, payload=operator_message.model_dump()),
-            _event("policy.coverage.updated", sequence=4, payload=policy_coverage.model_dump()),
+            _event("operator_message.received", sequence=4, payload=operator_message.model_dump()),
+            _event("policy.coverage.updated", sequence=5, payload=policy_coverage.model_dump()),
             _event(
                 "attention.request.resolved",
-                sequence=5,
-                payload={"attention_id": "attention-1", "status": "resolved"},
+                sequence=6,
+                payload={
+                    "attention_id": "attention-1",
+                    "attention_type": "question",
+                    "status": "resolved",
+                    "resolution_summary": "Resolved after operator replanning.",
+                    "resolved_at": "2026-04-03T12:00:06+00:00",
+                },
             ),
             _event(
                 "operator_message.dropped_from_context",
-                sequence=6,
+                sequence=7,
                 payload={"message_id": "msg-1"},
             ),
         ],
@@ -186,6 +227,21 @@ def test_operation_projector_updates_attention_scheduler_and_optional_subslices(
     assert projected.scheduler_state is SchedulerState.PAUSED
     assert projected.policy_coverage.project_scope == "project-1"
     assert projected.attention_requests[0].status is AttentionStatus.RESOLVED
+    assert projected.attention_requests[0].answer_text == "Take the fast path."
+    assert projected.attention_requests[0].answer_source_command_id == "cmd-1"
+    assert (
+        projected.attention_requests[0].resolution_summary
+        == "Resolved after operator replanning."
+    )
+    assert projected.attention_requests[0].answered_at == datetime(
+        2026,
+        4,
+        3,
+        12,
+        0,
+        2,
+        tzinfo=UTC,
+    )
     assert projected.status is OperationStatus.RUNNING
     assert projected.operator_messages == []
 

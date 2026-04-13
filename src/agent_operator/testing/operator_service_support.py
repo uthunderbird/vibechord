@@ -780,6 +780,7 @@ class _TestServiceProvider(Provider):
                 loaded_operation=loaded_operation,
                 attached_session_registry=attached_session_registry,
                 attention_coordinator=attention_coordinator,
+                event_relay=event_relay,
                 lifecycle_coordinator=lifecycle_coordinator,
                 runtime_context=runtime_context,
                 turn_execution_service=turn_execution_service,
