@@ -232,7 +232,12 @@ class AttachedTurnService:
             record.last_event_at = self.extract_last_event_time(progress)
             record.updated_at = progress.updated_at
             record.attached_turn_started_at = record.attached_turn_started_at or datetime.now(UTC)
-            record.waiting_reason = progress.message
+            if progress.state in {
+                AgentProgressState.PENDING,
+                AgentProgressState.RUNNING,
+                AgentProgressState.WAITING_INPUT,
+            }:
+                record.waiting_reason = progress.message
             timeout_origin = record.last_event_at or progress.updated_at
             if progress.state in {AgentProgressState.PENDING, AgentProgressState.RUNNING}:
                 if datetime.now(UTC) - timeout_origin >= self._attached_turn_timeout:

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from agent_operator.application.attached_turns import AttachedTurnService
 from agent_operator.domain import (
+    AgentProgress,
+    AgentProgressState,
     AgentResult,
     AgentResultStatus,
     AgentSessionHandle,
@@ -13,11 +16,16 @@ from agent_operator.domain import (
     BrainActionType,
     BrainDecision,
     Evaluation,
+    IterationState,
     OperationGoal,
+    OperationPolicy,
+    OperationState,
     OperationStatus,
     ProgressSummary,
     RunMode,
     RunOptions,
+    SessionRecord,
+    SessionRecordStatus,
     SessionStatus,
 )
 from agent_operator.testing.operator_service_support import (
@@ -36,6 +44,23 @@ from agent_operator.testing.operator_service_support import (
     run_settings,
 )
 from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
+
+
+async def _async_noop(*args, **kwargs) -> None:
+    del args, kwargs
+
+
+async def _async_drain_noop(*args, **kwargs) -> None:
+    del args, kwargs
+
+
+async def _async_signal_noop(*args, **kwargs) -> None:
+    del args, kwargs
+
+
+async def _unexpected_timeout_reconcile(*args, **kwargs) -> AgentResult:
+    del args, kwargs
+    raise AssertionError("timeout reconciliation should not run in this test")
 
 
 class NamedSessionBrain(StartThenStopBrain):
@@ -220,6 +245,18 @@ class RestartAfterFailedAttachedSessionBrain:
 
     async def normalize_artifact(self, goal, result) -> AgentResult:
         return result
+
+
+class _TerminalPlaceholderRegistry:
+    def __init__(self, *, progress: AgentProgress, result: AgentResult) -> None:
+        self._progress = progress
+        self._result = result
+
+    async def poll(self, handle: AgentSessionHandle) -> AgentProgress:
+        return self._progress
+
+    async def collect(self, handle: AgentSessionHandle) -> AgentResult:
+        return self._result
 
 
 @pytest.mark.anyio
@@ -547,6 +584,55 @@ async def test_attached_turn_timeout_prefers_log_tail_recovery(tmp_path: Path) -
     )
     assert outcome.final_result.raw is not None
     assert outcome.final_result.raw["used_log_tail_recovery"] is True
+
+
+@pytest.mark.anyio
+async def test_collect_turn_does_not_persist_terminal_placeholder_waiting_reason() -> None:
+    service = AttachedTurnService(attached_turn_timeout=timedelta(seconds=30))
+    session = AgentSessionHandle(adapter_key="codex_acp", session_id="session-1")
+    progress = AgentProgress(
+        session_id=session.session_id,
+        state=AgentProgressState.COMPLETED,
+        message="Agent session completed.",
+        updated_at=datetime.now(UTC),
+    )
+    result = AgentResult(
+        session_id=session.session_id,
+        status=AgentResultStatus.SUCCESS,
+        output_text="done",
+        completed_at=datetime.now(UTC),
+    )
+    registry = _TerminalPlaceholderRegistry(progress=progress, result=result)
+    state = OperationState(
+        goal=OperationGoal(objective="check attached waiting reason"),
+        policy=OperationPolicy(),
+        iterations=[IterationState(index=1)],
+    )
+    iteration = state.iterations[0]
+    record = SessionRecord(
+        handle=session,
+        status=SessionRecordStatus.RUNNING,
+        waiting_reason="Still working through the current slice.",
+    )
+    state.sessions.append(record)
+
+    collected = await service.collect_turn(
+        state=state,
+        iteration=iteration,
+        task=None,
+        registry=registry,  # type: ignore[arg-type]
+        session=session,
+        ensure_session_record=lambda current_state, current_session: record,
+        sync_traceability_artifacts=_async_noop,
+        drain_commands=_async_drain_noop,
+        reconcile_timeout=_unexpected_timeout_reconcile,
+        dispatch_process_manager_signal=_async_signal_noop,
+        scheduler_is_draining=False,
+    )
+
+    assert collected is result
+    assert record.status is SessionRecordStatus.RUNNING
+    assert record.waiting_reason == "Still working through the current slice."
 
 
 @pytest.mark.anyio
