@@ -363,10 +363,12 @@ class OperatorGraphProvider(_BootstrapProviderBase):
         self,
         store: FileOperationStore,
         traceability_service: OperationTraceabilityService,
+        event_sourced_command_service: EventSourcedCommandApplicationService,
     ) -> OperationControlStateCoordinator:
         return OperationControlStateCoordinator(
             store=store,
             traceability_service=traceability_service,
+            event_sourced_command_service=event_sourced_command_service,
         )
 
     @provide(scope=Scope.APP)

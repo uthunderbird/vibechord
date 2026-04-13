@@ -389,6 +389,41 @@ def test_control_state_coordinator_keeps_replay_sync_separate_from_snapshot_writ
     assert direct_save_calls == []
 
 
+def test_legacy_command_effect_persistence_uses_event_append_not_snapshot_save() -> None:
+    """ADR 0144: the remaining legacy command-effect path must append canonically."""
+    control_file = APPLICATION_DIR / "commands" / "operation_control_state.py"
+    source = control_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    class_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OperationControlStateCoordinator"
+    )
+    persist_method = next(
+        node
+        for node in class_node.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "persist_legacy_snapshot_command_effect_state"
+    )
+
+    direct_save_calls = [
+        child.lineno
+        for child in ast.walk(persist_method)
+        if isinstance(child, ast.Attribute) and child.attr == "save_operation"
+    ]
+    append_calls = [
+        child
+        for child in ast.walk(persist_method)
+        if isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "append_domain_events"
+    ]
+
+    assert direct_save_calls == []
+    assert len(append_calls) == 1
+
+
 def test_operation_lifecycle_uses_no_direct_snapshot_writes() -> None:
     """ADR 0144: lifecycle persistence must project via canonical events."""
     lifecycle_file = APPLICATION_DIR / "operation_lifecycle.py"

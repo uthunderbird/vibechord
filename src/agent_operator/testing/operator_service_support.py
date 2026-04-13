@@ -724,6 +724,7 @@ class _TestServiceProvider(Provider):
             control_state = OperationControlStateCoordinator(
                 store=store,
                 traceability_service=traceability_service,
+                event_sourced_command_service=event_sourced_command_service,
             )
         agent_result_service = self._overrides.get("agent_result_service")
         if agent_result_service is None:

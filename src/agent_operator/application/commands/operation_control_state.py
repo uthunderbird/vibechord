@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from agent_operator.application.event_sourcing.event_sourced_commands import (
+    EventSourcedCommandApplicationService,
+)
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.application.queries.operation_traceability import OperationTraceabilityService
-from agent_operator.domain import OperationCheckpoint, OperationState
+from agent_operator.domain import (
+    CanonicalPersistenceMode,
+    OperationCheckpoint,
+    OperationDomainEventDraft,
+    OperationState,
+)
 from agent_operator.protocols import OperationStore
 
 
@@ -17,12 +25,14 @@ class OperationControlStateCoordinator:
         store: OperationStore,
         traceability_service: OperationTraceabilityService,
         operation_state_view_service: OperationStateViewService | None = None,
+        event_sourced_command_service: EventSourcedCommandApplicationService | None = None,
     ) -> None:
         self._store = store
         self._traceability_service = traceability_service
         self._operation_state_view_service = (
             operation_state_view_service or OperationStateViewService()
         )
+        self._event_sourced_command_service = event_sourced_command_service
 
     async def persist_command_effect_state(self, state: OperationState) -> None:
         state.updated_at = datetime.now(UTC)
@@ -33,7 +43,26 @@ class OperationControlStateCoordinator:
         state: OperationState,
     ) -> None:
         await self.persist_command_effect_state(state)
-        await self._store.save_operation(state)
+        if state.canonical_persistence_mode is not CanonicalPersistenceMode.EVENT_SOURCED:
+            raise RuntimeError(
+                "Legacy command-effect persistence requires event-sourced canonical state."
+            )
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "Legacy command-effect persistence requires "
+                "EventSourcedCommandApplicationService."
+            )
+        result = await self._event_sourced_command_service.append_domain_events(
+            state.operation_id,
+            [
+                OperationDomainEventDraft(
+                    event_type="operation.control_state.synced",
+                    payload={},
+                    timestamp=state.updated_at,
+                )
+            ],
+        )
+        self.refresh_state_from_checkpoint(state, result.checkpoint)
 
     def remember_processed_command(self, state: OperationState, command_id: str) -> None:
         if command_id not in state.processed_command_ids:
