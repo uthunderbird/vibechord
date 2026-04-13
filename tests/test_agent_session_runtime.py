@@ -7,6 +7,7 @@ import pytest
 
 from agent_operator.acp.adapter_runtime import AcpAdapterRuntime
 from agent_operator.acp.session_runtime import AcpAgentSessionRuntime
+from agent_operator.adapters.opencode_acp import OpencodeAcpAgentAdapter
 from agent_operator.domain import (
     AgentSessionCommand,
     AgentSessionCommandType,
@@ -577,4 +578,64 @@ async def test_acp_agent_session_runtime_permission_request_requires_request_id(
     assert seen_payloads[0]["id"] == 11
     assert connection.responses == [
         (11, {"outcome": {"outcome": "selected", "optionId": "abort"}}, None)
+    ]
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_forwards_opencode_permission_requests_through_shared_hook(
+) -> None:
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="opencode_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    adapter = OpencodeAcpAgentAdapter(
+        connection_factory=lambda _cwd, _log_path: connection,
+    )
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+        handle_server_request=adapter._runner._hooks.handle_server_request,  # type: ignore[attr-defined]
+    )
+
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+                metadata={"operation_id": "op-1"},
+            )
+        )
+        _started = await asyncio.wait_for(anext(stream), timeout=1.0)
+        next_fact_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0.02)
+        connection.drained_notifications.append(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Edit file",
+                        "kind": "edit",
+                        "rawInput": {"command": ["git", "status"]},
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            }
+        )
+        fact = await asyncio.wait_for(next_fact_task, timeout=1.0)
+
+    assert fact.fact_type == "session.waiting_input_observed"
+    assert fact.session_id == "sess-1"
+    assert fact.payload["message"] == "ACP turn is waiting for approval."
+    assert connection.responses == [
+        (7, {"outcome": {"outcome": "selected", "optionId": "abort"}}, None)
     ]
