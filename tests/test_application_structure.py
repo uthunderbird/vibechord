@@ -145,6 +145,43 @@ def test_event_sourced_operation_commands_do_not_force_snapshot_persistence() ->
     assert persist_calls[0].keywords == []
 
 
+def test_answer_attention_request_command_path_does_not_use_legacy_snapshot_persistence() -> None:
+    """ADR 0144: ANSWER_ATTENTION_REQUEST must not retain the legacy snapshot path."""
+    command_file = APPLICATION_DIR / "commands" / "operation_commands.py"
+    source = command_file.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    class_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OperationCommandService"
+    )
+    method = next(
+        node
+        for node in class_node.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "_apply_answer_attention_request"
+    )
+
+    legacy_persist_calls = [
+        child.lineno
+        for child in ast.walk(method)
+        if isinstance(child, ast.Attribute)
+        and child.attr == "persist_legacy_snapshot_command_effect_state"
+    ]
+    runtime_guards = [
+        child
+        for child in ast.walk(method)
+        if isinstance(child, ast.Raise)
+        and isinstance(child.exc, ast.Call)
+        and isinstance(child.exc.func, ast.Name)
+        and child.exc.func.id == "RuntimeError"
+    ]
+
+    assert legacy_persist_calls == []
+    assert len(runtime_guards) == 1
+
+
 def test_control_state_coordinator_keeps_replay_sync_separate_from_snapshot_writes() -> None:
     """ADR 0144: canonical command-effect sync must not hide snapshot writes behind a flag."""
     control_file = APPLICATION_DIR / "commands" / "operation_control_state.py"

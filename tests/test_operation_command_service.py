@@ -130,7 +130,6 @@ async def test_answer_attention_request_resolves_after_replan() -> None:
     ]
     assert attention_events == [
         "attention.request.created",
-        "attention.request.answered",
         "attention.request.resolved",
     ]
 
