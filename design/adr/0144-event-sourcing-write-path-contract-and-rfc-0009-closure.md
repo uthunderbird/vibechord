@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Partial
 
 ## Context
 
@@ -195,7 +195,7 @@ than per-command records that never establish the principle.
 
 ## Implementation record
 
-The migration was completed in two stages.
+This ADR is only partially implemented at current repository truth.
 
 ### Stage 1 — Quickfix (three new events)
 
@@ -217,31 +217,61 @@ transitions `observed_state` from `WAITING` to `IDLE`. Resolves Failure 2.
 New `_apply_active_session_slice` in the projector writes `checkpoint.active_session` from the
 event payload. `OperationCheckpoint` gained an `active_session: AgentSessionHandle | None = None`
 field. `from_checkpoint()` in `OperationStateViewService` copies it into `OperationState`.
-The snapshot overlay at `operation_entrypoints.py:238–242` was removed from `_load_event_sourced()`.
-Resolves Failure 3.
+The snapshot overlay for `active_session` was removed from `_load_event_sourced()`. Resolves
+Failure 3.
 
-### Stage 2 — Full migration
+### Current verified tranche
 
-All 8 `save_operation()` call sites in `operation_drive.py` were audited and classified as
-checkpoint helpers — none were mutation paths. All were consolidated behind a new
-`_advance_checkpoint()` method on `OperationDriveService`, which carries explicit documentation
-of its read-path-only role.
-
-`cancel_scoped_execution()` in `OperationLifecycleCoordinator` was identified as a mutation
-path (sets `session.status = CANCELLED`). Migrated: now emits `session.observed_state.changed`
-with `terminal_state=CANCELLED` via the `emit_session_cancelled` callback.
-
-An AST-based lint test was added in `tests/test_application_structure.py`:
-`test_drive_loop_save_operation_only_via_advance_checkpoint` — asserts that no function in
+The drive-loop `save_operation()` calls in `operation_drive.py` were audited and consolidated
+behind `_advance_checkpoint()` on `OperationDriveService`, which now carries explicit
+read-path-only documentation. An AST-based lint test was added in
+`tests/test_application_structure.py`:
+`test_drive_loop_save_operation_only_via_advance_checkpoint` — it asserts that no function in
 `operation_drive.py` other than `_advance_checkpoint` calls `save_operation()` directly.
 
-### Promotion
+The resume/reconcile persistence slice covered by Stage 1 is implemented and regression-tested:
 
-On completion of Stage 2 with 513 tests green:
-- `RFC 0009`: `Proposed` → `Accepted`
-- `ADR 0086`: `Implemented` → `Accepted`
-- `ADR 0088`: `Implemented` → `Accepted`
-- ADR 0144 `Implementation Status`: `Implemented`
+- canonical birth now persists initial `session.created` and
+  `operation.active_session_updated` events
+- replay restores `sessions` and `active_session` from checkpoint state
+- the projector folds `session.cooldown_cleared`, `execution.session_linked`, and
+  `operation.active_session_updated`
+- attention lifecycle transitions now emit and replay
+  `attention.request.created|answered|resolved`
+
+Verification evidence for this tranche:
+
+- `tests/test_event_sourced_birth.py` proves canonical birth appends
+  `session.created` and `operation.active_session_updated` and folds them into the checkpoint
+- `tests/test_operation_entrypoints.py` proves replay-backed `load_for_resume()` and
+  `prepare_run()` restore `sessions` and `active_session` from canonical checkpoint state
+- `tests/test_operation_runtime_reconciliation_service.py`,
+  `tests/test_operation_command_service.py`, and `tests/test_operation_drive_service.py`
+  cover the runtime and attention paths touched by this slice
+- `tests/test_application_structure.py::test_drive_loop_save_operation_only_via_advance_checkpoint`
+  guards the drive loop against new direct mutation-path `save_operation()` calls
+- targeted verification passed at current repository truth:
+  `71 passed` across the tranche-focused suite
+- full repository verification also passed at current repository truth:
+  `580 passed, 11 skipped`
+
+### Remaining work blocking full closure
+
+The retirement condition for `save_operation()` is not yet fully met.
+
+Current blocking evidence:
+
+- `src/agent_operator/application/operation_lifecycle.py`,
+  `OperationLifecycleCoordinator.cancel_scoped_execution`, still mutates `record.status` and
+  `record.waiting_reason` directly before calling `self.store.save_operation(state)`.
+- `src/agent_operator/application/commands/operation_cancellation.py` still routes targeted
+  cancellation through that method, even though it also emits `session.observed_state.changed`.
+- `src/agent_operator/application/commands/operation_control_state.py`,
+  `persist_command_effect_state`, still persists post-command mutable state via
+  `self._store.save_operation(state)`.
+
+Because those adjacent mutation paths remain, this ADR does not yet justify promoting RFC 0009
+or treating dependent closure ADRs as advanced by full write-path retirement.
 
 ### Remaining follow-up (not blocking acceptance)
 

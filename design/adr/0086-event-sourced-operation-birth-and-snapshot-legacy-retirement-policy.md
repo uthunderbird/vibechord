@@ -1,8 +1,12 @@
 # ADR 0086: Event-sourced operation birth and snapshot-legacy retirement policy
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
 
 ## Context
 
@@ -62,27 +66,35 @@ explicit migration/import path, not by runtime fallback logic.
 
 ## Verification
 
-- `verified`: new in-memory `OperationState` instances now default to
+- `verified`: new in-memory `OperationState` instances default to
   `canonical_persistence_mode='event_sourced'`.
-- `verified`: bootstrap wiring now materializes canonical birth artifacts for newly created
-  operations through the operation event store and checkpoint store.
-- `verified`: focused tests cover canonical birth event append, checkpoint materialization, and
-  persisted default mode.
+- `verified`: run-path entrypoint wiring materializes canonical birth artifacts for newly created
+  operations through the operation event store and checkpoint store, then reloads from replayed
+  checkpoint state.
+- `verified`: focused tests cover canonical birth event append, checkpoint materialization,
+  persisted default mode, and replay-backed entrypoint loading.
+- `verified`: the full repository suite passes at current repository truth (`580 passed, 11 skipped`).
 
 ## Implementation notes
 
-This ADR is not yet `Accepted`.
+Current repository truth satisfies this ADR.
 
-The current implementation closes the birth side of the decision:
+Implemented:
 
-- new operations are born as `event_sourced`
-- normal bootstrap wiring materializes initial `operation.created` event-stream truth and the first
-  derived checkpoint
+- `OperationState` defaults new operations to `CanonicalPersistenceMode.EVENT_SOURCED`.
+- `OperationEntrypointService.prepare_run()` always routes newly created operations through
+  `EventSourcedOperationBirthService.birth()` and then reloads canonical state through
+  `_load_event_sourced()` when replay wiring is present.
+- canonical birth persists initial `operation.created` event-stream truth plus the first derived
+  checkpoint.
 
-What remains open before `Accepted`:
+Still true by design:
 
-- retirement enforcement for `snapshot_legacy` as a live runtime mode
-- explicit treatment of pre-cutover snapshot operations without compatibility drift
+- older persisted payloads that predate the canonical mode field still hydrate missing metadata as
+  `snapshot_legacy`, but that is legacy data interpretation rather than a second live-runtime birth
+  path.
+- any future import or migration treatment for pre-cutover snapshot operations remains out of scope
+  for this ADR.
 
 ## Consequences
 

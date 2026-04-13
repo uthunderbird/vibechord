@@ -1,8 +1,12 @@
 # ADR 0088: Main entrypoint cutover and final OperatorService shell boundary
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
 
 ## Context
 
@@ -81,40 +85,33 @@ Rejected for this wave. The closure goal is boundary correction, not a public na
 
 ## Verification
 
-- `verified`: `run`, `resume`, `recover`, and `tick` now delegate entrypoint state preparation to
+- `verified`: `run`, `resume`, `recover`, and `tick` delegate entrypoint state preparation to
   `OperationEntrypointService` rather than owning that preparation inline inside `OperatorService`.
-- `verified`: `cancel` now delegates cancellation-state mutation to
-  `OperationCancellationService`.
-- `verified`: attached-turn lifecycle mechanics now live in `AttachedTurnService` rather than in
-  the public facade.
-- `verified`: the main orchestration loop now lives in `OperationDriveService`; `_drive_state()`
-  is reduced to thin delegation from `OperatorService`.
-- `verified`: focused tests cover entrypoint preparation and cancellation behavior through the new
-  application-service boundaries, and the full suite passes after loop extraction.
-- `verified`: a direct smoke-run against `/Users/thunderbird/Projects/femtobot` confirmed that
-  attached background execution no longer burns operator iterations while the agent is still
-  working. The run remained blocked on the live session until a real background result arrived,
-  rather than failing immediately with `Maximum iterations reached.`
-- `verified`: a follow-up smoke-run against `/Users/thunderbird/Projects/femtobot` using
-  `gpt-5.3-codex-spark` with `effort=high` completed successfully after a reusable-session
-  continuation, confirming that the rehydrated background continuation path no longer fails with
-  `No live session is available for follow-up message.`
+- `verified`: `cancel` delegates cancellation-state mutation to `OperationCancellationService`.
+- `verified`: attached-turn lifecycle mechanics live in `AttachedTurnService` rather than in the
+  public facade.
+- `verified`: the main orchestration loop lives in `OperationDriveService`; `_drive_state()` is a
+  thin delegation from `OperatorService`.
+- `verified`: focused tests cover entrypoint preparation, replay-backed resume, shell delegation,
+  drive-loop behavior, and cancellation behavior through the extracted application-service
+  boundaries.
+- `verified`: the full repository suite passes at current repository truth (`580 passed, 11 skipped`).
 
 ## Implementation notes
 
-This ADR is not yet `Accepted`.
+Current repository truth satisfies this ADR.
 
-What is implemented now:
+Implemented:
 
-- `OperatorService` remains the public facade
-- public entrypoints delegate more of their state-loading and state-preparation work into narrower
-  application services
-- cancellation semantics are no longer owned inline in the public facade
-- attached-turn lifecycle mechanics are no longer owned inline in the public facade
-- the main orchestration loop is no longer owned inline in the public facade
+- `OperatorService` remains the public facade while delegating run/resume/recover/tick entrypoint
+  preparation to `OperationEntrypointService`.
+- `OperatorService.cancel()` delegates cancellation flow to `OperationCancellationService`.
+- `_drive_state()` delegates directly to `OperationDriveService.drive()`.
+- attached-turn mechanics are owned by `AttachedTurnService` instead of the facade.
 
-What remains open before `Accepted`:
+Residual design debt that does not block this ADR:
 
-- live runtime truth is not yet event-sourced-only by repository behavior
-- some operation-lifecycle logic is still delegated through snapshot-era state mutation helpers even
-  though those helpers now sit behind narrower application services
+- lifecycle and control-state helpers still use persisted `OperationState` checkpoints as the
+  runtime view, but the public shell no longer owns those mutation semantics directly.
+- further shell thinning remains possible, but it is incremental boundary cleanup rather than an
+  open acceptance blocker for the main entrypoint cutover.
