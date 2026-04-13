@@ -10,8 +10,10 @@ from agent_operator.domain import (
     OperationCommand,
     OperationCommandType,
     OperationDomainEventDraft,
+    OperationStatus,
     OperatorMessage,
     SchedulerState,
+    StoredOperationDomainEvent,
 )
 from agent_operator.protocols import (
     OperationCheckpointStore,
@@ -33,7 +35,7 @@ class EventSourcedCommandApplicationResult:
 
     applied: bool
     checkpoint: OperationCheckpoint
-    stored_events: list
+    stored_events: list[StoredOperationDomainEvent]
     rejection_reason: str | None = None
 
 
@@ -100,11 +102,27 @@ class EventSourcedCommandApplicationService:
     ) -> tuple[list[OperationDomainEventDraft], str | None]:
         """Validate one command and build outcome event drafts."""
         accepted = self._accepted_event(command)
+        patch_command_types = {
+            OperationCommandType.PATCH_OBJECTIVE,
+            OperationCommandType.PATCH_HARNESS,
+            OperationCommandType.PATCH_SUCCESS_CRITERIA,
+        }
+
+        if command.command_type in patch_command_types and checkpoint.status in {
+            OperationStatus.COMPLETED,
+            OperationStatus.FAILED,
+            OperationStatus.CANCELLED,
+        }:
+            reason = (
+                "operation_terminal: operation is already "
+                f"{checkpoint.status.value}."
+            )
+            return [self._rejected_event(command, reason)], reason
 
         if command.command_type is OperationCommandType.PATCH_OBJECTIVE:
             text = str(command.payload.get("text", "")).strip()
             if not text:
-                reason = "PATCH_OBJECTIVE requires non-empty payload.text."
+                reason = "invalid_payload: PATCH_OBJECTIVE requires non-empty payload.text."
                 return [self._rejected_event(command, reason)], reason
             if checkpoint.objective is None:
                 reason = "Operation checkpoint does not contain objective state."
@@ -127,7 +145,7 @@ class EventSourcedCommandApplicationService:
         if command.command_type is OperationCommandType.PATCH_HARNESS:
             text = str(command.payload.get("text", "")).strip()
             if not text:
-                reason = "PATCH_HARNESS requires non-empty payload.text."
+                reason = "invalid_payload: PATCH_HARNESS requires non-empty payload.text."
                 return [self._rejected_event(command, reason)], reason
             if checkpoint.objective is None:
                 reason = "Operation checkpoint does not contain objective state."
@@ -147,7 +165,10 @@ class EventSourcedCommandApplicationService:
         if command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA:
             raw_criteria = command.payload.get("success_criteria", [])
             if not isinstance(raw_criteria, list):
-                reason = "PATCH_SUCCESS_CRITERIA requires payload.success_criteria to be a list."
+                reason = (
+                    "invalid_payload: PATCH_SUCCESS_CRITERIA requires "
+                    "payload.success_criteria to be a list."
+                )
                 return [self._rejected_event(command, reason)], reason
             if checkpoint.objective is None:
                 reason = "Operation checkpoint does not contain objective state."

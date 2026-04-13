@@ -15,6 +15,7 @@ from agent_operator.domain import (
     OperationCommand,
     OperationCommandType,
     OperationDomainEventDraft,
+    OperationStatus,
 )
 from agent_operator.projectors import DefaultOperationProjector
 from agent_operator.runtime import FileOperationCheckpointStore, FileOperationEventStore
@@ -40,6 +41,29 @@ async def _seed_created_operation(
                     **objective.model_dump(mode="json"),
                     "involvement_level": InvolvementLevel.AUTO.value,
                     "created_at": datetime(2026, 4, 3, tzinfo=UTC).isoformat(),
+                },
+            )
+        ],
+    )
+
+
+async def _append_operation_status(
+    service: EventSourcedCommandApplicationService,
+    operation_id: str,
+    status: OperationStatus,
+    *,
+    final_summary: str,
+) -> None:
+    """Append one terminal status event for command-application tests."""
+    await service._event_store.append(  # noqa: SLF001 - test fixture setup
+        operation_id,
+        1,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.status.changed",
+                payload={
+                    "status": status.value,
+                    "final_summary": final_summary,
                 },
             )
         ],
@@ -107,10 +131,50 @@ async def test_event_sourced_command_application_rejects_invalid_command_via_dom
     result = await service.apply(command)
 
     assert result.applied is False
-    assert result.rejection_reason == "PATCH_OBJECTIVE requires non-empty payload.text."
+    assert (
+        result.rejection_reason
+        == "invalid_payload: PATCH_OBJECTIVE requires non-empty payload.text."
+    )
     assert [event.event_type for event in result.stored_events] == ["command.rejected"]
     assert result.checkpoint.objective is not None
     assert result.checkpoint.objective.objective == "Initial objective"
+
+
+@pytest.mark.anyio
+async def test_event_sourced_command_application_rejects_patch_command_for_terminal_operation(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-terminal-patch"
+    await _seed_created_operation(service, operation_id)
+    await _append_operation_status(
+        service,
+        operation_id,
+        OperationStatus.COMPLETED,
+        final_summary="done",
+    )
+    command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.PATCH_HARNESS,
+        target_scope=CommandTargetScope.OPERATION,
+        payload={"text": "Try to patch a completed operation."},
+    )
+
+    result = await service.apply(command)
+
+    assert result.applied is False
+    assert result.rejection_reason == "operation_terminal: operation is already completed."
+    assert [event.event_type for event in result.stored_events] == ["command.rejected"]
+    assert result.checkpoint.status is OperationStatus.COMPLETED
+    assert result.checkpoint.objective is not None
+    assert result.checkpoint.objective.harness_instructions == "Initial harness"
 
 
 @pytest.mark.anyio
