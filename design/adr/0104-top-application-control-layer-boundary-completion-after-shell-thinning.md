@@ -1,8 +1,12 @@
 # ADR 0104: Top application/control-layer boundary completion after shell thinning
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
 
 ## Context
 
@@ -211,25 +215,36 @@ still authority placement and callback hosting rather than composition tooling.
 - The repository should avoid promoting every extracted collaborator into a top-level architectural
   noun; enduring authorities and smaller capability boundaries must remain distinct.
 - Current repository truth now materially matches this ADR:
-  - `implemented`: `OperationControlStateCoordinator`
-  - `implemented`: `OperationRuntimeContext`
-  - `implemented`: `OperationLifecycleCoordinator`
-  - `implemented`: the former shell-hosted callback and transition glue has largely moved out of
-    `OperatorService`
-  - `verified`: [service.py](../../src/agent_operator/application/service.py) is now down to a
-    shell-sized shape with only `__init__`, `_drive_state`, and `_merge_runtime_flags` as
-    remaining private methods
-  - `partial`: `ADR 0102` itself is still not fully closed, because broader reconcile-driven
-    lifecycle sequencing remains only partially consolidated
-
-## Implementation Status
-
-Implemented
+  - `implemented`: `OperationControlStateCoordinator` exists in
+    [operation_control_state.py](../../src/agent_operator/application/commands/operation_control_state.py)
+    and owns control/checkpoint synchronization concerns such as checkpoint refresh and legacy
+    command-effect persistence
+  - `implemented`: `OperationRuntimeContext` exists in
+    [operation_runtime_context.py](../../src/agent_operator/application/runtime/operation_runtime_context.py)
+    and owns runtime gating/runtime capability projection concerns
+  - `implemented`: `OperationLifecycleCoordinator` exists in
+    [operation_lifecycle.py](../../src/agent_operator/application/operation_lifecycle.py) and owns
+    terminal lifecycle closure and cancellation sequencing
+  - `implemented`: `OperatorService` remains a shell in
+    [service.py](../../src/agent_operator/application/service.py), delegating public entrypoints to
+    entrypoint/drive/cancellation collaborators and keeping only `_drive_state` and
+    `_merge_runtime_flags` as private methods beyond `__init__`
+  - `verified`: [tests/test_operator_service_shell.py](../../tests/test_operator_service_shell.py)
+    asserts that `OperatorService` exposes only `run`, `resume`, `recover`, `tick`, `cancel`, and
+    `answer_question` as public methods and only `_drive_state` and `_merge_runtime_flags` as
+    private methods
+  - `verified`: [tests/test_operation_control_state.py](../../tests/test_operation_control_state.py)
+    exercises canonical control-state persistence through `OperationControlStateCoordinator`
+  - `verified`: [tests/test_operation_lifecycle.py](../../tests/test_operation_lifecycle.py)
+    exercises terminal outcome persistence and event-sourced cancellation through
+    `OperationLifecycleCoordinator`
 
 Skim-safe current truth on 2026-04-12:
 
-- `implemented`: `OperatorService` is a thin shell (295 lines, 8 public methods); `_drive_state`
-  and `_merge_runtime_flags` are its only private methods — no orchestration logic inside
-- `implemented`: ADR 0102 lifecycle sequencing consolidated; reconcile-driven lifecycle fully routed
-  through `OperationLifecycleCoordinator`
-- `verified`: `tests/test_operator_service_shell.py` asserts the shell boundary; full suite green
+- `implemented`: `OperatorService` remains a thin shell with 6 public methods and 2 private
+  methods beyond `__init__`; public entrypoints delegate to entrypoint, drive, cancellation, and
+  brain collaborators
+- `implemented`: `OperationLifecycleCoordinator`, `OperationControlStateCoordinator`, and
+  `OperationRuntimeContext` are all present as explicit application boundaries
+- `verified`: focused tests cover the shell boundary, lifecycle persistence, and control-state
+  coordination; `Verified` remains gated on a green full `uv run pytest` run
