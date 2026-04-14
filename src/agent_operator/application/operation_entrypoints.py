@@ -251,6 +251,9 @@ class OperationEntrypointService:
             }
         ):
             state.current_focus = fallback_state.current_focus.model_copy(deep=True)
+        if not replay_state.checkpoint.tasks and fallback_state.tasks:
+            state.tasks = [item.model_copy(deep=True) for item in fallback_state.tasks]
+            state.objective.root_task_id = fallback_state.objective.root_task_id
         if not state.sessions and fallback_state.sessions:
             state.sessions = [item.model_copy(deep=True) for item in fallback_state.sessions]
         return state

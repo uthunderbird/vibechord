@@ -73,7 +73,13 @@ class OperationControlStateCoordinator:
         state: OperationState,
         checkpoint: OperationCheckpoint,
     ) -> None:
+        existing_tasks = [item.model_copy(deep=True) for item in state.tasks]
+        existing_root_task_id = state.objective.root_task_id
         refreshed = self._operation_state_view_service.from_checkpoint(checkpoint)
+        if not checkpoint.tasks and existing_tasks:
+            refreshed.tasks = existing_tasks
+            if refreshed.objective is not None and existing_root_task_id is not None:
+                refreshed.objective.root_task_id = existing_root_task_id
         refreshed.policy = state.policy.model_copy(deep=True)
         refreshed.policy.involvement_level = refreshed.involvement_level
         refreshed.policy.allowed_agents = list(checkpoint.allowed_agents)

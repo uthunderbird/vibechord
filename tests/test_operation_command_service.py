@@ -64,6 +64,7 @@ from agent_operator.domain import (
     SessionRecord,
     SessionRecordStatus,
     SessionStatus,
+    TaskStatus,
 )
 from agent_operator.projectors import DefaultOperationProjector
 from agent_operator.providers.permission import ProviderBackedPermissionEvaluator
@@ -1485,6 +1486,119 @@ async def test_answer_attention_request_seeds_snapshot_only_attention_before_ans
         "operation.status.changed",
         "attention.request.resolved",
     ]
+
+
+@pytest.mark.anyio
+async def test_answer_attention_request_preserves_existing_root_task_across_checkpoint_refresh(
+    tmp_path: Path,
+) -> None:
+    store = _CountingMemoryStore()
+    inbox = MemoryCommandInbox()
+    event_sink = MemoryEventSink()
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay_service = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_entrypoints = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth_service,
+        event_sourced_replay_service=replay_service,
+    )
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=inbox,
+        event_sourced_operation_birth_service=birth_service,
+        operation_entrypoint_service=operation_entrypoints,
+        event_sourced_command_service=EventSourcedCommandApplicationService(
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            projector=projector,
+        ),
+    )
+
+    operation = OperationState(
+        operation_id="op-answer-preserves-root-task",
+        goal=OperationGoal(objective="preserve the existing root task"),
+        **state_settings(allowed_agents=["claude_acp"]),
+        status=OperationStatus.NEEDS_HUMAN,
+        current_focus=FocusState(
+            kind=FocusKind.ATTENTION_REQUEST,
+            target_id="attention-1",
+            mode=FocusMode.BLOCKING,
+        ),
+        attention_requests=[
+            AttentionRequest(
+                operation_id="op-answer-preserves-root-task",
+                attention_id="attention-1",
+                attention_type=AttentionType.APPROVAL_REQUEST,
+                target_scope=CommandTargetScope.SESSION,
+                target_id="session-1",
+                title="Agent is waiting for approval",
+                question="Approve this exact edit?",
+                context_brief="Session session-1 for task Primary objective",
+                blocking=True,
+                status=AttentionStatus.OPEN,
+            )
+        ],
+    )
+    original_task_id = operation.tasks[0].task_id
+    operation.tasks[0].status = TaskStatus.BLOCKED
+    operation.tasks[0].linked_session_id = "session-1"
+    await store.save_operation(operation)
+    await event_store.append(
+        operation.operation_id,
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    **operation.objective.model_dump(mode="json"),
+                    "allowed_agents": ["claude_acp"],
+                    "involvement_level": operation.involvement_level.value,
+                    "created_at": operation.created_at.isoformat(),
+                },
+            ),
+            OperationDomainEventDraft(
+                event_type="operation.status.changed",
+                payload={"status": OperationStatus.NEEDS_HUMAN.value},
+            ),
+        ],
+    )
+    await replay_service.load(operation.operation_id)
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
+        target_scope=CommandTargetScope.ATTENTION_REQUEST,
+        target_id="attention-1",
+        payload={"text": "Decision: approve."},
+    )
+    await inbox.enqueue(command)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=2),
+    )
+
+    updated = await store.load_operation(operation.operation_id)
+    assert updated is not None
+    assert outcome.status is OperationStatus.COMPLETED
+    assert len(updated.tasks) == 1
+    assert updated.tasks[0].task_id == original_task_id
+    assert updated.tasks[0].linked_session_id == "session-1"
 
 
 @pytest.mark.anyio

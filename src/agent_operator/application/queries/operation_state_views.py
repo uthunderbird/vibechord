@@ -26,16 +26,25 @@ class OperationStateViewService:
 
     def from_checkpoint(self, checkpoint: OperationCheckpoint) -> OperationState:
         """Project one canonical checkpoint into an in-memory operation-state view."""
-        objective_payload = (
-            checkpoint.objective.model_dump(mode="json")
-            if checkpoint.objective is not None
-            else {}
-        )
         goal = OperationGoal(
-            objective=objective_payload.get("objective", ""),
-            harness_instructions=objective_payload.get("harness_instructions"),
-            success_criteria=list(objective_payload.get("success_criteria", [])),
-            metadata=dict(objective_payload.get("metadata", {})),
+            objective=(
+                checkpoint.objective.objective if checkpoint.objective is not None else ""
+            ),
+            harness_instructions=(
+                checkpoint.objective.harness_instructions
+                if checkpoint.objective is not None
+                else None
+            ),
+            success_criteria=(
+                list(checkpoint.objective.success_criteria)
+                if checkpoint.objective is not None
+                else []
+            ),
+            metadata=(
+                dict(checkpoint.objective.metadata)
+                if checkpoint.objective is not None
+                else {}
+            ),
             external_ticket=(
                 checkpoint.external_ticket.model_copy(deep=True)
                 if checkpoint.external_ticket is not None
