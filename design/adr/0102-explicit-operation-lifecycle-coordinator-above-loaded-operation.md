@@ -248,4 +248,7 @@ Skim-safe current truth on 2026-04-12:
 - `implemented`: `OperationLifecycleCoordinator` is the explicit authority for all lifecycle
   transitions — used across `service.py`, `drive/`, `commands/`, `runtime/`, `reconciliation/`
 - `implemented`: reconcile-driven lifecycle sequencing is consolidated through the coordinator
-- `verified`: lifecycle transitions covered in `tests/test_operation_lifecycle.py` and related suites
+- `verified`: lifecycle coordinator transitions are covered directly in
+  `tests/test_operation_lifecycle.py`, with related integration coverage in
+  `tests/test_operation_runtime_reconciliation_service.py`,
+  `tests/test_operation_cancellation_service.py`, and `tests/test_operation_entrypoints.py`
