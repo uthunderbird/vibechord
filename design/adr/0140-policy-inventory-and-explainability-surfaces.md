@@ -2,23 +2,25 @@
 
 - Date: 2026-04-10
 
-## Status
+## Decision Status
 
 Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
-Skim-safe current truth on 2026-04-10:
+Implementation grounding on 2026-04-14:
 
 - `implemented`: `operator policy list`, `operator policy inspect`, `operator policy explain`, and
-  `operator policy projects` already exist as the policy read-side CLI family
+  `operator policy projects` exist as the policy read-side CLI family in
+  `src/agent_operator/cli/commands/policy.py`
 - `implemented`: `policy explain` remains deterministic and separates matched policy entries from
-  skipped policy entries instead of collapsing into generic prose
+  skipped policy entries via explicit CLI payload/rendering helpers in
+  `src/agent_operator/cli/helpers/policy.py` and `src/agent_operator/cli/commands/policy.py`
 - `implemented`: current CLI docs describe the family in `docs/reference/cli.md`
 - `verified`: focused CLI coverage for inventory, inspection, explainability, and project
-  aggregation now exists in `tests/test_policy_cli.py`
+  aggregation exists in `tests/test_policy_cli.py`
 - `partial`: RFC 0014 remains draft, so broader family-example closure beyond this landed slice is
   still incomplete
 
@@ -89,6 +91,7 @@ Tradeoffs:
 
 Current evidence for the landed slice:
 
+- `verified`: `pytest -q tests/test_policy_cli.py` passed on 2026-04-14
 - `verified`: `policy explain` remains deterministic rather than generic prose
 - `verified`: `policy inspect` remains entry-focused
 - `verified`: `policy projects` remains project-aggregation-focused
