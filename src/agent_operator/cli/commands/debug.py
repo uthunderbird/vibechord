@@ -16,7 +16,7 @@ from agent_operator.bootstrap import (
 from agent_operator.domain.control import OperationCommand
 from agent_operator.domain.events import RunEvent
 from agent_operator.domain.operation import ExecutionState, OperationOutcome, WakeupRef
-from agent_operator.domain.traceability import TraceBriefBundle
+from agent_operator.domain.traceability import TraceBriefBundle, TraceRecord
 
 from ..app import app, debug_app
 from ..helpers.rendering import (
@@ -237,6 +237,21 @@ def _trace_brief_bundle_payload(brief: TraceBriefBundle) -> dict[str, object]:
             }
             for item in brief.evaluation_briefs
         ],
+    }
+
+
+def _trace_record_payload(record: TraceRecord) -> dict[str, object]:
+    return {
+        "operation_id": record.operation_id,
+        "iteration": record.iteration,
+        "category": record.category,
+        "title": record.title,
+        "summary": record.summary,
+        "task_id": record.task_id,
+        "session_id": record.session_id,
+        "refs": dict(record.refs),
+        "payload": dict(record.payload),
+        "created_at": record.created_at.isoformat(),
     }
 
 
@@ -527,7 +542,7 @@ def inspect(
             if runtime_alert is not None:
                 payload["runtime_alert"] = runtime_alert
             if full:
-                payload["trace_records"] = [item.model_dump(mode="json") for item in trace_records]
+                payload["trace_records"] = [_trace_record_payload(item) for item in trace_records]
                 payload["decision_memos"] = [item.model_dump(mode="json") for item in memos]
                 payload["events"] = [item.model_dump(mode="json") for item in events]
                 payload["wakeups"] = build_wakeup_inbox(settings).read_all(operation_id)

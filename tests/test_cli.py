@@ -2488,6 +2488,11 @@ def test_inspect_full_json_includes_forensic_arrays(tmp_path: Path, monkeypatch)
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
+    def _fail_trace_record_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect should not serialize TraceRecord directly")
+
+    monkeypatch.setattr(TraceRecord, "model_dump", _fail_trace_record_model_dump)
+
     result = runner.invoke(app, ["inspect", operation_id, "--json", "--full"])
 
     assert result.exit_code == 0
