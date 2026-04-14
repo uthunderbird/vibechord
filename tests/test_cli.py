@@ -17,6 +17,7 @@ import agent_operator.cli.helpers as cli_helpers_pkg
 import agent_operator.cli.workflows as cli_workflows
 from agent_operator.cli.helpers.rendering import render_watch_snapshot
 from agent_operator.cli.main import _format_live_snapshot, app
+from agent_operator.config import load_global_config
 from agent_operator.domain import (
     AgentSessionHandle,
     AgentTurnBrief,
@@ -69,6 +70,7 @@ from agent_operator.runtime import (
     FileTraceStore,
     FileWakeupInbox,
     JsonlEventSink,
+    discover_projects,
 )
 
 runner = CliRunner()
@@ -1950,6 +1952,89 @@ def test_fleet_json_can_filter_by_project(tmp_path: Path, monkeypatch) -> None:
     assert '"operation_id": "op-agenda-paused"' in result.stdout
     assert '"operation_id": "op-agenda-active"' not in result.stdout
     assert '"control_hints"' in result.stdout
+
+
+def test_discover_projects_skips_hidden_dirs_symlinks_and_nested_projects(tmp_path: Path) -> None:
+    root = tmp_path / "roots"
+    alpha = root / "alpha"
+    nested = alpha / "nested"
+    hidden = root / ".hidden" / "ghost"
+    symlink_target = tmp_path / "external-target"
+    symlink_path = root / "linked"
+
+    (alpha / ".operator").mkdir(parents=True)
+    (nested / ".operator").mkdir(parents=True)
+    (hidden / ".operator").mkdir(parents=True)
+    (symlink_target / ".operator").mkdir(parents=True)
+    symlink_path.symlink_to(symlink_target, target_is_directory=True)
+
+    discovered = discover_projects([root], max_depth=3)
+
+    assert discovered == [alpha.resolve()]
+
+
+def test_list_aggregates_across_configured_project_roots(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    fleet_root = tmp_path / "projects"
+    alpha = fleet_root / "alpha"
+    beta = fleet_root / "beta"
+    alpha.mkdir(parents=True)
+    beta.mkdir(parents=True)
+    (alpha / "operator-profile.yaml").write_text("name: alpha\n", encoding="utf-8")
+    _seed_agenda_operations(alpha / ".operator")
+    _seed_agenda_operations(beta / ".operator")
+    config_path.write_text(f"project_roots:\n  - {fleet_root}\n", encoding="utf-8")
+    monkeypatch.setenv("OPERATOR_GLOBAL_CONFIG", str(config_path))
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["list", "--json"])
+
+    assert result.exit_code == 0
+    assert result.stdout.count('"operation_id": "op-agenda-blocked"') == 2
+    assert '"project": "alpha"' in result.stdout
+    assert '"project": "beta"' in result.stdout
+
+
+def test_fleet_first_run_prompt_accepts_and_writes_parent_roots(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    project_parent = home / "Projects"
+    project_root = project_parent / "alpha"
+    monkeypatch.setenv("OPERATOR_GLOBAL_CONFIG", str(config_path))
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    project_root.mkdir(parents=True)
+    (project_root / ".operator").mkdir()
+    (project_root / "operator-profile.yaml").write_text("name: alpha\n", encoding="utf-8")
+    monkeypatch.setattr("agent_operator.cli.workflows.views.Path.home", staticmethod(lambda: home))
+
+    result = runner.invoke(app, ["fleet", "--once"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "Found 1 projects with operator data:" in result.stdout
+    assert load_global_config(config_path).project_roots == [project_parent.resolve()]
+
+
+def test_fleet_discover_add_writes_parent_roots(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    home = tmp_path / "home"
+    project_parent = home / "Projects"
+    project_root = project_parent / "alpha"
+    project_root.mkdir(parents=True)
+    (project_root / ".operator").mkdir()
+    monkeypatch.setenv("OPERATOR_GLOBAL_CONFIG", str(config_path))
+    monkeypatch.setattr("agent_operator.cli.workflows.views.Path.home", staticmethod(lambda: home))
+
+    result = runner.invoke(app, ["fleet", "--discover", "--add", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["added"] is True
+    assert payload["discovered_projects"] == [str(project_root.resolve())]
+    assert load_global_config(config_path).project_roots == [project_parent.resolve()]
 
 
 def test_default_help_hides_debug_commands(tmp_path: Path, monkeypatch) -> None:

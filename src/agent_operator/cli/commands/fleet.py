@@ -53,7 +53,33 @@ def fleet(
         help="Include recent terminal operations even when actionable work exists.",
     ),
     once: bool = typer.Option(False, "--once", help="Render a single fleet snapshot and exit."),
+    discover: bool = typer.Option(
+        False,
+        "--discover",
+        help="Scan configured roots for projects instead of rendering the fleet view.",
+    ),
+    depth: int | None = typer.Option(
+        None,
+        "--depth",
+        min=0,
+        help="Discovery scan depth. Defaults to 4 for configured roots, 3 for first-run home scan.",
+    ),
+    add: bool = typer.Option(
+        False,
+        "--add",
+        help="Persist discovered project parent roots into global config.",
+    ),
     json_mode: bool = typer.Option(False, "--json", help="Emit a machine-readable fleet snapshot."),
     poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
 ) -> None:
-    anyio.run(fleet_async, project, include_all, once, json_mode, poll_interval)
+    anyio.run(
+        fleet_async,
+        project,
+        include_all,
+        once,
+        json_mode,
+        poll_interval,
+        discover,
+        depth,
+        add,
+    )

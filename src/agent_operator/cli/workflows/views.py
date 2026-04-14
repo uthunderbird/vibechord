@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -20,10 +22,16 @@ from agent_operator.bootstrap import (
     build_wakeup_inbox,
 )
 from agent_operator.cli.tui import build_fleet_workbench_controller, run_fleet_workbench
+from agent_operator.config import OperatorSettings, load_global_config
 from agent_operator.domain import CommandTargetScope, OperationCommandType, OperationStatus
 from agent_operator.runtime import (
     AgendaSnapshot,
+    add_project_root_parents,
+    build_agenda_item,
+    build_agenda_snapshot,
     discover_local_project_profile,
+    discover_projects,
+    discover_workspace_root,
     find_codex_session_log,
     format_claude_log_event,
     format_codex_log_event,
@@ -31,6 +39,7 @@ from agent_operator.runtime import (
     iter_codex_log_events,
     load_claude_log_events,
     load_codex_log_events,
+    project_name_for_root,
     resolve_project_run_config,
 )
 
@@ -45,12 +54,10 @@ from ..helpers.logs import (
 from ..helpers.rendering import (
     build_runtime_alert,
     cli_projection_payload,
-    latest_agent_turn_brief,
     render_fleet_dashboard,
     render_operation_list_line,
     render_project_dashboard,
     shorten_live_text,
-    turn_work_summary,
 )
 from ..helpers.resolution import (
     resolve_history_entry,
@@ -58,7 +65,6 @@ from ..helpers.resolution import (
     resolve_project_profile_selection,
 )
 from ..helpers.services import (
-    build_agenda_query_service,
     build_delivery_commands_service,
     build_fleet_workbench_query_service,
     build_operation_dashboard_query_service,
@@ -92,20 +98,201 @@ def _build_enqueued_command_message(
     return message
 
 
-async def _load_agenda_snapshot(
+def _settings_for_data_dir(settings: OperatorSettings, data_dir: Path) -> OperatorSettings:
+    scoped = settings.model_copy(deep=True)
+    scoped.data_dir = data_dir
+    return scoped
+
+
+def _iter_fleet_project_scopes(
+    *, settings: OperatorSettings
+) -> list[tuple[Path | None, Path, str | None]]:
+    configured_roots = load_global_config().project_roots
+    if configured_roots:
+        return [
+            (project_root, project_root / ".operator", project_name_for_root(project_root))
+            for project_root in discover_projects(list(configured_roots))
+        ]
+    return [(None, Path(settings.data_dir), None)]
+
+
+def _matches_fleet_project_name(
+    *,
+    requested: str | None,
+    discovered_name: str,
+    operation_project_name: str | None,
+) -> bool:
+    if requested is None:
+        return True
+    if discovered_name == requested:
+        return True
+    return operation_project_name == requested
+
+
+async def _load_multi_project_agenda_snapshot(
     *, project: str | None, include_all: bool
 ) -> AgendaSnapshot:
     settings = load_settings()
-    service = build_agenda_query_service(settings)
-    return await service.load_snapshot(project=project, include_recent=include_all)
+    items = []
+    for _project_root, data_dir, discovered_project_name in _iter_fleet_project_scopes(
+        settings=settings
+    ):
+        project_settings = _settings_for_data_dir(settings, data_dir)
+        store = build_store(project_settings)
+        trace_store = build_trace_store(project_settings)
+        inbox = build_wakeup_inbox(project_settings)
+        supervisor = build_background_run_inspection_store(project_settings)
+        for summary in await store.list_operations():
+            wakeups = inbox.read_all(summary.operation_id)
+            background_runs = [
+                item.model_dump(mode="json")
+                for item in await supervisor.list_runs(summary.operation_id)
+            ]
+            runtime_alert = build_runtime_alert(
+                status=summary.status,
+                wakeups=wakeups,
+                background_runs=background_runs,
+            )
+            operation = await store.load_operation(summary.operation_id)
+            if operation is None:
+                continue
+            brief_bundle = await trace_store.load_brief_bundle(summary.operation_id)
+            brief = brief_bundle.operation_brief if brief_bundle is not None else None
+            item = build_agenda_item(
+                operation,
+                summary,
+                brief=brief,
+                runtime_alert=runtime_alert,
+            )
+            if discovered_project_name is not None:
+                item.project_profile_name = item.project_profile_name or discovered_project_name
+            if _matches_fleet_project_name(
+                requested=project,
+                discovered_name=discovered_project_name or "",
+                operation_project_name=item.project_profile_name,
+            ):
+                items.append(item)
+    return build_agenda_snapshot(items, include_recent=include_all)
+
+
+async def _iter_list_payloads() -> list[tuple[dict[str, object], str]]:
+    settings = load_settings()
+    rows: list[tuple[dict[str, object], str, datetime]] = []
+    for _, data_dir, discovered_project_name in _iter_fleet_project_scopes(settings=settings):
+        project_settings = _settings_for_data_dir(settings, data_dir)
+        store = build_store(project_settings)
+        trace_store = build_trace_store(project_settings)
+        inbox = build_wakeup_inbox(project_settings)
+        supervisor = build_background_run_inspection_store(project_settings)
+        for summary in await store.list_operations():
+            wakeups = inbox.read_all(summary.operation_id)
+            background_runs = [
+                item.model_dump(mode="json")
+                for item in await supervisor.list_runs(summary.operation_id)
+            ]
+            runtime_alert = build_runtime_alert(
+                status=summary.status,
+                wakeups=wakeups,
+                background_runs=background_runs,
+            )
+            brief_bundle = await trace_store.load_brief_bundle(summary.operation_id)
+            if brief_bundle is not None and brief_bundle.operation_brief is not None:
+                payload = brief_bundle.operation_brief.model_dump(mode="json")
+                payload["project"] = (
+                    payload.get("project_profile_name") or discovered_project_name
+                )
+                if runtime_alert is not None:
+                    payload["runtime_alert"] = runtime_alert
+                rows.append((payload, str(payload["project"] or ""), summary.updated_at))
+                continue
+            payload = summary.model_dump(mode="json")
+            payload["project"] = discovered_project_name
+            if runtime_alert is not None:
+                payload["runtime_alert"] = runtime_alert
+            rows.append((payload, str(discovered_project_name or ""), summary.updated_at))
+    rows.sort(key=lambda item: (-item[2].timestamp(), str(item[0].get("operation_id") or "")))
+    return [(payload, project_name) for payload, project_name, _ in rows]
+
+
+async def _load_agenda_snapshot(
+    *, project: str | None, include_all: bool
+) -> AgendaSnapshot:
+    return await _load_multi_project_agenda_snapshot(project=project, include_all=include_all)
 
 
 async def _load_fleet_workbench_payload(
     *, project: str | None, include_all: bool
 ) -> dict[str, object]:
     settings = load_settings()
+    if load_global_config().project_roots:
+        service = build_fleet_workbench_query_service(settings)
+        return service.projection_service.build_fleet_workbench_payload(
+            await _load_multi_project_agenda_snapshot(project=project, include_all=include_all),
+            project=project,
+        )
     service = build_fleet_workbench_query_service(settings)
     return await service.load_payload(project=project, include_recent=include_all)
+
+
+def _local_workspace_has_operator_data() -> bool:
+    return (discover_workspace_root() / ".operator").is_dir()
+
+
+def _default_discovery_roots() -> list[Path]:
+    configured_roots = load_global_config().project_roots
+    if configured_roots:
+        return list(configured_roots)
+    return [Path.home()]
+
+
+def _default_discovery_depth() -> int:
+    if load_global_config().project_roots:
+        return 4
+    return 3
+
+
+def _render_discovered_projects(projects: Iterable[Path]) -> list[str]:
+    return [str(path.expanduser()) for path in projects]
+
+
+def _maybe_run_first_time_fleet_discovery(*, json_mode: bool) -> list[Path]:
+    global_config = load_global_config()
+    if global_config.project_roots or _local_workspace_has_operator_data() or json_mode:
+        return []
+    discovered = discover_projects([Path.home()], max_depth=3)
+    if not discovered:
+        return []
+    typer.echo(f"Found {len(discovered)} projects with operator data:")
+    for project_path in _render_discovered_projects(discovered):
+        typer.echo(f"  {project_path}")
+    if typer.confirm("Add them to your fleet view?", default=True):
+        add_project_root_parents(discovered)
+    return discovered
+
+
+async def fleet_discover_async(*, json_mode: bool, depth: int, add: bool) -> None:
+    discovered = discover_projects(_default_discovery_roots(), max_depth=depth)
+    if add:
+        config, changed = add_project_root_parents(discovered)
+    else:
+        config = load_global_config()
+        changed = False
+    payload = {
+        "discovered_projects": [str(path) for path in discovered],
+        "project_roots": [str(path) for path in config.project_roots],
+        "added": changed,
+    }
+    if json_mode:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+    if not discovered:
+        typer.echo("No projects discovered.")
+        return
+    typer.echo("Discovered projects:")
+    for project_path in discovered:
+        typer.echo(f"- {project_path}")
+    if add:
+        typer.echo(f"Updated project roots: {len(config.project_roots)}")
 
 
 async def has_any_operations_async() -> bool:
@@ -114,81 +301,72 @@ async def has_any_operations_async() -> bool:
 
 
 async def list_async(json_mode: bool) -> None:
-    settings = load_settings()
-    store = build_store(settings)
-    trace_store = build_trace_store(settings)
-    inbox = build_wakeup_inbox(settings)
-    supervisor = build_background_run_inspection_store(settings)
-    for summary in await store.list_operations():
-        wakeups = inbox.read_all(summary.operation_id)
-        background_runs = [
-            item.model_dump(mode="json")
-            for item in await supervisor.list_runs(summary.operation_id)
-        ]
-        runtime_alert = build_runtime_alert(
-            status=summary.status, wakeups=wakeups, background_runs=background_runs
-        )
-        brief = await trace_store.load_brief_bundle(summary.operation_id)
-        if brief is not None and brief.operation_brief is not None:
-            if json_mode:
-                payload = brief.operation_brief.model_dump(mode="json")
-                if runtime_alert is not None:
-                    payload["runtime_alert"] = runtime_alert
-                typer.echo(json.dumps(payload, ensure_ascii=False))
-            else:
-                operation_brief = brief.operation_brief
-                latest_turn = latest_agent_turn_brief(brief)
-                focus = (
-                    shorten_live_text(operation_brief.focus_brief, limit=28)
-                    if operation_brief.focus_brief
-                    else None
-                )
-                latest = shorten_live_text(
-                    turn_work_summary(latest_turn) or operation_brief.latest_outcome_brief, limit=56
-                )
-                blocker = shorten_live_text(operation_brief.blocker_brief, limit=48)
-                scheduler = (
-                    operation_brief.scheduler_state.value
-                    if operation_brief.scheduler_state.value != "active"
-                    else None
-                )
-                involvement = (
-                    operation_brief.involvement_level.value
-                    if operation_brief.involvement_level.value != "auto"
-                    else None
-                )
-                typer.echo(
-                    render_operation_list_line(
-                        operation_brief.operation_id,
-                        operation_brief.status.value,
-                        objective=operation_brief.objective_brief,
-                        focus=focus,
-                        latest=latest,
-                        blocker=blocker,
-                        runtime_alert=shorten_live_text(runtime_alert, limit=48),
-                        scheduler=scheduler,
-                        involvement=involvement,
-                    )
-                )
-            continue
-        payload = summary.model_dump(mode="json")
-        if runtime_alert is not None:
-            payload["runtime_alert"] = runtime_alert
+    for payload, project_name in await _iter_list_payloads():
         if json_mode:
             typer.echo(json.dumps(payload, ensure_ascii=False))
-        else:
+            continue
+        if "objective_brief" in payload:
+            focus_raw = payload.get("focus_brief")
+            latest_raw = payload.get("latest_outcome_brief")
+            blocker_raw = payload.get("blocker_brief")
+            scheduler_raw = payload.get("scheduler_state")
+            involvement_raw = payload.get("involvement_level")
+            runtime_alert = payload.get("runtime_alert")
+            objective_brief = str(payload.get("objective_brief") or "")
+            objective = objective_brief
+            if project_name:
+                objective = f"[{project_name}] {objective_brief}"
             typer.echo(
                 render_operation_list_line(
-                    summary.operation_id,
-                    summary.status.value,
-                    objective=shorten_live_text(summary.objective_prompt, limit=96)
-                    or summary.objective_prompt,
-                    focus=shorten_live_text(summary.focus, limit=28),
-                    latest=shorten_live_text(summary.final_summary, limit=56),
-                    blocker=None,
-                    runtime_alert=shorten_live_text(runtime_alert, limit=48),
+                    str(payload.get("operation_id") or ""),
+                    str(payload.get("status") or "unknown"),
+                    objective=objective,
+                    focus=shorten_live_text(str(focus_raw), limit=28) if focus_raw else None,
+                    latest=shorten_live_text(
+                        str(latest_raw),
+                        limit=56,
+                    )
+                    if latest_raw
+                    else None,
+                    blocker=shorten_live_text(str(blocker_raw), limit=48) if blocker_raw else None,
+                    runtime_alert=shorten_live_text(str(runtime_alert), limit=48)
+                    if runtime_alert
+                    else None,
+                    scheduler=(
+                        str(scheduler_raw)
+                        if scheduler_raw and scheduler_raw != "active"
+                        else None
+                    ),
+                    involvement=(
+                        str(involvement_raw)
+                        if involvement_raw and involvement_raw != "auto"
+                        else None
+                    ),
                 )
             )
+            continue
+        runtime_alert = payload.get("runtime_alert")
+        objective_prompt = str(payload.get("objective_prompt") or "")
+        objective = objective_prompt
+        if project_name:
+            objective = f"[{project_name}] {objective_prompt}"
+        typer.echo(
+            render_operation_list_line(
+                str(payload.get("operation_id") or ""),
+                str(payload.get("status") or "unknown"),
+                objective=shorten_live_text(objective, limit=96) or objective,
+                focus=shorten_live_text(str(payload.get("focus")), limit=28)
+                if payload.get("focus")
+                else None,
+                latest=shorten_live_text(str(payload.get("final_summary")), limit=56)
+                if payload.get("final_summary")
+                else None,
+                blocker=None,
+                runtime_alert=shorten_live_text(str(runtime_alert), limit=48)
+                if runtime_alert
+                else None,
+            )
+        )
 
 
 async def history_async(operation_ref: str | None, json_mode: bool) -> None:
@@ -270,8 +448,23 @@ async def _compat_fleet_tui_async(
 
 
 async def fleet_async(
-    project: str | None, include_all: bool, once: bool, json_mode: bool, poll_interval: float
+    project: str | None,
+    include_all: bool,
+    once: bool,
+    json_mode: bool,
+    poll_interval: float,
+    discover: bool = False,
+    depth: int | None = None,
+    add: bool = False,
 ) -> None:
+    if discover:
+        await fleet_discover_async(
+            json_mode=json_mode,
+            depth=depth if depth is not None else _default_discovery_depth(),
+            add=add,
+        )
+        return
+    _maybe_run_first_time_fleet_discovery(json_mode=json_mode)
     if sys.stdout.isatty() and sys.stdin.isatty() and not once and not json_mode:
         await _compat_fleet_tui_async(project, include_all, poll_interval)
         return

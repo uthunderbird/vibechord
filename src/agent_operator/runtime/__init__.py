@@ -30,6 +30,11 @@ from agent_operator.runtime.event_sourcing import (
 )
 from agent_operator.runtime.events import JsonlEventSink, ProjectingEventSink
 from agent_operator.runtime.facts import FileFactStore
+from agent_operator.runtime.fleet import (
+    add_project_root_parents,
+    discover_projects,
+    project_name_for_root,
+)
 from agent_operator.runtime.history import FileOperationHistoryLedger, HistoryLedgerEntry
 from agent_operator.runtime.policies import FilePolicyStore
 from agent_operator.runtime.profiles import (
@@ -89,12 +94,14 @@ __all__ = [
     "agenda_matches_project",
     "apply_effective_adapter_settings_snapshot",
     "apply_project_profile_settings",
+    "add_project_root_parents",
     "clear_project_operator_state",
     "committed_default_profile_path",
     "committed_profile_dir",
     "build_agenda_item",
     "build_agenda_snapshot",
     "discover_local_project_profile",
+    "discover_projects",
     "discover_workspace_root",
     "find_codex_session_log",
     "format_claude_log_event",
@@ -109,6 +116,7 @@ __all__ = [
     "load_project_profile",
     "load_project_profile_from_path",
     "prepare_operator_settings",
+    "project_name_for_root",
     "profile_path",
     "profile_dir",
     "resolve_operator_data_dir",
