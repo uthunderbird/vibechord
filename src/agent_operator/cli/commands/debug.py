@@ -14,7 +14,7 @@ from agent_operator.bootstrap import (
     build_wakeup_inbox,
 )
 from agent_operator.domain.events import RunEvent
-from agent_operator.domain.operation import WakeupRef
+from agent_operator.domain.operation import ExecutionState, WakeupRef
 
 from ..app import app, debug_app
 from ..helpers.rendering import (
@@ -61,6 +61,57 @@ def _run_event_payload(event: RunEvent) -> dict[str, object]:
         "timestamp": event.timestamp.isoformat(),
         "not_before": event.not_before.isoformat() if event.not_before is not None else None,
         "payload": dict(event.payload),
+    }
+
+
+def _execution_payload(execution: ExecutionState) -> dict[str, object]:
+    return {
+        "run_id": execution.run_id,
+        "operation_id": execution.operation_id,
+        "adapter_key": execution.adapter_key,
+        "session_id": execution.session_id,
+        "task_id": execution.task_id,
+        "iteration": execution.iteration,
+        "mode": execution.mode.value,
+        "launch_kind": execution.launch_kind.value,
+        "status": execution.status.value,
+        "observed_state": execution.observed_state.value,
+        "waiting_reason": execution.waiting_reason,
+        "handle_ref": (
+            {
+                "kind": execution.handle_ref.kind,
+                "value": execution.handle_ref.value,
+                "metadata": dict(execution.handle_ref.metadata),
+            }
+            if execution.handle_ref is not None
+            else None
+        ),
+        "progress": (
+            {
+                "state": execution.progress.state.value,
+                "message": execution.progress.message,
+                "updated_at": execution.progress.updated_at.isoformat(),
+                "partial_output": execution.progress.partial_output,
+                "last_event_at": (
+                    execution.progress.last_event_at.isoformat()
+                    if execution.progress.last_event_at is not None
+                    else None
+                ),
+            }
+            if execution.progress is not None
+            else None
+        ),
+        "result_ref": execution.result_ref,
+        "error_ref": execution.error_ref,
+        "pid": execution.pid,
+        "started_at": execution.started_at.isoformat(),
+        "last_heartbeat_at": (
+            execution.last_heartbeat_at.isoformat()
+            if execution.last_heartbeat_at is not None
+            else None
+        ),
+        "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
+        "raw_ref": execution.raw_ref,
     }
 
 
@@ -254,7 +305,7 @@ def sessions(
                     {
                         "operation_id": operation_id,
                         "sessions": session_views,
-                        "background_runs": [item.model_dump(mode="json") for item in runs],
+                        "background_runs": [_execution_payload(item) for item in runs],
                     },
                     indent=2,
                     ensure_ascii=False,

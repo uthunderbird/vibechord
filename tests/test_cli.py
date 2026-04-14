@@ -3308,6 +3308,7 @@ def test_sessions_json_derives_live_progress_without_overlaying_session_models(
     monkeypatch,
 ) -> None:
     import agent_operator.cli.helpers.rendering as rendering_helpers
+    from agent_operator.domain.operation import ExecutionState
 
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -3317,27 +3318,31 @@ def test_sessions_json_derives_live_progress_without_overlaying_session_models(
     persisted.sessions[0].current_execution_id = "run-1"
     anyio.run(store.save_operation, persisted)
 
+    def _fail_execution_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug sessions should not serialize ExecutionState directly")
+
+    monkeypatch.setattr(ExecutionState, "model_dump", _fail_execution_model_dump)
+
     class _FakeSupervisor:
         async def list_runs(self, requested_operation_id: str):
             assert requested_operation_id == operation_id
             return [
-                SimpleNamespace(
-                    run_id="run-1",
-                    adapter_key="codex_acp",
-                    session_id="session-1",
-                    status=SimpleNamespace(value="running"),
-                    progress=SimpleNamespace(
-                        updated_at=datetime(2026, 4, 14, 12, 5, tzinfo=UTC),
-                        last_event_at=datetime(2026, 4, 14, 12, 6, tzinfo=UTC),
-                        message="Applying the next repository slice.",
-                        partial_output="Touched planning notes.",
-                    ),
-                    model_dump=lambda mode="json": {
-                        "run_id": "run-1",
+                ExecutionState.model_validate(
+                    {
+                        "execution_id": "run-1",
+                        "operation_id": operation_id,
                         "adapter_key": "codex_acp",
                         "session_id": "session-1",
-                        "status": "running",
-                    },
+                        "observed_state": "running",
+                        "started_at": "2026-04-14T12:00:00+00:00",
+                        "progress": {
+                            "state": "running",
+                            "updated_at": "2026-04-14T12:05:00+00:00",
+                            "last_event_at": "2026-04-14T12:06:00+00:00",
+                            "message": "Applying the next repository slice.",
+                            "partial_output": "Touched planning notes.",
+                        },
+                    }
                 )
             ]
 
@@ -3352,6 +3357,7 @@ def test_sessions_json_derives_live_progress_without_overlaying_session_models(
     assert not hasattr(rendering_helpers, "overlay_live_background_progress")
     payload = json.loads(result.stdout)
     assert payload["background_runs"][0]["run_id"] == "run-1"
+    assert payload["background_runs"][0]["status"] == "running"
     assert payload["sessions"][0]["session_id"] == "session-1"
     assert payload["sessions"][0]["live_progress_message"] == "Applying the next repository slice."
     assert payload["sessions"][0]["live_progress_partial_output"] == "Touched planning notes."
