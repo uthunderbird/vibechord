@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import ast
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
-from agent_operator.cli.workflows.run_support import finalize_startup_failure
+from agent_operator.cli.workflows.run_support import (
+    finalize_startup_failure,
+    run_with_startup_failure_handling,
+)
 from agent_operator.domain import (
     ExecutionBudget,
     InvolvementLevel,
@@ -13,6 +18,7 @@ from agent_operator.domain import (
     OperationPolicy,
     OperationState,
     OperationStatus,
+    RunOptions,
     RuntimeHints,
     TaskStatus,
 )
@@ -69,6 +75,19 @@ class _Service:
     def __init__(self, store: _MemoryStore, coordinator: _LifecycleCoordinator) -> None:
         self._store = store
         self._operation_lifecycle_coordinator = coordinator
+
+    async def run(self, *args, **kwargs) -> OperationOutcome:
+        raise RuntimeError("Operation failed during startup.")
+
+
+CONTROL_WORKFLOW_FILE = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "agent_operator"
+    / "cli"
+    / "workflows"
+    / "control.py"
+)
 
 
 @pytest.mark.anyio
@@ -127,3 +146,63 @@ async def test_finalize_startup_failure_does_not_overwrite_completed_operation()
     assert persisted.final_summary == "Attached turn completed successfully."
     assert coordinator.calls == []
     assert store.outcomes == {}
+
+
+@pytest.mark.anyio
+async def test_run_startup_failure_wrapper_uses_lifecycle_coordinator_path() -> None:
+    store = _MemoryStore()
+    coordinator = _LifecycleCoordinator(store)
+    service = _Service(store, coordinator)
+    state = OperationState(
+        operation_id="op-run-startup-fail",
+        goal=OperationGoal(objective="Launch run."),
+        status=OperationStatus.RUNNING,
+        **_state_settings(),
+    )
+    await store.save_operation(state)
+
+    with pytest.raises(RuntimeError, match="Operation failed during startup."):
+        await run_with_startup_failure_handling(
+            service=service,
+            goal=state.goal,
+            policy=state.policy,
+            budget=state.execution_budget,
+            runtime_hints=state.runtime_hints,
+            options=RunOptions(),
+            operation_id=state.operation_id,
+            attached_sessions=None,
+        )
+
+    persisted = await store.load_operation(state.operation_id)
+    assert persisted is not None
+    assert persisted.status is OperationStatus.FAILED
+    assert persisted.tasks[0].status is TaskStatus.FAILED
+    assert coordinator.calls == ["mark_failed", "finalize_outcome"]
+    assert store.outcomes[state.operation_id].summary == "Operation failed during startup."
+
+
+def test_control_run_async_delegates_startup_failure_handling_without_direct_persistence() -> None:
+    source = CONTROL_WORKFLOW_FILE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    run_async = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "run_async"
+    )
+
+    helper_calls = [
+        child
+        for child in ast.walk(run_async)
+        if isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Name)
+        and child.func.id == "run_with_startup_failure_handling"
+    ]
+    direct_persistence = [
+        child.lineno
+        for child in ast.walk(run_async)
+        if isinstance(child, ast.Attribute)
+        and child.attr in {"save_operation", "save_outcome"}
+    ]
+
+    assert len(helper_calls) == 1
+    assert direct_persistence == []

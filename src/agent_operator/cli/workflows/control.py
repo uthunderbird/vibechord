@@ -74,7 +74,7 @@ from .converse import (
 from .converse import (
     converse_async as converse_loop_async,
 )
-from .run_support import finalize_startup_failure
+from .run_support import run_with_startup_failure_handling
 
 if TYPE_CHECKING:
     from agent_operator.application import OperatorService
@@ -202,6 +202,75 @@ async def _execute_converse_command(command: ConverseCommand) -> None:
     raise RuntimeError(f"Unsupported converse command: {command.command_name}")
 
 
+def _build_run_goal_metadata(
+    *,
+    settings: OperatorSettings,
+    resolved,
+    data_dir_source: str | None,
+    profile,
+    selected_profile_path: Path | None,
+    profile_source: str | None,
+    from_ticket: str | None,
+    intake_result,
+    objective: str | None,
+    attach_session: str | None,
+    attach_agent: str | None,
+    attach_name: str | None,
+    attach_working_dir: Path | None,
+) -> tuple[list[AgentSessionHandle], dict[str, object]]:
+    attached_sessions: list[AgentSessionHandle] = []
+    goal_metadata: dict[str, object] = {}
+    if attach_session is not None:
+        if attach_agent is None:
+            raise typer.BadParameter("--attach-agent is required when --attach-session is used.")
+        session_metadata: dict[str, str] = {}
+        effective_attach_working_dir = attach_working_dir or resolved.cwd
+        if effective_attach_working_dir is not None:
+            session_metadata["working_directory"] = str(effective_attach_working_dir)
+        attached_sessions.append(
+            AgentSessionHandle(
+                adapter_key=attach_agent,
+                session_id=attach_session,
+                session_name=attach_name,
+                metadata=session_metadata,
+            )
+        )
+        goal_metadata["requires_same_agent_session"] = True
+        goal_metadata["attached_session_ids"] = [attach_session]
+    effective_working_dir = attach_working_dir or resolved.cwd
+    if effective_working_dir is not None:
+        goal_metadata["working_directory"] = str(effective_working_dir)
+    if intake_result is not None:
+        goal_metadata["external_ticket_ref"] = from_ticket
+        if objective is not None:
+            goal_metadata["external_ticket_context"] = intake_result.goal_text
+    goal_metadata["resolved_operator_launch"] = {
+        "data_dir": str(settings.data_dir),
+        "data_dir_source": data_dir_source,
+        "profile_source": profile_source,
+        "profile_path": str(selected_profile_path) if selected_profile_path is not None else None,
+    }
+    if profile is not None:
+        goal_metadata["project_profile_name"] = profile.name
+        goal_metadata["policy_scope"] = f"profile:{profile.name}"
+        goal_metadata["effective_adapter_settings"] = snapshot_effective_adapter_settings(
+            settings,
+            adapter_keys=resolved.default_agents,
+        )
+        goal_metadata["resolved_project_profile"] = resolved.model_dump(mode="json")
+        ticket_reporting = getattr(profile, "ticket_reporting", None)
+        if ticket_reporting is not None and hasattr(ticket_reporting, "model_dump"):
+            goal_metadata["ticket_reporting"] = ticket_reporting.model_dump(mode="json")
+        if selected_profile_path is not None:
+            goal_metadata["project_profile_path"] = str(selected_profile_path)
+        if profile_source is not None:
+            goal_metadata["project_profile_source"] = profile_source
+        goal_metadata["data_dir_source"] = data_dir_source
+    elif resolved.cwd is not None:
+        goal_metadata["policy_scope"] = f"cwd:{resolved.cwd}"
+    return attached_sessions, goal_metadata
+
+
 async def run_async(
     objective: str | None,
     from_ticket: str | None,
@@ -270,56 +339,21 @@ async def run_async(
     operation_id = str(uuid4())
     projector = CliEventProjector(json_mode=json_mode)
     service = build_projected_service(settings, operation_id=operation_id, projector=projector)
-    attached_sessions = []
-    goal_metadata: dict[str, object] = {}
-    if attach_session is not None:
-        if attach_agent is None:
-            raise typer.BadParameter("--attach-agent is required when --attach-session is used.")
-        session_metadata: dict[str, str] = {}
-        effective_attach_working_dir = attach_working_dir or resolved.cwd
-        if effective_attach_working_dir is not None:
-            session_metadata["working_directory"] = str(effective_attach_working_dir)
-        attached_sessions.append(
-            AgentSessionHandle(
-                adapter_key=attach_agent,
-                session_id=attach_session,
-                session_name=attach_name,
-                metadata=session_metadata,
-            )
-        )
-        goal_metadata["requires_same_agent_session"] = True
-        goal_metadata["attached_session_ids"] = [attach_session]
-    effective_working_dir = attach_working_dir or resolved.cwd
-    if effective_working_dir is not None:
-        goal_metadata["working_directory"] = str(effective_working_dir)
-    if intake_result is not None:
-        goal_metadata["external_ticket_ref"] = from_ticket
-        if objective is not None:
-            goal_metadata["external_ticket_context"] = intake_result.goal_text
-    goal_metadata["resolved_operator_launch"] = {
-        "data_dir": str(settings.data_dir),
-        "data_dir_source": data_dir_source,
-        "profile_source": profile_source,
-        "profile_path": str(selected_profile_path) if selected_profile_path is not None else None,
-    }
-    if profile is not None:
-        goal_metadata["project_profile_name"] = profile.name
-        goal_metadata["policy_scope"] = f"profile:{profile.name}"
-        goal_metadata["effective_adapter_settings"] = snapshot_effective_adapter_settings(
-            settings,
-            adapter_keys=resolved.default_agents,
-        )
-        goal_metadata["resolved_project_profile"] = resolved.model_dump(mode="json")
-        ticket_reporting = getattr(profile, "ticket_reporting", None)
-        if ticket_reporting is not None and hasattr(ticket_reporting, "model_dump"):
-            goal_metadata["ticket_reporting"] = ticket_reporting.model_dump(mode="json")
-        if selected_profile_path is not None:
-            goal_metadata["project_profile_path"] = str(selected_profile_path)
-        if profile_source is not None:
-            goal_metadata["project_profile_source"] = profile_source
-        goal_metadata["data_dir_source"] = data_dir_source
-    elif resolved.cwd is not None:
-        goal_metadata["policy_scope"] = f"cwd:{resolved.cwd}"
+    attached_sessions, goal_metadata = _build_run_goal_metadata(
+        settings=settings,
+        resolved=resolved,
+        data_dir_source=data_dir_source,
+        profile=profile,
+        selected_profile_path=selected_profile_path,
+        profile_source=profile_source,
+        from_ticket=from_ticket,
+        intake_result=intake_result,
+        objective=objective,
+        attach_session=attach_session,
+        attach_agent=attach_agent,
+        attach_name=attach_name,
+        attach_working_dir=attach_working_dir,
+    )
     if not json_mode:
         typer.echo(f"# data_dir={settings.data_dir} source={data_dir_source}", err=True)
         if profile is not None:
@@ -332,43 +366,32 @@ async def run_async(
     if not (wait and json_mode):
         projector.emit_operation(operation_id)
     assert resolved.objective_text is not None
-    try:
-        outcome = await service.run(
-            OperationGoal(
-                objective=resolved.objective_text,
-                harness_instructions=resolved.harness_instructions,
-                success_criteria=resolved.success_criteria,
-                metadata=goal_metadata,
-                external_ticket=intake_result.ticket if intake_result is not None else None,
+    outcome = await run_with_startup_failure_handling(
+        service=service,
+        goal=OperationGoal(
+            objective=resolved.objective_text,
+            harness_instructions=resolved.harness_instructions,
+            success_criteria=resolved.success_criteria,
+            metadata=goal_metadata,
+            external_ticket=intake_result.ticket if intake_result is not None else None,
+        ),
+        policy=OperationPolicy(
+            allowed_agents=resolved.default_agents,
+            involvement_level=resolved.involvement_level,
+        ),
+        budget=ExecutionBudget(max_iterations=resolved.max_iterations),
+        runtime_hints=RuntimeHints(operator_message_window=resolved.message_window),
+        options=RunOptions(
+            run_mode=effective_mode,
+            background_runtime_mode=(
+                BackgroundRuntimeMode.ATTACHED_LIVE
+                if effective_mode is RunMode.ATTACHED
+                else BackgroundRuntimeMode.RESUMABLE_WAKEUP
             ),
-            policy=OperationPolicy(
-                allowed_agents=resolved.default_agents,
-                involvement_level=resolved.involvement_level,
-            ),
-            budget=ExecutionBudget(max_iterations=resolved.max_iterations),
-            runtime_hints=RuntimeHints(operator_message_window=resolved.message_window),
-            options=RunOptions(
-                run_mode=effective_mode,
-                background_runtime_mode=(
-                    BackgroundRuntimeMode.ATTACHED_LIVE
-                    if effective_mode is RunMode.ATTACHED
-                    else BackgroundRuntimeMode.RESUMABLE_WAKEUP
-                ),
-            ),
-            operation_id=operation_id,
-            attached_sessions=attached_sessions or None,
-        )
-    except Exception:
-        summary = "Operation failed during startup."
-        _exc_type, exc, _tb = sys.exc_info()
-        if exc is not None:
-            summary = str(exc) or summary
-        await finalize_startup_failure(
-            service=service,
-            operation_id=operation_id,
-            summary=summary,
-        )
-        raise
+        ),
+        operation_id=operation_id,
+        attached_sessions=attached_sessions or None,
+    )
     if wait and effective_mode is RunMode.RESUMABLE:
         outcome = await _wait_for_operation_outcome(
             operation_id=operation_id,
