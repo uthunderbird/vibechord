@@ -219,6 +219,90 @@ class SessionReadPayload:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class FocusReadPayload:
+    kind: str
+    target_id: str
+    mode: str
+    blocking_reason: str | None
+    interrupt_policy: str
+    resume_policy: str
+    created_at: str
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "target_id": self.target_id,
+            "mode": self.mode,
+            "blocking_reason": self.blocking_reason,
+            "interrupt_policy": self.interrupt_policy,
+            "resume_policy": self.resume_policy,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AttentionReadPayload:
+    attention_id: str
+    operation_id: str
+    attention_type: str
+    target_scope: str
+    target_id: str | None
+    title: str
+    question: str
+    context_brief: str | None
+    suggested_options: list[str]
+    blocking: bool
+    status: str
+    answer_text: str | None
+    answer_source_command_id: str | None
+    created_at: str
+    answered_at: str | None
+    resolved_at: str | None
+    resolution_summary: str | None
+    metadata: dict[str, object]
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "attention_id": self.attention_id,
+            "operation_id": self.operation_id,
+            "attention_type": self.attention_type,
+            "target_scope": self.target_scope,
+            "target_id": self.target_id,
+            "title": self.title,
+            "question": self.question,
+            "context_brief": self.context_brief,
+            "suggested_options": list(self.suggested_options),
+            "blocking": self.blocking,
+            "status": self.status,
+            "answer_text": self.answer_text,
+            "answer_source_command_id": self.answer_source_command_id,
+            "created_at": self.created_at,
+            "answered_at": self.answered_at,
+            "resolved_at": self.resolved_at,
+            "resolution_summary": self.resolution_summary,
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyCoverageReadPayload:
+    status: str
+    project_scope: str | None
+    scoped_policy_count: int
+    active_policy_count: int
+    summary: str
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "project_scope": self.project_scope,
+            "scoped_policy_count": self.scoped_policy_count,
+            "active_policy_count": self.active_policy_count,
+            "summary": self.summary,
+        }
+
+
 class OperationProjectionService:
     def memory_entries(
         self,
@@ -446,7 +530,7 @@ class OperationProjectionService:
             "involvement_level": operation.involvement_level.value,
         }
         if operation.current_focus is not None:
-            payload["current_focus"] = operation.current_focus.model_dump(mode="json")
+            payload["current_focus"] = self._focus_payload(operation.current_focus)
         active_session = operation.active_session_record
         if active_session is not None:
             payload["active_session"] = {
@@ -457,7 +541,7 @@ class OperationProjectionService:
                 "waiting_reason": active_session.waiting_reason,
             }
         payload["open_attention"] = [
-            attention.model_dump(mode="json")
+            self._attention_payload(attention)
             for attention in operation.attention_requests
             if attention.status is AttentionStatus.OPEN
         ]
@@ -477,7 +561,7 @@ class OperationProjectionService:
             "resolved_profile": resolved_profile if isinstance(resolved_profile, dict) else None,
             "resolved_launch": resolved_launch if isinstance(resolved_launch, dict) else None,
         }
-        payload["policy_coverage"] = operation.policy_coverage.model_dump(mode="json")
+        payload["policy_coverage"] = self._policy_coverage_payload(operation.policy_coverage)
         payload["active_policies"] = [
             self._policy_payload(policy, operation) for policy in operation.active_policies
         ]
@@ -1590,11 +1674,92 @@ class OperationProjectionService:
         policy: PolicyEntry,
         operation: OperationState | None = None,
     ) -> dict[str, object]:
-        payload = policy.model_dump(mode="json")
-        payload["category"] = policy.category.value
+        payload = {
+            "policy_id": policy.policy_id,
+            "project_scope": policy.project_scope,
+            "title": policy.title,
+            "category": policy.category.value,
+            "rule_text": policy.rule_text,
+            "applicability": {
+                "objective_keywords": list(policy.applicability.objective_keywords),
+                "task_keywords": list(policy.applicability.task_keywords),
+                "agent_keys": list(policy.applicability.agent_keys),
+                "run_modes": [item.value for item in policy.applicability.run_modes],
+                "involvement_levels": [
+                    item.value for item in policy.applicability.involvement_levels
+                ],
+                "permission_signatures": [
+                    {
+                        "adapter_key": item.adapter_key,
+                        "method": item.method,
+                        "interaction": item.interaction,
+                        "title": item.title,
+                        "tool_kind": item.tool_kind,
+                        "skill_name": item.skill_name,
+                        "command": list(item.command),
+                    }
+                    for item in policy.applicability.permission_signatures
+                ],
+            },
+            "rationale": policy.rationale,
+            "source_refs": [
+                {"kind": item.kind, "ref_id": item.ref_id} for item in policy.source_refs
+            ],
+            "status": policy.status.value,
+            "created_at": policy.created_at.isoformat(),
+            "revoked_at": policy.revoked_at.isoformat() if policy.revoked_at is not None else None,
+            "revoked_reason": policy.revoked_reason,
+            "superseded_by": policy.superseded_by,
+        }
         if operation is not None:
             payload["applicability_summary"] = "active for current operation"
         return payload
+
+    def _focus_payload(self, focus) -> dict[str, object]:
+        return FocusReadPayload(
+            kind=focus.kind.value,
+            target_id=focus.target_id,
+            mode=focus.mode.value,
+            blocking_reason=focus.blocking_reason,
+            interrupt_policy=focus.interrupt_policy.value,
+            resume_policy=focus.resume_policy.value,
+            created_at=focus.created_at.isoformat(),
+        ).to_payload()
+
+    def _attention_payload(self, attention: AttentionRequest) -> dict[str, object]:
+        return AttentionReadPayload(
+            attention_id=attention.attention_id,
+            operation_id=attention.operation_id,
+            attention_type=attention.attention_type.value,
+            target_scope=attention.target_scope.value,
+            target_id=attention.target_id,
+            title=attention.title,
+            question=attention.question,
+            context_brief=attention.context_brief,
+            suggested_options=list(attention.suggested_options),
+            blocking=attention.blocking,
+            status=attention.status.value,
+            answer_text=attention.answer_text,
+            answer_source_command_id=attention.answer_source_command_id,
+            created_at=attention.created_at.isoformat(),
+            answered_at=attention.answered_at.isoformat()
+            if attention.answered_at is not None
+            else None,
+            resolved_at=attention.resolved_at.isoformat()
+            if attention.resolved_at is not None
+            else None,
+            resolution_summary=attention.resolution_summary,
+            metadata=dict(attention.metadata),
+        ).to_payload()
+
+    def _policy_coverage_payload(self, coverage) -> dict[str, object]:
+        return PolicyCoverageReadPayload(
+            status=coverage.status.value,
+            project_scope=coverage.project_scope,
+            scoped_policy_count=coverage.scoped_policy_count,
+            active_policy_count=coverage.active_policy_count,
+            summary=coverage.summary,
+        ).to_payload()
 
     def _latest_agent_turn_brief(
         self,

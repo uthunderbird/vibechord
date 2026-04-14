@@ -18,6 +18,9 @@ from agent_operator.domain import (
     AttentionStatus,
     AttentionType,
     CommandTargetScope,
+    FocusKind,
+    FocusMode,
+    FocusState,
     InvolvementLevel,
     MemoryEntry,
     MemoryFreshness,
@@ -27,6 +30,11 @@ from agent_operator.domain import (
     OperationState,
     OperationStatus,
     OperationSummary,
+    PolicyCategory,
+    PolicyCoverage,
+    PolicyCoverageStatus,
+    PolicyEntry,
+    PolicyStatus,
     ProjectProfile,
     RunEvent,
     RunEventKind,
@@ -192,6 +200,57 @@ def test_build_operation_context_payload_preserves_context() -> None:
     assert payload["project_context"]["profile_name"] == "operator"
     assert payload["available_agent_descriptors"] == [{"key": "codex_acp"}]
     assert payload["open_attention"][0]["attention_id"] == "att-1"
+
+
+def test_build_operation_context_payload_is_derived_without_truth_model_dump_patchup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation()
+    operation.current_focus = FocusState(
+        kind=FocusKind.SESSION,
+        target_id="session-1",
+        mode=FocusMode.ADVISORY,
+    )
+    operation.policy_coverage = PolicyCoverage(
+        status=PolicyCoverageStatus.COVERED,
+        project_scope="profile:operator",
+        scoped_policy_count=1,
+        active_policy_count=1,
+        summary="1 active policy entry applies now.",
+    )
+    operation.active_policies = [
+        PolicyEntry(
+            project_scope="profile:operator",
+            title="Use codex",
+            category=PolicyCategory.GENERAL,
+            rule_text="Prefer codex_acp.",
+            status=PolicyStatus.ACTIVE,
+        )
+    ]
+
+    def _fail_focus_model_dump(self, *args, **kwargs):
+        raise AssertionError("context payload should not serialize FocusState directly")
+
+    def _fail_attention_model_dump(self, *args, **kwargs):
+        raise AssertionError("context payload should not serialize AttentionRequest directly")
+
+    def _fail_policy_coverage_model_dump(self, *args, **kwargs):
+        raise AssertionError("context payload should not serialize PolicyCoverage directly")
+
+    def _fail_policy_entry_model_dump(self, *args, **kwargs):
+        raise AssertionError("context payload should not serialize PolicyEntry directly")
+
+    monkeypatch.setattr(type(operation.current_focus), "model_dump", _fail_focus_model_dump)
+    monkeypatch.setattr(AttentionRequest, "model_dump", _fail_attention_model_dump)
+    monkeypatch.setattr(PolicyCoverage, "model_dump", _fail_policy_coverage_model_dump)
+    monkeypatch.setattr(PolicyEntry, "model_dump", _fail_policy_entry_model_dump)
+
+    payload = OperationProjectionService().build_operation_context_payload(operation)
+
+    assert payload["current_focus"]["target_id"] == "session-1"
+    assert payload["open_attention"][0]["attention_id"] == "att-1"
+    assert payload["policy_coverage"]["status"] == "covered"
+    assert payload["active_policies"][0]["title"] == "Use codex"
 
 
 def test_build_operation_context_payload_exposes_invocation_modes_separately() -> None:
