@@ -442,13 +442,18 @@ def session_brief(
         }
     session = selected_session(payload, task)
     attention_titles = task_attention_titles(payload, task) if task is not None else []
-    wait = optional_text(session.get("waiting_reason")) if session is not None else None
+    runtime_alert = optional_text(payload.get("runtime_alert"))
+    wait = (
+        None
+        if runtime_alert is not None
+        else optional_text(session.get("waiting_reason")) if session is not None else None
+    )
     status = optional_text(session.get("status")) if session is not None else None
     now = _session_now_text(status, wait)
     latest_output = _session_latest_output(payload, task)
     return {
         "now": now,
-        "wait": wait or (status or "-"),
+        "wait": runtime_alert or wait or (status or "-"),
         "attention": "; ".join(attention_titles[:2]) if attention_titles else "-",
         "review": "-",
         "latest_output": latest_output,
@@ -505,9 +510,12 @@ def session_identity_text(payload: dict[str, object] | None, task: OperationTask
     adapter = optional_text(session.get("adapter_key")) or "-"
     session_id = optional_text(session.get("session_id")) or "-"
     status = optional_text(session.get("status")) or "-"
-    wait = optional_text(session.get("waiting_reason"))
+    runtime_alert = optional_text(payload.get("runtime_alert")) if isinstance(payload, dict) else None
+    wait = None if runtime_alert is not None else optional_text(session.get("waiting_reason"))
     summary = f"Session: {adapter} · {session_id} · {status}"
-    if wait is not None:
+    if runtime_alert is not None:
+        summary += f" · {runtime_alert}"
+    elif wait is not None:
         summary += f" · {wait}"
     return summary
 
@@ -638,9 +646,12 @@ def task_session_summary(payload: dict[str, object], task: OperationTaskItem) ->
         adapter = optional_text(session.get("adapter_key")) or "-"
         session_id = optional_text(session.get("session_id")) or task.linked_session_id or "-"
         status = optional_text(session.get("status")) or "-"
-        waiting = optional_text(session.get("waiting_reason"))
+        runtime_alert = optional_text(payload.get("runtime_alert")) if isinstance(payload, dict) else None
+        waiting = None if runtime_alert is not None else optional_text(session.get("waiting_reason"))
         summary = f"{adapter} · {session_id} · Status: {status}"
-        if waiting is not None:
+        if runtime_alert is not None:
+            summary += f" · {runtime_alert}"
+        elif waiting is not None:
             summary += f" · {waiting}"
         return summary
     return None

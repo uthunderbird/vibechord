@@ -88,7 +88,12 @@ class OperationStatusQueryService:
             payload = {
                 "operation_id": operation_id,
                 "status": operation.status.value,
-                "summary": self.build_live_snapshot(operation_id, operation, outcome),
+                "summary": self.build_live_snapshot(
+                    operation_id,
+                    operation,
+                    outcome,
+                    runtime_alert=runtime_alert,
+                ),
                 "action_hint": self.build_status_action_hint(operation),
                 "durable_truth": self.projection_service.build_durable_truth_payload(
                     operation,
@@ -131,6 +136,8 @@ class OperationStatusQueryService:
         operation_id: str,
         operation: OperationState | None,
         outcome: OperationOutcome | None,
+        *,
+        runtime_alert: str | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {"operation_id": operation_id}
         if operation is None:
@@ -138,7 +145,11 @@ class OperationStatusQueryService:
             payload["summary"] = outcome.summary if outcome is not None else "Operation not found."
             return payload
         payload.update(
-            self.projection_service.build_live_snapshot(operation, None, runtime_alert=None)
+            self.projection_service.build_live_snapshot(
+                operation,
+                None,
+                runtime_alert=runtime_alert,
+            )
         )
         action_hint = self.build_status_action_hint(operation)
         if action_hint is not None:
@@ -150,7 +161,7 @@ class OperationStatusQueryService:
             payload["session_id"] = active_session.session_id
             payload["adapter_key"] = active_session.adapter_key
             payload["session_status"] = active_session.status.value
-            if active_session.waiting_reason:
+            if active_session.waiting_reason and payload.get("runtime_alert") is None:
                 payload["waiting_reason"] = active_session.waiting_reason
         if operation.attention_requests:
             open_attention = [

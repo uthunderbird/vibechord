@@ -212,7 +212,6 @@ def overlay_live_background_progress(
         if run is None or run.progress is None:
             continue
         session.updated_at = run.progress.updated_at
-        session.waiting_reason = run.progress.message
         if run.progress.last_event_at is not None:
             session.last_event_at = run.progress.last_event_at
     return overlaid

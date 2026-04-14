@@ -12,7 +12,13 @@ import agent_operator.cli.main as cli_main
 from agent_operator.cli.tui import build_fleet_workbench_controller
 from agent_operator.cli.tui import models as tui_models_pkg
 from agent_operator.cli.tui import rendering as tui_rendering_pkg
-from agent_operator.cli.tui.models import FleetWorkbenchState, dashboard_tasks, task_signal_text
+from agent_operator.cli.tui.models import (
+    FleetWorkbenchState,
+    dashboard_tasks,
+    session_brief,
+    session_identity_text,
+    task_signal_text,
+)
 from agent_operator.cli.tui.rendering import (
     human_footer_text,
     human_header_lines,
@@ -960,6 +966,37 @@ def test_operation_task_board_shows_compact_session_cue_lines() -> None:
 
     assert "session" in rendered
     assert "codex_acp · session-1 · Status: running · Waiting on operator reply." in rendered
+
+
+def test_tui_session_views_prefer_runtime_alert_over_stale_waiting_reason() -> None:
+    payload = {
+        "runtime_alert": "2 wakeup(s) are pending reconciliation.",
+        "tasks": [
+            {
+                "task_id": "task-1",
+                "linked_session_id": "session-1",
+            }
+        ],
+        "sessions": [
+            {
+                "session_id": "session-1",
+                "adapter_key": "codex_acp",
+                "status": "running",
+                "waiting_reason": "Agent session completed.",
+            }
+        ],
+        "attention": [],
+    }
+    task = dashboard_tasks(payload)[0]
+
+    summary = session_brief(payload, task)
+    identity = session_identity_text(payload, task)
+
+    assert summary["wait"] == "2 wakeup(s) are pending reconciliation."
+    assert identity == (
+        "Session: codex_acp · session-1 · running · "
+        "2 wakeup(s) are pending reconciliation."
+    )
 
 
 async def test_operation_view_navigation_follows_lane_order() -> None:

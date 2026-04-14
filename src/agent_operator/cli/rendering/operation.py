@@ -47,8 +47,6 @@ def render_dashboard(
             session_line += f" name={active_session.get('session_name')}"
         header_lines.append(session_line)
         waiting_reason = active_session.get("waiting_reason")
-        if isinstance(waiting_reason, str) and waiting_reason.strip():
-            header_lines.append(f"waiting: {waiting_reason.strip()}")
     runtime_alert = None
     if isinstance(brief_summary, dict):
         for key, label in [
@@ -69,6 +67,9 @@ def render_dashboard(
         runtime_alert = payload.get("runtime_alert")
     if isinstance(runtime_alert, str) and runtime_alert.strip():
         header_lines.append(f"alert: {runtime_alert.strip()}")
+    elif isinstance(active_session, dict):
+        if isinstance(waiting_reason, str) and waiting_reason.strip():
+            header_lines.append(f"waiting: {waiting_reason.strip()}")
     context_lines = []
     if isinstance(project_context, dict):
         context_lines.append(f"profile: {project_context.get('profile_name') or '-'}")

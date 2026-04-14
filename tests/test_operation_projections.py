@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from rich.console import Console
+
 from agent_operator.application import OperationProjectionService
+from agent_operator.cli.rendering.operation import render_dashboard
 from agent_operator.domain import (
     AgentArtifact,
     AgentResultStatus,
@@ -424,6 +427,39 @@ def test_build_live_snapshot_and_format_live_snapshot() -> None:
     assert "state: running" in rendered
     assert "objective=Ship dashboard" in rendered
     assert "alert=rate limit soon" in rendered
+
+
+def test_render_dashboard_prefers_runtime_alert_over_waiting_reason() -> None:
+    console = Console(record=True, width=140, markup=False)
+    group = render_dashboard(
+        {
+            "status": "running",
+            "scheduler_state": "active",
+            "run_mode": "attached",
+            "involvement_level": "auto",
+            "objective": "Ship dashboard",
+            "harness_instructions": "Keep delivery thin.",
+            "focus": None,
+            "task_counts": "running:1",
+            "active_session": {
+                "session_id": "session-1",
+                "adapter_key": "codex_acp",
+                "status": "running",
+                "waiting_reason": "Agent session completed.",
+            },
+            "recent_events": [],
+            "recent_commands": [],
+            "control_hints": [],
+            "runtime_alert": "2 wakeup(s) are pending reconciliation.",
+        },
+        shorten_live_text=lambda text: text,
+    )
+
+    console.print(group)
+    rendered = console.export_text(styles=False)
+
+    assert "alert: 2 wakeup(s) are pending reconciliation." in rendered
+    assert "waiting: Agent session completed." not in rendered
 
 
 def test_build_inspect_summary_payload_uses_recommended_next_step() -> None:

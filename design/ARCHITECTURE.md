@@ -242,6 +242,11 @@ The architectural split inside that run is:
 - and beside that, enduring workflow-authority services for decision execution, command
   application, result assimilation, runtime reconciliation, and traceability.
 
+Short status surfaces must distinguish reconciled truth from live runtime overlays. Pending
+wakeups, terminal-but-unreconciled background runs, and live background progress are runtime
+inspection facts, not durable `SessionRecord` truth. See ADR 0172 for the rule that live status
+must be derived rather than stored by mutating session summary fields during read-time queries.
+
 Current repository truth:
 
 - `implemented`: `OperatorPolicy` is already the top-level application seam.
