@@ -1,8 +1,12 @@
 # ADR 0101: Ideal application organization — shell, loaded operation, policy, and workflow capabilities
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
 
 ## Context
 
@@ -242,11 +246,9 @@ Later ADRs refine and operationalize parts of this target rather than replacing 
 - [ADR 0121](./0121-application-submodule-organization-and-boundary-rules.md)
   defines the submodule-family organization that this application shape should converge toward
 
-## Implementation Status
+## Implementation Evidence
 
-Implemented
-
-Skim-safe current truth on 2026-04-14:
+Skim-safe current truth on 2026-04-14, to be kept aligned with repository evidence:
 
 - `implemented`: application layer materially matches the ideal organization — `service.py`
   remains a thin shell over `OperationEntrypointService`, `OperationCancellationService`, and
@@ -254,5 +256,7 @@ Skim-safe current truth on 2026-04-14:
   `event_sourcing/` hold the broader application families
 - `implemented`: `LoadedOperation` is the one-operation runtime boundary; `OperatorPolicy` is the
   policy seam; `OperationDriveService` owns the operator loop
-- `verified`: package boundary rules are covered in `tests/test_application_structure.py`, and the
-  shell surface is covered directly in `tests/test_operator_service_shell.py`
+- `implemented`: package boundary rules are covered in `tests/test_application_structure.py`, and
+  the shell surface is covered directly in `tests/test_operator_service_shell.py`
+- `not verified`: `uv run pytest` is not green on current repo state as of 2026-04-14; the
+  failing test is `tests/test_cli.py::test_run_wait_brief_uses_semantic_exit_code_for_resumable_completion`
