@@ -3,13 +3,19 @@ from __future__ import annotations
 import ast
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from agent_operator.cli.workflows.control_runtime import (
+    _build_run_goal_metadata,
+    _restore_operation_scoped_runtime_settings,
+)
 from agent_operator.cli.workflows.run_support import (
     finalize_startup_failure,
     run_with_startup_failure_handling,
 )
+from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     ExecutionBudget,
     InvolvementLevel,
@@ -18,6 +24,10 @@ from agent_operator.domain import (
     OperationPolicy,
     OperationState,
     OperationStatus,
+    ProjectProfile,
+    ProjectProfileAdapterSettings,
+    ResolvedProjectRunConfig,
+    RunMode,
     RunOptions,
     RuntimeHints,
     TaskStatus,
@@ -96,6 +106,104 @@ RUN_SUPPORT_FILE = (
     / "workflows"
     / "run_support.py"
 )
+
+
+def test_build_run_goal_metadata_preserves_attach_and_profile_context() -> None:
+    settings = OperatorSettings(data_dir=Path("/tmp/operator-data"))
+    resolved = ResolvedProjectRunConfig(
+        profile_name="demo",
+        cwd=Path("/workspace/project"),
+        default_agents=["codex_acp"],
+        objective_text="Ship the change.",
+        max_iterations=5,
+        run_mode=RunMode.RESUMABLE,
+        involvement_level=InvolvementLevel.AUTO,
+    )
+    profile = ProjectProfile(
+        name="demo",
+        adapter_settings={
+            "codex_acp": ProjectProfileAdapterSettings(timeout_seconds=42),
+        },
+    )
+
+    attached_sessions, metadata = _build_run_goal_metadata(
+        settings=settings,
+        resolved=resolved,
+        data_dir_source="configured",
+        profile=profile,
+        selected_profile_path=Path("/workspace/project/operator-profile.yaml"),
+        profile_source="local_profile_file",
+        from_ticket="T-123",
+        intake_result=SimpleNamespace(goal_text="Imported goal text."),
+        objective="Ship the change.",
+        attach_session="session-1",
+        attach_agent="codex_acp",
+        attach_name="existing",
+        attach_working_dir=Path("/workspace/attached"),
+    )
+
+    assert [session.session_id for session in attached_sessions] == ["session-1"]
+    assert attached_sessions[0].metadata == {"working_directory": "/workspace/attached"}
+    assert metadata["working_directory"] == "/workspace/attached"
+    assert metadata["attached_session_ids"] == ["session-1"]
+    assert metadata["requires_same_agent_session"] is True
+    assert metadata["external_ticket_ref"] == "T-123"
+    assert metadata["external_ticket_context"] == "Imported goal text."
+    assert metadata["project_profile_name"] == "demo"
+    assert metadata["policy_scope"] == "profile:demo"
+    assert metadata["project_profile_source"] == "local_profile_file"
+    assert metadata["project_profile_path"] == "/workspace/project/operator-profile.yaml"
+    assert metadata["data_dir_source"] == "configured"
+    assert metadata["resolved_operator_launch"] == {
+        "data_dir": "/tmp/operator-data",
+        "data_dir_source": "configured",
+        "profile_source": "local_profile_file",
+        "profile_path": "/workspace/project/operator-profile.yaml",
+    }
+    assert metadata["effective_adapter_settings"] == {
+        "codex_acp": settings.codex_acp.model_dump(mode="json")
+    }
+
+
+@pytest.mark.anyio
+async def test_restore_operation_scoped_runtime_settings_prefers_snapshot_over_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = OperatorSettings()
+    profile_path = tmp_path / "operator-profile.yaml"
+    profile_path.write_text(
+        "name: demo\nadapter_settings:\n  codex_acp:\n    timeout_seconds: 90\n",
+        encoding="utf-8",
+    )
+    operation = OperationState(
+        operation_id="op-restore",
+        goal=OperationGoal(
+            objective="Resume work.",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {"timeout_seconds": 17.0},
+                },
+                "project_profile_path": str(profile_path),
+            },
+        ),
+        status=OperationStatus.RUNNING,
+        **_state_settings(),
+    )
+
+    class _Store:
+        async def load_operation(self, operation_id: str) -> OperationState | None:
+            assert operation_id == "op-restore"
+            return operation
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control_runtime.build_store",
+        lambda passed_settings: _Store(),
+    )
+
+    settings.codex_acp.timeout_seconds = 1.0
+    await _restore_operation_scoped_runtime_settings(settings, "op-restore")
+
+    assert settings.codex_acp.timeout_seconds == 17.0
 
 
 @pytest.mark.anyio
