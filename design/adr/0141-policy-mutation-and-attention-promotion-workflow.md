@@ -2,24 +2,27 @@
 
 - Date: 2026-04-10
 
-## Status
+## Decision Status
 
 Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
-Skim-safe current truth on 2026-04-10:
+Implementation grounding on 2026-04-14:
 
 - `implemented`: `operator policy record` enqueues explicit durable policy mutation rather than
-  folding policy creation into `answer`
+  folding policy creation into `answer`, via `policy_record()` in
+  `src/agent_operator/cli/commands/policy.py`
 - `implemented`: `operator policy record --attention ...` supports explicit attention-linked
-  promotion without requiring separate title/text overrides
+  promotion without requiring separate title/text overrides, via the
+  `CommandTargetScope.ATTENTION_REQUEST` path in `src/agent_operator/cli/commands/policy.py`
 - `implemented`: `operator policy revoke` remains an explicit revocation command and is now
-  confirmation-gated by default, with `--yes` as the explicit bypass
+  confirmation-gated by default, with `--yes` as the explicit bypass, via `policy_revoke()` in
+  `src/agent_operator/cli/commands/policy.py`
 - `verified`: focused CLI coverage for mutation, attention-linked promotion, and revoke
-  confirmation behavior now exists in `tests/test_cli.py`
+  confirmation behavior exists in `tests/test_cli.py`
 - `partial`: RFC 0014 remains draft, so broader example-corpus closure beyond this landed slice is
   still incomplete
 
@@ -89,6 +92,10 @@ Tradeoffs:
 
 Current evidence for the landed slice:
 
+- `verified`: `pytest -q tests/test_cli.py -k 'test_policy_record_list_inspect_and_revoke or
+  test_policy_revoke_requires_confirmation_by_default or
+  test_policy_revoke_yes_skips_confirmation or
+  test_policy_record_allows_attention_promotion_without_title_or_text'` passed on 2026-04-14
 - `verified`: `policy record` remains an explicit mutation surface
 - `verified`: `policy revoke` is confirmation-gated by default and bypassable with `--yes`
 - `verified`: attention-time policy promotion still preserves the distinction between `answer` and
