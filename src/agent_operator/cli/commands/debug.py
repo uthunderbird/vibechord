@@ -13,6 +13,7 @@ from agent_operator.bootstrap import (
     build_trace_store,
     build_wakeup_inbox,
 )
+from agent_operator.domain.operation import WakeupRef
 
 from ..app import app, debug_app
 from ..helpers.rendering import (
@@ -30,6 +31,19 @@ from ..helpers.rendering import (
 from ..helpers.services import build_status_query_service, load_settings
 from ..options import JSON_OPTION, WATCH_POLL_INTERVAL_OPTION
 from ..workflows import daemon_async, recover_async, resume_async, tick_async
+
+
+def _wakeup_ref_payload(item: WakeupRef) -> dict[str, object]:
+    return {
+        "event_id": item.event_id,
+        "event_type": item.event_type,
+        "task_id": item.task_id,
+        "session_id": item.session_id,
+        "dedupe_key": item.dedupe_key,
+        "claimed_at": item.claimed_at.isoformat() if item.claimed_at is not None else None,
+        "acked_at": item.acked_at.isoformat() if item.acked_at is not None else None,
+        "created_at": item.created_at.isoformat(),
+    }
 
 
 @app.command(hidden=True)
@@ -139,7 +153,7 @@ def wakeups(
         if operation is None:
             raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
         pending = await inbox.list_pending(operation_id)
-        claimed = [item.model_dump(mode="json") for item in operation.pending_wakeups]
+        claimed = [_wakeup_ref_payload(item) for item in operation.pending_wakeups]
         if json_mode:
             typer.echo(
                 json.dumps(
