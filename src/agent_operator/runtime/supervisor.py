@@ -353,7 +353,7 @@ class InProcessAgentRunSupervisor:
             result = await self._wait_for_terminal_result(session_handle, record)
             await self._persist_result(spec, record, result, session_handle)
         except asyncio.CancelledError:
-            if session_handle is not None:
+            if session_handle is not None and spec.existing_session is None:
                 with suppress(Exception):
                     await self._session_registry.cancel(session_handle)
             await self._persist_cancelled_result(spec, record, session_handle)

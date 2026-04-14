@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -285,6 +287,48 @@ class _BackgroundedToolSessionManager:
 
     async def cancel(self, handle: AgentSessionHandle) -> None:
         return None
+
+    async def close(self, handle: AgentSessionHandle) -> None:
+        return None
+
+
+class _RunningCodexFollowUpSessionManager:
+    """Codex-like fake for a live follow-up turn on an existing session."""
+
+    def __init__(self) -> None:
+        self.handle = AgentSessionHandle(adapter_key="codex_acp", session_id="codex-follow-up")
+        self.cancel_calls = 0
+        self.sent_messages: list[str] = []
+
+    def keys(self) -> list[str]:
+        return ["codex_acp"]
+
+    def has(self, adapter_key: str) -> bool:
+        return adapter_key == "codex_acp"
+
+    async def describe(self, adapter_key: str) -> AgentDescriptor:
+        return AgentDescriptor(key=adapter_key, display_name=adapter_key)
+
+    async def start(self, adapter_key: str, request: AgentRunRequest) -> AgentSessionHandle:
+        return self.handle
+
+    async def send(self, handle: AgentSessionHandle, message: str) -> None:
+        self.sent_messages.append(message)
+
+    async def poll(self, handle: AgentSessionHandle) -> AgentProgress:
+        return AgentProgress(
+            session_id=handle.session_id,
+            state=AgentProgressState.RUNNING,
+            message="still running",
+            updated_at=datetime.now(UTC),
+            partial_output="working",
+        )
+
+    async def collect(self, handle: AgentSessionHandle) -> AgentResult:
+        raise AssertionError("collect should not be called for a live follow-up turn")
+
+    async def cancel(self, handle: AgentSessionHandle) -> None:
+        self.cancel_calls += 1
 
     async def close(self, handle: AgentSessionHandle) -> None:
         return None
@@ -731,6 +775,41 @@ async def test_inprocess_supervisor_cancel_preserves_waiting_input_terminal_trut
     assert result.status is AgentResultStatus.INCOMPLETE
     assert final is not None
     assert final.status is BackgroundRunStatus.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_inprocess_supervisor_task_cancel_does_not_cancel_live_existing_codex_session(
+    tmp_path: Path,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    manager = _RunningCodexFollowUpSessionManager()
+    supervisor = InProcessAgentRunSupervisor(
+        tmp_path / "background",
+        tmp_path,
+        session_manager=manager,
+        wakeup_inbox=inbox,
+    )
+
+    run = await supervisor.start_background_turn(
+        "op-1",
+        2,
+        "codex_acp",
+        AgentRunRequest(goal="hello", instruction="continue after approval"),
+        existing_session=manager.handle,
+    )
+
+    task = supervisor._tasks[run.run_id]  # noqa: SLF001 - targeted runtime regression
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+    final = await supervisor.poll_background_turn(run.run_id)
+    result = await supervisor.collect_background_turn(run.run_id)
+
+    assert manager.sent_messages == ["continue after approval"]
+    assert manager.cancel_calls == 0
+    assert final is not None
+    assert result is not None
 
 
 @pytest.mark.anyio
