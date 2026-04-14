@@ -2,22 +2,24 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 Implementation grounding on 2026-04-14:
 
 - `implemented`: `OperationStatusQueryService` already distinguishes durable truth from live
   runtime alerting by reading background inspection and pending wakeups during status queries
-- `implemented`: CLI/TUI status surfaces still read `SessionRecord.waiting_reason` as if it were
-  current live truth
-- `implemented`: `overlay_live_background_progress()` currently mutates a copied `OperationState`
-  by writing `run.progress.message` back into `session.waiting_reason`
-- `partial`: runtime alerting exists, but live status still mixes reconciled session state with
-  transient runtime summary text
+- `implemented`: `overlay_live_background_progress()` updates timestamps from live background
+  inspection without overwriting `SessionRecord.waiting_reason`
+- `implemented`: `OperationStatusQueryService.build_live_snapshot()` suppresses stale
+  `waiting_reason` output when `runtime_alert` is present
+- `implemented`: dashboard/TUI status surfaces already prefer `runtime_alert` over stale
+  `waiting_reason` text
+- `verified`: targeted status/query, projection, and TUI regression coverage exists for the
+  derived-status behavior at current repository truth
 
 ## Context
 
@@ -120,18 +122,19 @@ Rejected for now.
 Runtime inspection is not durable truth and should not replace canonical reconciled operation
 state. The right model is explicit separation, not inversion of authority.
 
-## Implementation Notes
+## Closure Evidence Matrix
 
-The bounded implementation tranche for this ADR is:
+| ADR line / closure claim | Repository evidence | Verification |
+| --- | --- | --- |
+| Stop `overlay_live_background_progress()` from copying runtime progress text into `SessionRecord.waiting_reason` | `src/agent_operator/cli/helpers/rendering.py:overlay_live_background_progress` only updates `updated_at` and `last_event_at` on the copied session record | `tests/test_operation_status_queries.py::test_overlay_live_background_progress_keeps_waiting_reason_as_durable_truth` |
+| Prefer `runtime_alert` over stale session wait text in status snapshots | `src/agent_operator/application/queries/operation_status_queries.py:build_live_snapshot` only includes `waiting_reason` when `runtime_alert` is absent | `tests/test_operation_status_queries.py::test_build_live_snapshot_omits_stale_waiting_reason_when_runtime_alert_present` |
+| Status summaries and dashboards treat runtime alerting as the live source of truth | `src/agent_operator/application/queries/operation_projections.py:build_operation_brief_payload`; `src/agent_operator/cli/rendering/operation.py:render_dashboard`; `src/agent_operator/cli/tui/models.py:session_brief` | `tests/test_operation_projections.py::test_render_dashboard_prefers_runtime_alert_over_waiting_reason`; `tests/test_tui.py::test_tui_session_views_prefer_runtime_alert_over_stale_waiting_reason` |
+| Final repository truth is verified against current code and regression tests | changed implementation under `src/agent_operator/...`; this ADR document | `pytest -q tests/test_operation_status_queries.py tests/test_operation_projections.py -q`; `pytest -q tests/test_tui.py -k 'runtime_alert_over_stale_waiting_reason'` |
 
-1. stop `overlay_live_background_progress()` from copying runtime progress text into
-   `SessionRecord.waiting_reason`
-2. prefer `runtime_alert` over stale session wait text in status snapshots and status summaries
-3. add regression coverage for unreconciled-background status so the short status surface does not
-   report stale session waiting text as current truth
+## Follow-on (Not Blocking Acceptance)
 
-Longer-term follow-on work may:
-
-- add explicit derived live-progress payload fields,
-- split `reconciled_status` from `live_status` in query DTOs,
-- and reduce the number of summary-like strings stored on the operation/session models.
+- add explicit derived live-progress payload fields where richer live runtime detail is useful
+- split reconciled-status and live-status sections more explicitly in query DTOs if status payloads
+  keep growing
+- continue reducing summary-like stored strings on operation/session models under the broader
+  immutability/query-boundary work in [ADR 0173](./0173-immutable-truth-and-query-boundaries.md)
