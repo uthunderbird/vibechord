@@ -247,6 +247,19 @@ wakeups, terminal-but-unreconciled background runs, and live background progress
 inspection facts, not durable `SessionRecord` truth. See ADR 0172 for the rule that live status
 must be derived rather than stored by mutating session summary fields during read-time queries.
 
+More broadly, the target authority split is:
+
+- canonical semantic truth remains domain-owned and durably replayable,
+- runtime liveness and freshness facts remain explicit overlays,
+- query surfaces may merge both, but must not present runtime overlays as canonical semantic
+  state,
+- and durable terminal truth wins over stale runtime-summary state once reconciliation has a fair
+  chance to converge.
+
+Some short-lived temporal skew between runtime and durable state is unavoidable in an attached or
+background execution system. Long-lived semantic contradiction is not an acceptable steady state.
+See ADR 0180 for the broader canonical-semantic-state versus runtime-overlay boundary.
+
 Current repository truth:
 
 - `implemented`: `OperatorPolicy` is already the top-level application seam.
