@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from agent_operator.acp.adapter_runtime import AcpAdapterRuntime
+from agent_operator.acp.client import AcpJsonRpcError
 from agent_operator.acp.session_runtime import AcpAgentSessionRuntime
 from agent_operator.adapters.opencode_acp import OpencodeAcpAgentAdapter
 from agent_operator.domain import (
@@ -402,6 +403,69 @@ async def test_acp_agent_session_runtime_reports_running_follow_up_error() -> No
                     session_id="sess-1",
                 )
             )
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_surfaces_provider_capacity_error_details() -> None:
+    connection = FakeAcpConnection()
+
+    async def failing_request(method: str, params: dict | None = None) -> dict:
+        payload = params or {}
+        connection.requests.append((method, payload))
+        if method == "session/new":
+            return {"sessionId": connection.next_session_id}
+        if method == "session/prompt":
+            raise AcpJsonRpcError(
+                -32603,
+                "Internal error",
+                {
+                    "message": "Selected model is at capacity. Please try a different model.",
+                    "codex_error_info": "server_overloaded",
+                },
+            )
+        return {"ok": True}
+
+    connection.request = failing_request  # type: ignore[method-assign]
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="codex_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+    )
+
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+            )
+        )
+        started = await asyncio.wait_for(anext(stream), timeout=1.0)
+        failed = await asyncio.wait_for(anext(stream), timeout=1.0)
+
+    assert started.fact_type == "session.started"
+    assert failed.fact_type == "session.failed"
+    assert (
+        failed.payload["message"]
+        == "Selected model is at capacity. Please try a different model."
+    )
+    assert failed.payload["error_code"] == "codex_acp_provider_overloaded"
+    assert failed.payload["retryable"] is True
+    assert failed.payload["raw"] == {
+        "rpc_error_code": -32603,
+        "rpc_error_data": {
+            "message": "Selected model is at capacity. Please try a different model.",
+            "codex_error_info": "server_overloaded",
+        },
+        "failure_kind": "provider_capacity",
+        "recovery_mode": "new_session",
+        "codex_error_info": "server_overloaded",
+    }
 
 
 @pytest.mark.anyio

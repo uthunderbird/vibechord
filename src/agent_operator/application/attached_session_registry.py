@@ -318,7 +318,7 @@ class _AttachedSessionRuntimeOwner:
                     code=self._payload_str(fact.payload.get("error_code"))
                     or "agent_session_failed",
                     message=message if isinstance(message, str) else "Agent session failed.",
-                    retryable=False,
+                    retryable=bool(fact.payload.get("retryable")),
                     raw=raw_payload,
                 ),
                 raw=raw_payload,

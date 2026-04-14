@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_operator.acp.client import AcpConnection
+from agent_operator.acp.client import AcpConnection, AcpJsonRpcError
 from agent_operator.domain import (
     AdapterCommand,
     AdapterCommandType,
@@ -322,16 +322,41 @@ class AcpAgentSessionRuntime:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            payload = self._session_failed_payload(exc)
             await self._emit_fact(
                 TechnicalFactDraft(
                     fact_type="session.failed",
-                    payload={"message": str(exc)},
+                    payload=payload,
                     observed_at=datetime.now(UTC),
                     session_id=session_id,
                 )
             )
         finally:
             self._active_prompt_task = None
+
+    def _session_failed_payload(self, exc: Exception) -> dict[str, object]:
+        if isinstance(exc, AcpJsonRpcError):
+            data = exc.data if isinstance(exc.data, dict) else {}
+            codex_error_info = data.get("codex_error_info")
+            detail_message = data.get("message")
+            if codex_error_info == "server_overloaded":
+                return {
+                    "message": (
+                        detail_message
+                        if isinstance(detail_message, str)
+                        else "Selected model is at capacity. Please try a different model."
+                    ),
+                    "error_code": "codex_acp_provider_overloaded",
+                    "retryable": True,
+                    "raw": {
+                        "rpc_error_code": exc.code,
+                        "rpc_error_data": data,
+                        "failure_kind": "provider_capacity",
+                        "recovery_mode": "new_session",
+                        "codex_error_info": "server_overloaded",
+                    },
+                }
+        return {"message": str(exc)}
 
     def _extract_latest_session_id(self) -> str | None:
         requests = getattr(self._adapter_runtime, "_connection", None)

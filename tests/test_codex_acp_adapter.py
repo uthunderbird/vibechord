@@ -141,6 +141,25 @@ def test_classify_codex_acp_error_detects_recoverable_disconnect() -> None:
     assert raw == {"recovery_mode": "same_session"}
 
 
+def test_classify_codex_acp_error_detects_provider_capacity() -> None:
+    status, code, retryable, raw = _classify_codex_acp_error(
+        "Internal error",
+        (
+            "Unhandled error during turn: Selected model is at capacity. "
+            "Please try a different model. Some(ServerOverloaded)"
+        ),
+    )
+
+    assert status is AgentResultStatus.FAILED
+    assert code == "codex_acp_provider_overloaded"
+    assert retryable is True
+    assert raw == {
+        "failure_kind": "provider_capacity",
+        "recovery_mode": "new_session",
+        "codex_error_info": "server_overloaded",
+    }
+
+
 @pytest.mark.anyio
 async def test_codex_acp_adapter_collects_output_and_closes_connection() -> None:
     connection = FakeAcpConnection("sess-1", {"stopReason": "end_turn"})
@@ -169,6 +188,41 @@ async def test_codex_acp_adapter_collects_output_and_closes_connection() -> None
     assert result.status is AgentResultStatus.SUCCESS
     assert result.output_text == "hello world"
     assert connection.closed is True
+
+
+@pytest.mark.anyio
+async def test_codex_acp_adapter_collect_reports_provider_capacity_message() -> None:
+    connection = FakeAcpConnection("sess-1", {"stopReason": "end_turn"})
+
+    def factory(_: Path, __: Path):
+        return connection
+
+    adapter = CodexAcpAgentAdapter(connection_factory=factory)
+    handle = await adapter.start(
+        AgentRunRequest(
+            goal="goal",
+            instruction="do it",
+        )
+    )
+    connection.notifications.append(_update("sess-1", "pytest in flight"))
+    connection.prompt_future.set_exception(RuntimeError("Internal error"))
+    connection.stderr_text = lambda limit=4000: (
+        "Unhandled error during turn: Selected model is at capacity. "
+        "Please try a different model. Some(ServerOverloaded)"
+    )
+
+    result = await adapter.collect(handle)
+
+    assert result.status is AgentResultStatus.FAILED
+    assert result.error is not None
+    assert result.error.code == "codex_acp_provider_overloaded"
+    assert result.error.retryable is True
+    assert result.error.message == "Selected model is at capacity. Please try a different model."
+    assert result.error.raw == {
+        "failure_kind": "provider_capacity",
+        "recovery_mode": "new_session",
+        "codex_error_info": "server_overloaded",
+    }
 
 
 @pytest.mark.anyio

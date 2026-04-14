@@ -298,9 +298,11 @@ class AgentResultService:
         message: str,
         raw: dict[str, object] | None,
     ) -> bool:
-        if code == "claude_acp_rate_limited":
+        if code in {"claude_acp_rate_limited", "codex_acp_provider_overloaded"}:
             return True
         if raw is not None and raw.get("rate_limit_detected") is True:
+            return True
+        if raw is not None and raw.get("failure_kind") == "provider_capacity":
             return True
         lowered = message.lower()
         markers = (
@@ -315,6 +317,8 @@ class AgentResultService:
             "you've hit your limit",
             "you hit your limit",
             "resets 1am",
+            "at capacity",
+            "server overloaded",
         )
         return any(marker in lowered for marker in markers)
 

@@ -172,11 +172,12 @@ class _CodexAcpHooks:
         stderr: str,
     ) -> AcpCollectErrorClassification:
         status, error_code, retryable, error_raw = _classify_codex_acp_error(str(exc), stderr)
+        error_message = _codex_error_message(str(exc), stderr, error_raw)
         return AcpCollectErrorClassification(
             status=status,
             error=AgentError(
                 code=error_code,
-                message=str(exc),
+                message=error_message,
                 retryable=retryable,
                 raw=error_raw,
             ),
@@ -266,6 +267,17 @@ def _classify_codex_acp_error(
     stderr: str,
 ) -> tuple[AgentResultStatus, str, bool, JsonObject | None]:
     haystack = f"{message}\n{stderr}".lower()
+    if _looks_like_provider_capacity(haystack):
+        return (
+            AgentResultStatus.FAILED,
+            "codex_acp_provider_overloaded",
+            True,
+            {
+                "failure_kind": "provider_capacity",
+                "recovery_mode": "new_session",
+                "codex_error_info": "server_overloaded",
+            },
+        )
     if _looks_like_recoverable_disconnect(haystack):
         return (
             AgentResultStatus.DISCONNECTED,
@@ -303,3 +315,21 @@ def _looks_like_protocol_mismatch(haystack: str) -> bool:
         "invalid request",
     )
     return any(marker in haystack for marker in markers)
+
+
+def _looks_like_provider_capacity(haystack: str) -> bool:
+    markers = (
+        "selected model is at capacity",
+        "server_overloaded",
+        "model is at capacity",
+    )
+    return any(marker in haystack for marker in markers)
+
+
+def _codex_error_message(message: str, stderr: str, raw: JsonObject | None) -> str:
+    if raw and raw.get("failure_kind") == "provider_capacity":
+        for line in stderr.splitlines():
+            if "Selected model is at capacity." in line:
+                return "Selected model is at capacity. Please try a different model."
+        return "Codex provider is overloaded. Please retry with a different model or later."
+    return message

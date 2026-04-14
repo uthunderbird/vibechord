@@ -418,3 +418,53 @@ async def test_attached_session_runtime_registry_collect_retires_failed_session(
 
     with pytest.raises(RuntimeError, match="terminal and cannot continue"):
         await registry.send(handle, "continue")
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_preserves_retryable_provider_capacity_error(
+) -> None:
+    runtime = TerminalTrackingSessionRuntime(
+        terminal_fact_type="session.failed",
+        terminal_payload={
+            "message": "Selected model is at capacity. Please try a different model.",
+            "error_code": "codex_acp_provider_overloaded",
+            "retryable": True,
+            "raw": {
+                "failure_kind": "provider_capacity",
+                "recovery_mode": "new_session",
+                "codex_error_info": "server_overloaded",
+            },
+        },
+    )
+    registry = AttachedSessionManager(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *, working_directory, log_path: runtime,
+            )
+        }
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            working_directory=Path.cwd(),
+        ),
+    )
+
+    result = await registry.collect(handle)
+
+    assert result.status.value == "failed"
+    assert result.error is not None
+    assert result.error.code == "codex_acp_provider_overloaded"
+    assert result.error.message == "Selected model is at capacity. Please try a different model."
+    assert result.error.retryable is True
+    assert result.error.raw == {
+        "failure_kind": "provider_capacity",
+        "recovery_mode": "new_session",
+        "codex_error_info": "server_overloaded",
+    }

@@ -8,6 +8,7 @@ from agent_operator.domain import (
     AgentError,
     AgentResult,
     AgentResultStatus,
+    AgentSessionHandle,
     AttentionType,
     BackgroundRuntimeMode,
     BrainActionType,
@@ -426,6 +427,56 @@ async def test_background_rate_limit_blocks_operation_without_launching_new_run(
     assert updated is not None
     assert updated.sessions[0].status is SessionStatus.WAITING
     assert updated.sessions[0].cooldown_until is not None
+
+
+@pytest.mark.anyio
+async def test_codex_provider_capacity_blocks_operation_for_cooldown_without_retrying() -> None:
+    store = MemoryStore()
+    trace_store = MemoryTraceStore()
+    service = make_service(
+        brain=StartClaudeAcpThenStopBrain(),
+        store=store,
+        trace_store=trace_store,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+    )
+
+    result = AgentResult(
+        session_id="sess-1",
+        status=AgentResultStatus.FAILED,
+        error=AgentError(
+            code="codex_acp_provider_overloaded",
+            message="Selected model is at capacity. Please try a different model.",
+            retryable=True,
+            raw={
+                "failure_kind": "provider_capacity",
+                "recovery_mode": "new_session",
+                "codex_error_info": "server_overloaded",
+            },
+        ),
+        completed_at=datetime.now(UTC),
+    )
+
+    operation = await service.run(
+        OperationGoal(objective="provider capacity"),
+        **run_settings(max_iterations=2, allowed_agents=["claude_acp"]),
+    )
+    updated = await store.load_operation(operation.operation_id)
+    assert updated is not None
+
+    await service._agent_result_service.handle_agent_result(
+        updated,
+        updated.iterations[0],
+        updated.tasks[0],
+        AgentSessionHandle(
+            adapter_key=updated.sessions[0].adapter_key,
+            session_id=updated.sessions[0].session_id,
+        ),
+        result,
+    )
+
+    assert updated.sessions[0].status is SessionStatus.WAITING
+    assert updated.sessions[0].cooldown_until is not None
+    assert updated.sessions[0].cooldown_reason is not None
 
 
 @pytest.mark.anyio
