@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,9 @@ from agent_operator.adapters.runtime_bindings import AgentRuntimeBinding
 from agent_operator.application.attached_session_registry import AttachedSessionManager
 from agent_operator.domain import (
     AgentDescriptor,
+    AgentError,
+    AgentResult,
+    AgentResultStatus,
     AgentSessionCommand,
     AgentSessionCommandType,
     TechnicalFactDraft,
@@ -300,6 +304,57 @@ async def test_attached_session_runtime_registry_cancel_disposes_runtime_and_kee
 
     with pytest.raises(RuntimeError, match="terminal and cannot continue"):
         await registry.send(handle, "continue")
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_cancel_preserves_waiting_input_truth(
+) -> None:
+    runtime = CancelTrackingSessionRuntime()
+    registry = AttachedSessionManager(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *, working_directory, log_path: runtime,
+            )
+        }
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            working_directory=Path.cwd(),
+        ),
+    )
+
+    live = registry._sessions[handle.session_id]  # noqa: SLF001 - regression check
+    live.waiting_reason = "Agent is waiting for approval."
+    live.result = AgentResult(
+        session_id=handle.session_id,
+        status=AgentResultStatus.INCOMPLETE,
+        completed_at=datetime.now(UTC),
+        output_text="hello",
+        error=AgentError(
+            code="agent_waiting_input",
+            message="Agent is waiting for approval.",
+            retryable=False,
+        ),
+    )
+    live.terminal_event.set()
+
+    await registry.cancel(handle)
+    progress = await registry.poll(handle)
+    result = await registry.collect(handle)
+
+    assert runtime.cancel_calls == 0
+    assert runtime.close_calls == 1
+    assert progress.state.value == "waiting_input"
+    assert result.status.value == "incomplete"
+    assert result.error is not None
+    assert result.error.code == "agent_waiting_input"
 
 
 @pytest.mark.anyio

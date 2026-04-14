@@ -549,7 +549,11 @@ class AttachedSessionManager(AgentSessionManager):
         """Cancel one live session and dispose its runtime."""
         live = await self._ensure_live_session(handle)
         try:
-            await live.runtime.cancel(reason="attached_session_cancelled")
+            if not (
+                live.result is not None
+                and live.result.status is AgentResultStatus.INCOMPLETE
+            ):
+                await live.runtime.cancel(reason="attached_session_cancelled")
         finally:
             if live.result is None:
                 now = datetime.now(UTC)
