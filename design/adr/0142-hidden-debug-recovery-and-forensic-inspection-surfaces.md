@@ -2,22 +2,25 @@
 
 - Date: 2026-04-10
 
-## Status
+## Decision Status
 
 Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
-Skim-safe current truth on 2026-04-10:
+Implementation grounding on 2026-04-14:
 
 - `implemented`: the hidden `debug` namespace exists as the non-default home for recovery/control,
-  runtime introspection, and deeper forensic inspection commands
+  runtime introspection, and deeper forensic inspection commands, via `debug_app` in
+  `src/agent_operator/cli/app.py` and the registered command family in
+  `src/agent_operator/cli/commands/debug.py`
 - `implemented`: default top-level help hides the `debug` family, while `operator debug` and
-  `operator --help --all` still reveal the hidden namespace and its covered commands
+  `operator --help --all` still reveal the hidden namespace and its covered commands, via
+  `_emit_help()` in `src/agent_operator/cli/app.py`
 - `implemented`: transcript access continues to route through `operator log` rather than moving
-  into the `debug` namespace
+  into the `debug` namespace, via `log()` in `src/agent_operator/cli/commands/operation_detail.py`
 - `verified`: focused CLI coverage for hidden-help visibility and debug-namespace reachability now
   exists in `tests/test_cli.py`
 - `partial`: RFC 0014 remains draft, so broader example-corpus closure beyond this landed slice is
@@ -120,6 +123,10 @@ Tradeoffs:
 
 Current evidence for the landed slice:
 
+- `verified`: `pytest -q tests/test_cli.py -k 'test_default_help_hides_debug_commands or
+  test_debug_help_lists_hidden_runtime_commands or
+  test_help_all_reveals_hidden_debug_commands or
+  test_debug_namespace_surfaces_recovery_runtime_and_forensic_commands'` passed on 2026-04-14
 - `verified`: hidden debug commands remain outside default public help
 - `verified`: transcript access continues to route through `log` rather than through `debug`
 - `verified`: recovery/runtime/forensic command families remain distinguishable and reachable
