@@ -580,7 +580,10 @@ class AttachedSessionManager(AgentSessionManager):
             )
         live = self._sessions.get(handle.session_id)
         if live is not None:
-            return live
+            if self._should_reattach_live_session(live):
+                await self._dispose_by_session_id(handle.session_id)
+            else:
+                return live
         binding = self._bindings.get(handle.adapter_key)
         if binding is None:
             raise RuntimeError(f"Unknown attached session: {handle.session_id}")
@@ -592,6 +595,16 @@ class AttachedSessionManager(AgentSessionManager):
         live.consumer_task = asyncio.create_task(self._consume_runtime_events(live, owner))
         self._sessions[handle.session_id] = live
         return live
+
+    def _should_reattach_live_session(self, live: _LiveAttachedSession) -> bool:
+        task = live.consumer_task
+        if task is None or not task.done():
+            return False
+        return (
+            live.result is not None
+            and live.result.status is AgentResultStatus.SUCCESS
+            and not live.active_turn
+        )
 
     async def _dispose_by_session_id(self, session_id: str) -> None:
         live = self._sessions.pop(session_id, None)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,7 +11,16 @@ from agent_operator.acp.adapter_runtime import AcpAdapterRuntime
 from agent_operator.acp.session_runtime import AcpAgentSessionRuntime
 from agent_operator.application.agent_session_manager import AttachedSessionManager
 from agent_operator.application.attached_session_registry import AttachedRuntimeBinding
-from agent_operator.domain import AgentCapability, AgentDescriptor, AgentSessionHandle
+from agent_operator.dtos.requests import AgentRunRequest
+from agent_operator.domain import (
+    AgentCapability,
+    AgentDescriptor,
+    AgentSessionCommand,
+    AgentSessionCommandType,
+    AgentResultStatus,
+    AgentSessionHandle,
+    TechnicalFactDraft,
+)
 from agent_operator.testing.operator_service_support import FakeAgent
 from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
 
@@ -169,3 +180,149 @@ async def test_agent_session_manager_forks_through_test_runtime_binding_when_age
     assert handle.session_id == "session-2"
     assert fake_agent.forked_handles[0].session_id == "session-1"
     assert handle.metadata["log_path"] == str(tmp_path / "fork.jsonl")
+
+
+class _ReattachAfterTerminalRuntime:
+    def __init__(self, *, instance_id: int, working_directory: Path) -> None:
+        self.instance_id = instance_id
+        self.working_directory = working_directory
+        self._events: asyncio.Queue[TechnicalFactDraft | None] = asyncio.Queue()
+        self._events_claimed = False
+        self._handle = AgentSessionHandle(
+            adapter_key="codex_acp",
+            session_id="sess-1",
+            session_name="reattachable",
+            metadata={"working_directory": str(working_directory)},
+        )
+        self._emit_task: asyncio.Task[None] | None = None
+
+    async def __aenter__(self) -> _ReattachAfterTerminalRuntime:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()
+
+    async def send(self, command: AgentSessionCommand) -> None:
+        if command.command_type == AgentSessionCommandType.START_SESSION:
+            self._emit_task = asyncio.create_task(
+                self._emit_start_sequence(f"completed via runtime-{self.instance_id}")
+            )
+            return
+        if command.command_type == AgentSessionCommandType.SEND_MESSAGE:
+            self._emit_task = asyncio.create_task(
+                self._emit_follow_up_sequence(f"follow-up via runtime-{self.instance_id}")
+            )
+            return
+        raise AssertionError(f"Unexpected command type: {command.command_type}")
+
+    def events(self):
+        if self._events_claimed:
+            raise RuntimeError("events already claimed")
+        self._events_claimed = True
+        return self._iterate()
+
+    async def _iterate(self):
+        while True:
+            item = await self._events.get()
+            if item is None:
+                return
+            yield item
+
+    async def _emit_start_sequence(self, output_text: str) -> None:
+        started_at = datetime.now(UTC)
+        await self._events.put(
+            TechnicalFactDraft(
+                fact_type="session.started",
+                payload={
+                    "session_id": self._handle.session_id,
+                    "working_directory": str(self.working_directory),
+                },
+                observed_at=started_at,
+                session_id=self._handle.session_id,
+            )
+        )
+        await asyncio.sleep(0)
+        await self._events.put(
+            TechnicalFactDraft(
+                fact_type="session.completed",
+                payload={"output_text": output_text},
+                observed_at=datetime.now(UTC),
+                session_id=self._handle.session_id,
+            )
+        )
+        await self._events.put(None)
+
+    async def _emit_follow_up_sequence(self, output_text: str) -> None:
+        await asyncio.sleep(0)
+        await self._events.put(
+            TechnicalFactDraft(
+                fact_type="session.completed",
+                payload={"output_text": output_text},
+                observed_at=datetime.now(UTC),
+                session_id=self._handle.session_id,
+            )
+        )
+        await self._events.put(None)
+
+    async def cancel(self, reason: str | None = None) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        if self._emit_task is not None:
+            self._emit_task.cancel()
+        await self._events.put(None)
+
+
+@pytest.mark.anyio
+async def test_agent_session_manager_reattaches_after_successful_turn_runtime_exits(
+    tmp_path: Path,
+) -> None:
+    descriptor = AgentDescriptor(
+        key="codex_acp",
+        display_name="Codex via ACP",
+        capabilities=[AgentCapability(name="acp", description="ACP session over stdio")],
+        supports_follow_up=True,
+        supports_cancellation=True,
+        supports_fork=False,
+    )
+    built_runtime_ids: list[int] = []
+
+    @dataclass
+    class _Binding:
+        agent_key: str
+        descriptor: AgentDescriptor
+
+        @staticmethod
+        def build_session_runtime(*, working_directory: Path, log_path: Path):
+            runtime_id = len(built_runtime_ids) + 1
+            built_runtime_ids.append(runtime_id)
+            return _ReattachAfterTerminalRuntime(
+                instance_id=runtime_id,
+                working_directory=working_directory,
+            )
+
+    manager = AttachedSessionManager.from_bindings({"codex_acp": _Binding("codex_acp", descriptor)})
+
+    handle = await manager.start(
+        "codex_acp",
+        AgentRunRequest(
+            goal="goal",
+            instruction="start",
+            session_name="reattachable",
+            one_shot=False,
+            working_directory=tmp_path,
+            metadata={"working_directory": str(tmp_path)},
+        ),
+    )
+    first = await asyncio.wait_for(manager.collect(handle), timeout=1.0)
+    assert first.status is AgentResultStatus.SUCCESS
+    assert first.output_text == "completed via runtime-1"
+
+    await asyncio.sleep(0)
+
+    await manager.send(handle, "follow up")
+    second = await asyncio.wait_for(manager.collect(handle), timeout=1.0)
+
+    assert second.status is AgentResultStatus.SUCCESS
+    assert second.output_text == "follow-up via runtime-2"
+    assert built_runtime_ids == [1, 2]
