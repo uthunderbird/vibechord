@@ -64,6 +64,7 @@ from agent_operator.domain import (
     TaskStatus,
     TraceRecord,
 )
+from agent_operator.dtos import ConverseTurnDTO
 from agent_operator.runtime import (
     FileOperationCommandInbox,
     FileOperationStore,
@@ -764,6 +765,199 @@ def test_ask_cli_missing_operation_exits_code_4(tmp_path: Path, monkeypatch) -> 
 
     assert result.exit_code == 4
     assert "Operation 'missing-op' was not found." in result.output
+
+
+def test_converse_cli_read_only_query_renders_answer_without_executing_commands(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = _seed_operation(tmp_path)
+    prompts: list[str] = []
+
+    class _Brain:
+        async def converse(self, prompt: str) -> ConverseTurnDTO:
+            prompts.append(prompt)
+            return ConverseTurnDTO(answer="The operation is currently running.")
+
+    async def _unexpected_write(*args, **kwargs) -> None:
+        raise AssertionError("read-only converse turn must not execute a write path")
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: _Brain(),
+    )
+    monkeypatch.setattr("agent_operator.cli.workflows.control.answer_async", _unexpected_write)
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.enqueue_command_async",
+        _unexpected_write,
+    )
+    monkeypatch.setattr("agent_operator.cli.workflows.control.cancel_async", _unexpected_write)
+    monkeypatch.setattr("agent_operator.cli.workflows.control.stop_turn_async", _unexpected_write)
+
+    result = runner.invoke(
+        app,
+        ["converse", "last"],
+        input="What is the current status?\nquit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Operator ›" in result.stdout
+    assert "iter 0/100" in result.stdout
+    assert "The operation is currently running." in result.stdout
+    assert len(prompts) == 1
+    assert f"Operation id: {operation_id}" in prompts[0]
+    assert "Context level: brief" in prompts[0]
+
+
+def test_converse_cli_write_proposal_executes_only_on_yes(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = _seed_operation(tmp_path)
+    enqueued: list[tuple[str, OperationCommandType, str | None]] = []
+
+    class _Brain:
+        async def converse(self, prompt: str) -> ConverseTurnDTO:
+            return ConverseTurnDTO(
+                answer="I can record that as an operator message.",
+                proposed_command=f'operator message {operation_id} "Use a branch."',
+            )
+
+    async def _capture_enqueue(
+        operation_id_: str,
+        command_type: OperationCommandType,
+        text: str | None,
+        *args,
+        **kwargs,
+    ) -> None:
+        enqueued.append((operation_id_, command_type, text))
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: _Brain(),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.enqueue_command_async",
+        _capture_enqueue,
+    )
+
+    result = runner.invoke(
+        app,
+        ["converse", operation_id],
+        input="Record the preferred workflow.\ny\nquit\n",
+    )
+
+    assert result.exit_code == 0
+    assert f'→ Proposed action: operator message {operation_id} "Use a branch."' in result.stdout
+    assert enqueued == [
+        (
+            operation_id,
+            OperationCommandType.INJECT_OPERATOR_MESSAGE,
+            "Use a branch.",
+        )
+    ]
+
+
+def test_converse_cli_declining_proposal_continues_session(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = _seed_operation(tmp_path)
+    prompts: list[str] = []
+    enqueued: list[tuple[str, OperationCommandType, str | None]] = []
+    turns = iter(
+        [
+            ConverseTurnDTO(
+                answer="I can record that as an operator message.",
+                proposed_command=f'operator message {operation_id} "Use swarm mode first."',
+            ),
+            ConverseTurnDTO(answer="No command executed. The session is still open."),
+        ]
+    )
+
+    class _Brain:
+        async def converse(self, prompt: str) -> ConverseTurnDTO:
+            prompts.append(prompt)
+            return next(turns)
+
+    async def _capture_enqueue(
+        operation_id_: str,
+        command_type: OperationCommandType,
+        text: str | None,
+        *args,
+        **kwargs,
+    ) -> None:
+        enqueued.append((operation_id_, command_type, text))
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: _Brain(),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.enqueue_command_async",
+        _capture_enqueue,
+    )
+
+    result = runner.invoke(
+        app,
+        ["converse", operation_id],
+        input="Record a note.\nN\nWhat happened?\nquit\n",
+    )
+
+    assert result.exit_code == 0
+    assert enqueued == []
+    assert "No command executed. The session is still open." in result.stdout
+    assert len(prompts) == 2
+    assert "Proposed command declined." in prompts[1]
+
+
+def test_converse_cli_without_operation_loads_fleet_context(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+    prompts: list[str] = []
+
+    async def _seed() -> None:
+        await store.save_operation(
+            OperationState(
+                operation_id="op-fleet-active-1",
+                goal=OperationGoal(objective="Active operation 1"),
+                status=OperationStatus.RUNNING,
+                **state_settings(),
+            )
+        )
+        await store.save_operation(
+            OperationState(
+                operation_id="op-fleet-active-2",
+                goal=OperationGoal(objective="Active operation 2"),
+                status=OperationStatus.RUNNING,
+                **state_settings(),
+            )
+        )
+        await store.save_operation(
+            OperationState(
+                operation_id="op-fleet-completed",
+                goal=OperationGoal(objective="Completed operation"),
+                status=OperationStatus.COMPLETED,
+                **state_settings(),
+            )
+        )
+
+    class _Brain:
+        async def converse(self, prompt: str) -> ConverseTurnDTO:
+            prompts.append(prompt)
+            return ConverseTurnDTO(answer="Fleet context loaded.")
+
+    anyio.run(_seed)
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: _Brain(),
+    )
+
+    result = runner.invoke(app, ["converse"], input="Which operation is active?\nquit\n")
+
+    assert result.exit_code == 0
+    assert "Fleet context loaded." in result.stdout
+    assert len(prompts) == 1
+    assert "Conversation mode: fleet" in prompts[0]
+    assert "op-fleet-active-1" in prompts[0]
+    assert "op-fleet-active-2" in prompts[0]
+    assert "op-fleet-completed" not in prompts[0]
 
 
 def _seed_operation_without_linked_session(tmp_path: Path) -> str:
@@ -3293,6 +3487,174 @@ def test_ask_command_missing_operation_exits_with_internal_error_code(monkeypatc
 
     assert result.exit_code == 4
     assert "was not found" in result.stderr
+
+
+def test_converse_command_answers_question_for_operation(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeBrain:
+        async def converse(self, prompt: str) -> SimpleNamespace:
+            assert "Conversation mode: operation" in prompt
+            assert f"Operation id: {operation_id}" in prompt
+            assert "Context level: brief" in prompt
+            assert "User message:\nWhat is the current status?" in prompt
+            return SimpleNamespace(answer="The operation is completed.", proposed_command=None)
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: FakeBrain(),
+    )
+
+    result = runner.invoke(app, ["converse", "last"], input="What is the current status?\nquit\n")
+
+    assert result.exit_code == 0
+    assert f"Operator › {operation_id}" in result.stdout
+    assert "The operation is completed." in result.stdout
+
+
+def test_converse_command_executes_proposed_write_on_yes(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    captured: dict[str, object] = {}
+
+    class FakeBrain:
+        async def converse(self, prompt: str) -> SimpleNamespace:
+            assert "Conversation mode: operation" in prompt
+            return SimpleNamespace(
+                answer="I can answer the blocking attention for you.",
+                proposed_command=(
+                    f'operator answer {operation_id} {attention_id} --text "use a branch"'
+                ),
+            )
+
+    async def fake_answer_async(
+        operation_id_: str,
+        attention_id_: str | None,
+        text: str,
+        promote: bool,
+        policy_title: str | None,
+        policy_text: str | None,
+        policy_category: str,
+        policy_objective_keyword: list[str] | None,
+        policy_task_keyword: list[str] | None,
+        policy_agent: list[str] | None,
+        policy_run_mode: list[RunMode] | None,
+        policy_involvement: list[InvolvementLevel] | None,
+        policy_rationale: str | None,
+        json_mode: bool,
+    ) -> None:
+        captured["operation_id"] = operation_id_
+        captured["attention_id"] = attention_id_
+        captured["text"] = text
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: FakeBrain(),
+    )
+    monkeypatch.setattr("agent_operator.cli.workflows.control.answer_async", fake_answer_async)
+
+    result = runner.invoke(app, ["converse", operation_id], input="Use a branch\ny\nquit\n")
+
+    assert result.exit_code == 0
+    assert (
+        f'→ Proposed action: operator answer {operation_id} {attention_id} --text "use a branch"'
+        in result.stdout
+    )
+    assert captured == {
+        "operation_id": operation_id,
+        "attention_id": attention_id,
+        "text": "use a branch",
+    }
+
+
+def test_converse_command_declined_write_continues_session(tmp_path: Path, monkeypatch) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    call_count = {"count": 0}
+    executed: list[str] = []
+
+    class FakeBrain:
+        async def converse(self, prompt: str) -> SimpleNamespace:
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                return SimpleNamespace(
+                    answer="I can answer the blocking attention for you.",
+                    proposed_command=(
+                        f'operator answer {operation_id} {attention_id} --text "use a branch"'
+                    ),
+                )
+            assert "Proposed command declined." in prompt
+            return SimpleNamespace(
+                answer="The operation is still waiting on that policy decision.",
+                proposed_command=None,
+            )
+
+    async def fake_answer_async(*args, **kwargs) -> None:
+        executed.append("called")
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: FakeBrain(),
+    )
+    monkeypatch.setattr("agent_operator.cli.workflows.control.answer_async", fake_answer_async)
+
+    result = runner.invoke(
+        app,
+        ["converse", operation_id],
+        input="Use a branch\nn\nWhat is blocked now?\nquit\n",
+    )
+
+    assert result.exit_code == 0
+    assert executed == []
+    assert "The operation is still waiting on that policy decision." in result.stdout
+
+
+def test_converse_command_loads_fleet_context_when_operation_is_omitted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = FileOperationStore(tmp_path / "runs")
+    operations = [
+        OperationState(
+            operation_id="op-fleet-1",
+            goal=OperationGoal(objective="Ship alpha"),
+            status=OperationStatus.RUNNING,
+            **state_settings(),
+        ),
+        OperationState(
+            operation_id="op-fleet-2",
+            goal=OperationGoal(
+                objective="Investigate failure",
+                metadata={"project_profile_name": "femtobot"},
+            ),
+            status=OperationStatus.NEEDS_HUMAN,
+            **state_settings(),
+        ),
+    ]
+    for operation in operations:
+        anyio.run(store.save_operation, operation)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeBrain:
+        async def converse(self, prompt: str) -> SimpleNamespace:
+            assert "Conversation mode: fleet" in prompt
+            assert '"operation_id": "op-fleet-1"' in prompt
+            assert '"operation_id": "op-fleet-2"' in prompt
+            return SimpleNamespace(
+                answer="op-fleet-2 is the blocked operation.",
+                proposed_command=None,
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: FakeBrain(),
+    )
+
+    result = runner.invoke(app, ["converse"], input="Which operation is blocked?\nquit\n")
+
+    assert result.exit_code == 0
+    assert "Operator › fleet" in result.stdout
+    assert "op-fleet-2 is the blocked operation." in result.stdout
 
 
 def test_attention_command_shows_attention_requests(tmp_path: Path, monkeypatch) -> None:

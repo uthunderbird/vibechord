@@ -12,6 +12,7 @@ from agent_operator.domain import AgentResult, OperationGoal, OperationState
 from agent_operator.dtos import (
     AgentTurnSummaryDTO,
     ArtifactNormalizationDTO,
+    ConverseTurnDTO,
     EvaluationDTO,
     MemoryEntryDraftDTO,
     PermissionDecisionDTO,
@@ -60,6 +61,14 @@ class CodexStructuredOutputProvider:
             prompt=build_decision_prompt(state),
         )
         return StructuredDecisionDTO.model_validate(payload)
+
+    async def converse(self, prompt: str) -> ConverseTurnDTO:
+        payload = await self._request_structured_output(
+            schema_name="converse_turn",
+            schema=build_strict_json_schema(ConverseTurnDTO.model_json_schema()),
+            prompt=prompt,
+        )
+        return ConverseTurnDTO.model_validate(payload)
 
     async def answer_question(self, state: OperationState, question: str) -> str:
         payload = await self._request_structured_output(

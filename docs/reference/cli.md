@@ -209,6 +209,12 @@ asks for confirmation by default; use `--yes` to skip the prompt.
 Operation-scoped surfaces that take an operation argument accept the normal operation reference
 forms: full id, unique short prefix, and `last`.
 
+`converse` is the interactive NL dialogue surface. `operator converse OP` loads one operation's
+context; omitting `OP` loads fleet-level context for active operations, with optional `--project`
+filtering and `--context brief|full` context assembly control. Read-only turns answer directly.
+Turns that imply writes show a proposed structured command and require confirmation before the
+existing command path executes it.
+
 For deeper command-shape rationale, see `design/CLI-UX-VISION.md` and
 `design/adr/0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md`
 in the repository.

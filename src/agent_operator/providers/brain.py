@@ -11,6 +11,7 @@ from agent_operator.domain import (
 from agent_operator.dtos import (
     AgentTurnSummaryDTO,
     ArtifactNormalizationDTO,
+    ConverseTurnDTO,
     EvaluationDTO,
     MemoryEntryDraftDTO,
     StructuredDecisionDTO,
@@ -33,6 +34,9 @@ class ProviderBackedBrain:
     @property
     def provider(self) -> StructuredOutputProvider:
         return self._provider
+
+    async def converse(self, prompt: str) -> ConverseTurnDTO:
+        return await self._provider.converse(prompt)
 
     async def answer_question(self, state: OperationState, question: str) -> str:
         return await self._provider.answer_question(state, question)

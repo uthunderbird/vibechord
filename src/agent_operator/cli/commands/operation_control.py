@@ -31,6 +31,7 @@ from ..workflows import (
     answer_async,
     ask_async,
     cancel_async,
+    converse_async,
     enqueue_command_async,
     status_async,
     stop_turn_async,
@@ -53,6 +54,21 @@ def ask(
     json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     anyio.run(ask_async, operation_ref, question, json_mode)
+
+
+@app.command()
+def converse(
+    operation_ref: str | None = typer.Argument(
+        None, help="Operation id, prefix, or `last`. Omit for fleet-level context."
+    ),
+    project: str | None = typer.Option(
+        None, "--project", help="Optional project profile filter for fleet-level context."
+    ),
+    context: str = typer.Option(
+        "brief", "--context", help="Conversation context assembly level: brief or full."
+    ),
+) -> None:
+    anyio.run(converse_async, operation_ref, project, context)
 
 
 @app.command()

@@ -9,12 +9,15 @@ from agent_operator.domain import (
     IterationState,
     OperationGoal,
     OperationState,
+    OperationStatus,
     OperatorMessage,
     PolicyApplicability,
     PolicyCategory,
     PolicyEntry,
 )
 from agent_operator.providers.prompting import (
+    build_converse_fleet_prompt,
+    build_converse_operation_prompt,
     build_decision_prompt,
     build_evaluation_prompt,
     build_question_answer_prompt,
@@ -371,3 +374,67 @@ def test_build_question_answer_prompt_enforces_read_only_boundary() -> None:
     assert "do not claim to have modified operation state" in prompt
     assert "User question:" in prompt
     assert "What is the operator likely to do next?" in prompt
+
+
+def test_build_converse_operation_prompt_distinguishes_brief_and_full_context() -> None:
+    state = OperationState(
+        operation_id="op-converse-1",
+        goal=OperationGoal(objective="Inspect the repository"),
+        **state_settings(),
+    )
+
+    brief_prompt = build_converse_operation_prompt(
+        state,
+        user_message="What is blocked?",
+        conversation_history=[{"role": "user", "content": "What is blocked?"}],
+        context_level="brief",
+        recent_events=None,
+    )
+    full_prompt = build_converse_operation_prompt(
+        state,
+        user_message="What is blocked?",
+        conversation_history=[{"role": "user", "content": "What is blocked?"}],
+        context_level="full",
+        recent_events=[{"event_id": "evt-1", "kind": "operation.started"}],
+    )
+
+    assert "Conversation mode: operation" in brief_prompt
+    assert "Context level: brief" in brief_prompt
+    assert "Recent event log:" not in brief_prompt
+    assert "Tasks:" not in brief_prompt
+    assert "Conversation mode: operation" in full_prompt
+    assert "Context level: full" in full_prompt
+    assert "Recent event log:" in full_prompt
+    assert "Tasks:" in full_prompt
+    assert "operator answer <operation-id> <attention-id> --text" in full_prompt
+
+
+def test_build_converse_fleet_prompt_surfaces_active_operation_context() -> None:
+    operations = [
+        OperationState(
+            operation_id="op-fleet-1",
+            goal=OperationGoal(objective="Ship alpha"),
+            status=OperationStatus.RUNNING,
+            **state_settings(),
+        ),
+        OperationState(
+            operation_id="op-fleet-2",
+            goal=OperationGoal(objective="Investigate failure"),
+            status=OperationStatus.NEEDS_HUMAN,
+            **state_settings(),
+        ),
+    ]
+
+    prompt = build_converse_fleet_prompt(
+        operations,
+        user_message="Which operation is blocked?",
+        conversation_history=[],
+        context_level="brief",
+    )
+
+    assert "Conversation mode: fleet" in prompt
+    assert "Context level: brief" in prompt
+    assert '"operation_id": "op-fleet-1"' in prompt
+    assert '"operation_id": "op-fleet-2"' in prompt
+    assert '"objective": "Investigate failure"' in prompt
+    assert "User message:\nWhich operation is blocked?" in prompt

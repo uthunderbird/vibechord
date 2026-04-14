@@ -6,6 +6,7 @@ from agent_operator.domain import AgentResult, OperationGoal, OperationState
 from agent_operator.dtos import (
     AgentTurnSummaryDTO,
     ArtifactNormalizationDTO,
+    ConverseTurnDTO,
     EvaluationDTO,
     FileContextStep,
     MemoryEntryDraftDTO,
@@ -15,6 +16,8 @@ from agent_operator.dtos import (
 
 
 class StructuredOutputProvider(Protocol):
+    async def converse(self, prompt: str) -> ConverseTurnDTO: ...
+
     async def answer_question(self, state: OperationState, question: str) -> str: ...
 
     async def decide_next_action(self, state: OperationState) -> StructuredDecisionDTO: ...

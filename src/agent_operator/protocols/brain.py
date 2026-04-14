@@ -12,9 +12,12 @@ from agent_operator.domain import (
     OperationState,
     ProgressSummary,
 )
+from agent_operator.dtos import ConverseTurnDTO
 
 
 class OperatorBrain(Protocol):
+    async def converse(self, prompt: str) -> ConverseTurnDTO: ...
+
     async def answer_question(self, state: OperationState, question: str) -> str: ...
 
     async def decide_next_action(self, state: OperationState) -> BrainDecision: ...

@@ -529,6 +529,123 @@ def build_question_answer_prompt(state: OperationState, question: str) -> str:
     )
 
 
+def build_converse_operation_prompt(
+    state: OperationState,
+    *,
+    user_message: str,
+    conversation_history: list[dict[str, str]],
+    context_level: str,
+    recent_events: list[dict[str, object]] | None,
+) -> str:
+    iteration_limit = 20 if context_level == "full" else 5
+    recent_iterations_json = json.dumps(
+        [item.model_dump(mode="json") for item in state.iterations[-iteration_limit:]],
+        ensure_ascii=True,
+    )
+    context_sections = [
+        f"Objective:\n{state.objective_state.objective}",
+        "Harness Instructions:\n"
+        f"{state.objective_state.harness_instructions or '(none)'}",
+        f"Current status:\n{state.status.value}",
+        f"Current focus:\n{json.dumps(_serialize_focus(state), ensure_ascii=True)}",
+        "Open Attention Requests:\n"
+        f"{_attention_requests_json(state, statuses={'open'})}",
+        f"Recent iteration history:\n{recent_iterations_json}",
+    ]
+    if context_level == "full":
+        context_sections.extend(
+            [
+                f"Tasks:\n{json.dumps(_serialize_tasks(state), ensure_ascii=True)}",
+                f"Sessions:\n{json.dumps(_serialize_sessions(state), ensure_ascii=True)}",
+                "Current memory:\n"
+                f"{json.dumps(_serialize_memory_entries(state), ensure_ascii=True)}",
+                "Recent event log:\n"
+                f"{json.dumps(recent_events or [], ensure_ascii=True)}",
+            ]
+        )
+    return (
+        "You are the operator brain's interactive natural-language conversation surface.\n"
+        "Respond conversationally, grounded only in the provided operation context.\n"
+        "Return JSON matching the schema.\n"
+        "Set proposed_command to null for read-only answers.\n"
+        "When a write action is appropriate, propose exactly one canonical CLI command string.\n"
+        "Supported write commands are:\n"
+        "- operator answer <operation-id> <attention-id> --text \"...\"\n"
+        "- operator message <operation-id> \"...\"\n"
+        "- operator pause <operation-id>\n"
+        "- operator unpause <operation-id>\n"
+        "- operator interrupt <operation-id> --task <task-id>\n"
+        "- operator patch-objective <operation-id> \"...\"\n"
+        "- operator cancel <operation-id>\n"
+        "Do not claim that any command already executed.\n"
+        "Dangerous commands still require structured confirmation; "
+        "you may propose them but must not imply execution.\n"
+        f"Conversation mode: operation\nContext level: {context_level}\n"
+        f"Operation id: {state.operation_id}\n\n"
+        "Conversation history so far:\n"
+        f"{json.dumps(conversation_history, ensure_ascii=True)}\n\n"
+        + "\n\n".join(context_sections)
+        + "\n\nUser message:\n"
+        + user_message
+    )
+
+
+def build_converse_fleet_prompt(
+    operations: list[OperationState],
+    *,
+    user_message: str,
+    conversation_history: list[dict[str, str]],
+    context_level: str,
+) -> str:
+    fleet_payload: list[dict[str, object]] = []
+    for operation in operations:
+        entry: dict[str, object] = {
+            "operation_id": operation.operation_id,
+            "status": operation.status.value,
+            "objective": operation.objective_state.objective,
+            "project_profile_name": operation.goal.metadata.get("project_profile_name"),
+            "iteration_count": len(operation.iterations),
+            "open_attention_count": len(
+                [item for item in operation.attention_requests if item.status.value == "open"]
+            ),
+            "blocking_attention_count": len(
+                [
+                    item
+                    for item in operation.attention_requests
+                    if item.status.value == "open" and item.blocking
+                ]
+            ),
+        }
+        if context_level == "full":
+            entry["focus"] = _serialize_focus(operation)
+            entry["tasks"] = _serialize_tasks(operation)
+        fleet_payload.append(entry)
+    return (
+        "You are the operator brain's interactive natural-language conversation surface.\n"
+        "Respond conversationally, grounded only in the provided fleet context.\n"
+        "Return JSON matching the schema.\n"
+        "Set proposed_command to null for read-only answers.\n"
+        "When a write action is appropriate, propose exactly one canonical "
+        "CLI command string with an explicit operation id.\n"
+        "Supported write commands are:\n"
+        "- operator answer <operation-id> <attention-id> --text \"...\"\n"
+        "- operator message <operation-id> \"...\"\n"
+        "- operator pause <operation-id>\n"
+        "- operator unpause <operation-id>\n"
+        "- operator interrupt <operation-id> --task <task-id>\n"
+        "- operator patch-objective <operation-id> \"...\"\n"
+        "- operator cancel <operation-id>\n"
+        "Do not claim that any command already executed.\n"
+        f"Conversation mode: fleet\nContext level: {context_level}\n\n"
+        "Conversation history so far:\n"
+        f"{json.dumps(conversation_history, ensure_ascii=True)}\n\n"
+        "Fleet context:\n"
+        f"{json.dumps(fleet_payload, ensure_ascii=True)}\n\n"
+        "User message:\n"
+        f"{user_message}"
+    )
+
+
 def build_turn_summary_prompt(
     state: OperationState,
     *,

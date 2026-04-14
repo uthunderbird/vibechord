@@ -5,6 +5,7 @@ from agent_operator.domain.operation import OperationGoal, OperationState
 from agent_operator.dtos import (
     AgentTurnSummaryDTO,
     ArtifactNormalizationDTO,
+    ConverseTurnDTO,
     EvaluationDTO,
     MemoryEntryDraftDTO,
     MemorySourceRefDTO,
@@ -15,6 +16,9 @@ from agent_operator.dtos import (
 
 class FakeStructuredOutputProvider:
     """Minimal provider for scaffolding the application loop."""
+
+    async def converse(self, prompt: str) -> ConverseTurnDTO:
+        return ConverseTurnDTO(answer="No conversational action proposed by fake provider.")
 
     async def answer_question(self, state: OperationState, question: str) -> str:
         return (

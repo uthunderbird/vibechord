@@ -143,6 +143,11 @@ class QuestionAnswerDTO(BaseModel):
     answer: str
 
 
+class ConverseTurnDTO(BaseModel):
+    answer: str
+    proposed_command: str | None = None
+
+
 # --- File context tool-use loop types ---
 
 class FileToolCallStep:

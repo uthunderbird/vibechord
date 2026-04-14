@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Not implemented
+Verified
 
 ## Context
 
@@ -135,6 +135,20 @@ any blocked?" and get answers grounded in real state.
 - Users can interactively query operation state in natural language without reading raw output.
 - Write operations remain safe: all mutations go through the existing structured command path.
 - The NL layer is optional; users who prefer structured commands are unaffected.
+
+## Closure Evidence Matrix
+
+| ADR line / closure claim | Repository evidence | Verification |
+| --- | --- | --- |
+| Design the brain prompt template for conversational mode | `src/agent_operator/providers/prompting.py:build_converse_operation_prompt`; `src/agent_operator/providers/prompting.py:build_converse_fleet_prompt`; `src/agent_operator/dtos/brain.py:ConverseTurnDTO` | `tests/test_prompting.py::test_build_converse_operation_prompt_distinguishes_brief_and_full_context`; `tests/test_prompting.py::test_build_converse_fleet_prompt_surfaces_active_operation_context` |
+| Implement the REPL loop | `src/agent_operator/cli/commands/operation_control.py:converse`; `src/agent_operator/cli/workflows/control.py:converse_async` | `tests/test_cli.py::test_converse_command_answers_question_for_operation` |
+| Implement context assembly (brief and full) | `src/agent_operator/cli/workflows/control.py:converse_async`; `src/agent_operator/providers/prompting.py:build_converse_operation_prompt`; `src/agent_operator/providers/prompting.py:build_converse_fleet_prompt` | `tests/test_prompting.py::test_build_converse_operation_prompt_distinguishes_brief_and_full_context`; `tests/test_cli.py::test_converse_command_loads_fleet_context_when_operation_is_omitted` |
+| Implement write-action extraction and preview/confirm flow | `src/agent_operator/cli/workflows/control.py:_parse_converse_command`; `src/agent_operator/cli/workflows/control.py:_execute_converse_command`; `src/agent_operator/cli/workflows/control.py:_converse_command_requires_typed_confirmation` | `tests/test_cli.py::test_converse_command_executes_proposed_write_on_yes`; `tests/test_cli.py::test_converse_command_declined_write_continues_session` |
+| Read-only query returns an answer without executing commands | `src/agent_operator/cli/workflows/control.py:converse_async`; `src/agent_operator/providers/brain.py:ProviderBackedBrain.converse` | `tests/test_cli.py::test_converse_command_answers_question_for_operation` |
+| Write proposal is surfaced and only executed on `y` | `src/agent_operator/cli/workflows/control.py:converse_async` | `tests/test_cli.py::test_converse_command_executes_proposed_write_on_yes` |
+| `N` continues the session | `src/agent_operator/cli/workflows/control.py:converse_async` | `tests/test_cli.py::test_converse_command_declined_write_continues_session` |
+| Fleet-level mode loads when no OP is given | `src/agent_operator/cli/commands/operation_control.py:converse`; `src/agent_operator/cli/workflows/control.py:_load_converse_fleet_operations` | `tests/test_cli.py::test_converse_command_loads_fleet_context_when_operation_is_omitted` |
+| Final repository truth verified against current code and tests | `src/agent_operator/...`; `tests/...`; `docs/reference/cli.md` | `uv run pytest` |
 
 ## Related
 
