@@ -195,6 +195,7 @@ class _StickyRunningSessionManager:
         self.handle = AgentSessionHandle(adapter_key="codex_acp", session_id="sticky-session")
         self._stale_progress_at = stale_progress or datetime(2000, 1, 1, tzinfo=UTC)
         self._poll_count = 0
+        self.cancel_calls = 0
         self._result = AgentResult(
             session_id=self.handle.session_id,
             status=AgentResultStatus.INCOMPLETE,
@@ -240,6 +241,7 @@ class _StickyRunningSessionManager:
         return self._result
 
     async def cancel(self, handle: AgentSessionHandle) -> None:
+        self.cancel_calls += 1
         return None
 
     async def close(self, handle: AgentSessionHandle) -> None:
@@ -689,6 +691,44 @@ async def test_inprocess_supervisor_refreshes_stale_background_run_heartbeat(
     assert result is not None
     assert result.status is AgentResultStatus.INCOMPLETE
     assert heartbeat_advanced is True
+    assert final is not None
+    assert final.status is BackgroundRunStatus.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_inprocess_supervisor_cancel_preserves_waiting_input_terminal_truth(
+    tmp_path: Path,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    manager = _StickyRunningSessionManager()
+    supervisor = InProcessAgentRunSupervisor(
+        tmp_path / "background",
+        tmp_path,
+        session_manager=manager,
+        wakeup_inbox=inbox,
+    )
+
+    run = await supervisor.start_background_turn(
+        "op-1",
+        1,
+        "codex_acp",
+        AgentRunRequest(goal="hello", instruction="hold"),
+    )
+
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        result = await supervisor.collect_background_turn(run.run_id)
+        if result is not None:
+            break
+        await anyio.sleep(0.05)
+
+    await supervisor.cancel_background_turn(run.run_id)
+    final = await supervisor.poll_background_turn(run.run_id)
+    result = await supervisor.collect_background_turn(run.run_id)
+
+    assert manager.cancel_calls == 0
+    assert result is not None
+    assert result.status is AgentResultStatus.INCOMPLETE
     assert final is not None
     assert final.status is BackgroundRunStatus.COMPLETED
 

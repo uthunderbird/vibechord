@@ -270,6 +270,15 @@ class InProcessAgentRunSupervisor:
         if not path.exists():
             return
         record = model_validate_json_file_with_retry(_BackgroundRunFile, path)
+        if record.status in {
+            BackgroundRunStatus.COMPLETED,
+            BackgroundRunStatus.FAILED,
+            BackgroundRunStatus.CANCELLED,
+            BackgroundRunStatus.DISCONNECTED,
+        }:
+            return
+        if self._result_path(run_id).exists():
+            return
         task = self._tasks.get(run_id)
         if task is not None:
             task.cancel()
