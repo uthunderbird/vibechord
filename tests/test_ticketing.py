@@ -13,6 +13,7 @@ from agent_operator.application.ticketing import (
 )
 from agent_operator.config import GlobalGithubProviderConfig, GlobalProviderConfig, GlobalUserConfig
 from agent_operator.domain import (
+    AttentionStatus,
     ExternalTicketLink,
     OperationGoal,
     OperationOutcome,
@@ -119,15 +120,84 @@ async def test_ticket_reporting_posts_comment_and_marks_ticket_reported(tmp_path
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
-    changed = await service.report_terminal_state(state, outcome)
+    first_changed = await service.report_terminal_state(state, outcome)
+    second_changed = await service.report_terminal_state(state, outcome)
 
-    assert changed is True
+    assert first_changed is False
+    assert second_changed is True
     assert state.goal.external_ticket is not None
     assert state.goal.external_ticket.reported is True
     assert requests == [
         ("POST", "https://api.github.com/repos/owner/repo/issues/123/comments"),
         ("PATCH", "https://api.github.com/repos/owner/repo/issues/123"),
     ]
+    assert len(state.attention_requests) == 1
+    assert state.attention_requests[0].status is AttentionStatus.RESOLVED
+    assert "ticket_reporting_state" not in state.goal.metadata
+
+
+@pytest.mark.anyio
+async def test_ticket_reporting_creates_draft_review_hold_before_posting(tmp_path: Path) -> None:
+    requests: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, str(request.url)))
+        return httpx.Response(200, json={})
+
+    store = FileOperationStore(tmp_path / "operations")
+    state = OperationState(
+        operation_id="op-1",
+        goal=OperationGoal(
+            objective="Close the issue.",
+            metadata={"ticket_reporting": {"on_success": "comment_only"}},
+            external_ticket=ExternalTicketLink(
+                provider="github_issues",
+                project_key="owner/repo",
+                ticket_id="123",
+            ),
+        ),
+    )
+    outcome = OperationOutcome(
+        operation_id="op-1",
+        status=OperationStatus.COMPLETED,
+        summary="Completed cleanly.",
+    )
+    service = TicketReportingService(
+        store=store,
+        global_config=GlobalUserConfig(
+            providers=GlobalProviderConfig(github=GlobalGithubProviderConfig(token="ghp_test"))
+        ),
+        attention_coordinator=OperationAttentionCoordinator(),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    changed = await service.report_terminal_state(state, outcome)
+
+    assert changed is False
+    assert requests == []
+    assert state.goal.external_ticket is not None
+    assert state.goal.external_ticket.reported is False
+    assert len(state.attention_requests) == 1
+    attention = state.attention_requests[0]
+    assert attention.blocking is False
+    assert attention.title == "Ticket report draft"
+    assert attention.metadata["ticket_reporting_kind"] == "github_draft_review"
+    assert attention.metadata["auto_proceed_after_cycles"] == 1
+    assert state.goal.metadata["ticket_reporting_state"] == {
+        "github_draft_review": {
+            "attention_id": attention.attention_id,
+            "draft_comment": (
+                "operator completed this ticket-linked run.\n\n"
+                "- operation_id: op-1\n"
+                "- status: completed\n"
+                "- summary: Completed cleanly."
+            ),
+            "auto_proceed_after_cycles": 1,
+            "hold_cycles_elapsed": 0,
+            "released": False,
+            "native_mode": "comment_only",
+        }
+    }
 
 
 @pytest.mark.anyio
@@ -194,10 +264,15 @@ async def test_ticket_reporting_failure_creates_non_blocking_attention(tmp_path:
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
-    changed = await service.report_terminal_state(state, outcome)
+    first_changed = await service.report_terminal_state(state, outcome)
+    second_changed = await service.report_terminal_state(state, outcome)
 
-    assert changed is False
+    assert first_changed is False
+    assert second_changed is False
     assert state.goal.external_ticket is not None
     assert state.goal.external_ticket.reported is False
     assert len(state.attention_requests) == 2
     assert all(item.blocking is False for item in state.attention_requests)
+    assert state.attention_requests[0].title == "Ticket report draft"
+    assert state.attention_requests[0].status is AttentionStatus.RESOLVED
+    assert state.attention_requests[1].title == "Ticket reporting failed"

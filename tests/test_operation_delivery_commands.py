@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from agent_operator.application import (
@@ -11,6 +12,9 @@ from agent_operator.domain import (
     AttentionStatus,
     AttentionType,
     CommandTargetScope,
+    FocusKind,
+    FocusMode,
+    FocusState,
     InvolvementLevel,
     OperationCommandType,
     OperationGoal,
@@ -151,6 +155,50 @@ async def test_answer_attention_enqueues_answer() -> None:
     assert answer_command.command_type.value == "answer_attention_request"
     assert policy_command is None
     assert outcome is None
+
+
+@pytest.mark.anyio
+async def test_answer_attention_persists_answer_before_auto_resume_connect_error() -> None:
+    store = MemoryStore()
+    inbox = MemoryCommandInbox()
+    operation = _operation()
+    operation.status = OperationStatus.NEEDS_HUMAN
+    operation.current_focus = FocusState(
+        kind=FocusKind.ATTENTION_REQUEST,
+        target_id="att-1",
+        mode=FocusMode.BLOCKING,
+        blocking_reason="Awaiting answer.",
+    )
+    await store.save_operation(operation)
+
+    class _ExplodingService(_Service):
+        async def resume(self, operation_id: str, *, options=None, session_id=None):
+            raise httpx.ConnectError(
+                "[Errno 8] nodename nor servname provided, or not known",
+                request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+            )
+
+    service = OperationDeliveryCommandService(
+        store=store,
+        command_inbox=inbox,
+        service_factory=lambda: _ExplodingService(),
+        find_task_by_display_id=lambda operation, task_id: None,
+    )
+
+    with pytest.raises(httpx.ConnectError, match="nodename nor servname provided"):
+        await service.answer_attention(
+            "op-1",
+            attention_id="att-1",
+            text="Take path A",
+            promote=False,
+            policy_payload={},
+        )
+
+    listed = await inbox.list("op-1")
+    assert len(listed) == 1
+    assert listed[0].command_type is OperationCommandType.ANSWER_ATTENTION_REQUEST
+    assert listed[0].target_id == "att-1"
+    assert listed[0].payload["text"] == "Take path A"
 
 
 def test_build_policy_decision_payload_requires_promote() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,8 @@ import httpx
 from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.config import GlobalUserConfig
 from agent_operator.domain import (
+    AttentionRequest,
+    AttentionStatus,
     AttentionType,
     CommandTargetScope,
     ExternalTicketLink,
@@ -152,6 +155,8 @@ class TicketIntakeService:
 class TicketReportingService:
     """Handle terminal ticket reporting and explicit retry flows."""
 
+    _REVIEW_STATE_KEY = "github_draft_review"
+
     def __init__(
         self,
         *,
@@ -201,16 +206,13 @@ class TicketReportingService:
             and state.goal.external_ticket.provider == "github_issues"
             and native_mode != "silent"
         ):
-            self._attention_coordinator.open_attention_request(
+            should_post = await self._prepare_github_draft_review_hold(
                 state,
-                attention_type=AttentionType.QUESTION,
-                title="Ticket report draft",
-                question=draft_comment,
-                context_brief="Non-blocking review window before GitHub issue reporting.",
-                target_scope=CommandTargetScope.OPERATION,
-                target_id=state.operation_id,
-                blocking=False,
+                draft_comment=draft_comment,
+                native_mode=native_mode,
             )
+            if not should_post:
+                return False
             try:
                 await self._post_github_comment(state.goal.external_ticket, draft_comment)
                 if native_mode == "comment_and_close":
@@ -229,7 +231,7 @@ class TicketReportingService:
                 webhook_error = str(exc)
         if native_error is not None or webhook_error is not None:
             detail = native_error or webhook_error or "Unknown reporting failure."
-            self._attention_coordinator.open_attention_request(
+            failure_attention = self._attention_coordinator.open_attention_request(
                 state,
                 attention_type=AttentionType.QUESTION,
                 title="Ticket reporting failed",
@@ -239,14 +241,142 @@ class TicketReportingService:
                 target_id=state.operation_id,
                 blocking=False,
             )
+            failure_attention.metadata["ticket_reporting_kind"] = "report_failure"
             await self._store.save_operation(state)
             return False
         if native_mode != "silent" or (isinstance(webhook_url, str) and webhook_url.strip()):
             assert state.goal.external_ticket is not None
+            self._clear_github_draft_review_state(state)
             state.goal.external_ticket.reported = True
             await self._store.save_operation(state)
             return True
         return False
+
+    async def _prepare_github_draft_review_hold(
+        self,
+        state: OperationState,
+        *,
+        draft_comment: str,
+        native_mode: str,
+    ) -> bool:
+        reporting_state = self._reporting_state(state)
+        raw_review_state = reporting_state.get(self._REVIEW_STATE_KEY)
+        review_state = raw_review_state if isinstance(raw_review_state, dict) else None
+        if review_state is None or review_state.get("draft_comment") != draft_comment:
+            attention = self._attention_coordinator.open_attention_request(
+                state,
+                attention_type=AttentionType.QUESTION,
+                title="Ticket report draft",
+                question=draft_comment,
+                context_brief="Non-blocking review window before GitHub issue reporting.",
+                target_scope=CommandTargetScope.OPERATION,
+                target_id=state.operation_id,
+                blocking=False,
+            )
+            attention.metadata.update(
+                {
+                    "ticket_reporting_kind": self._REVIEW_STATE_KEY,
+                    "auto_proceed_after_cycles": 1,
+                    "hold_cycles_elapsed": 0,
+                    "released": False,
+                    "native_mode": native_mode,
+                }
+            )
+            reporting_state[self._REVIEW_STATE_KEY] = {
+                "attention_id": attention.attention_id,
+                "draft_comment": draft_comment,
+                "auto_proceed_after_cycles": 1,
+                "hold_cycles_elapsed": 0,
+                "released": False,
+                "native_mode": native_mode,
+            }
+            await self._store.save_operation(state)
+            return False
+
+        if bool(review_state.get("released")):
+            return True
+
+        attention_id = review_state.get("attention_id")
+        attention = self._attention_coordinator.find_attention_request(
+            state,
+            attention_id if isinstance(attention_id, str) else None,
+        )
+        if attention is not None and attention.status is not AttentionStatus.OPEN:
+            review_state["released"] = True
+            reporting_state[self._REVIEW_STATE_KEY] = review_state
+            await self._store.save_operation(state)
+            return True
+
+        auto_proceed_after_cycles = self._non_negative_int(
+            review_state.get("auto_proceed_after_cycles"),
+            default=1,
+        )
+        hold_cycles_elapsed = self._non_negative_int(review_state.get("hold_cycles_elapsed"))
+        hold_cycles_elapsed += 1
+        review_state["hold_cycles_elapsed"] = hold_cycles_elapsed
+        if attention is not None:
+            attention.metadata["hold_cycles_elapsed"] = hold_cycles_elapsed
+        if hold_cycles_elapsed < auto_proceed_after_cycles:
+            reporting_state[self._REVIEW_STATE_KEY] = review_state
+            await self._store.save_operation(state)
+            return False
+
+        review_state["released"] = True
+        if attention is not None:
+            attention.metadata["released"] = True
+            self._resolve_review_attention(
+                attention,
+                resolution_summary=(
+                    "Auto-proceeded after the one-cycle GitHub ticket review window."
+                ),
+            )
+        reporting_state[self._REVIEW_STATE_KEY] = review_state
+        await self._store.save_operation(state)
+        return True
+
+    def _reporting_state(self, state: OperationState) -> dict[str, object]:
+        reporting_state = state.goal.metadata.get("ticket_reporting_state")
+        if isinstance(reporting_state, dict):
+            return reporting_state
+        reporting_state = {}
+        state.goal.metadata["ticket_reporting_state"] = reporting_state
+        return reporting_state
+
+    def _clear_github_draft_review_state(self, state: OperationState) -> None:
+        reporting_state = self._reporting_state(state)
+        raw_review_state = reporting_state.pop(self._REVIEW_STATE_KEY, None)
+        attention_id = (
+            raw_review_state.get("attention_id")
+            if isinstance(raw_review_state, dict)
+            and isinstance(raw_review_state.get("attention_id"), str)
+            else None
+        )
+        attention = self._attention_coordinator.find_attention_request(state, attention_id)
+        if attention is not None and attention.status is not AttentionStatus.RESOLVED:
+            self._resolve_review_attention(
+                attention,
+                resolution_summary="GitHub ticket reporting completed.",
+            )
+        if not reporting_state:
+            state.goal.metadata.pop("ticket_reporting_state", None)
+
+    def _resolve_review_attention(
+        self,
+        attention: AttentionRequest,
+        *,
+        resolution_summary: str,
+    ) -> None:
+        attention.status = AttentionStatus.RESOLVED
+        attention.resolved_at = datetime.now(UTC)
+        attention.resolution_summary = resolution_summary
+
+    @staticmethod
+    def _non_negative_int(value: object, *, default: int = 0) -> int:
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, int):
+            return max(value, 0)
+        return default
 
     def _mode_for_status(self, config: dict[str, object], status: OperationStatus) -> str:
         if status is OperationStatus.COMPLETED:
