@@ -79,10 +79,24 @@ class AgentResultService:
         result = await self.normalize_result_if_needed(state.goal, result)
         iteration.result = self.compact_result_for_state(result)
         record = self._loaded_operation.ensure_session_record(state, session)
-        record.status = self.map_result_to_session_status(result)
+        preserve_reused_follow_up_frontier = self._should_preserve_cancelled_follow_up_frontier(
+            state,
+            session,
+            result,
+            wakeup_event_id=wakeup_event_id,
+            was_stopping_attached_turn=was_stopping_attached_turn,
+        )
+        if preserve_reused_follow_up_frontier:
+            record.status = SessionRecordStatus.WAITING
+            record.waiting_reason = (
+                "Background follow-up turn cancelled before producing a material result."
+            )
+        else:
+            record.status = self.map_result_to_session_status(result)
         record.last_result_iteration = iteration.index
         record.latest_iteration = iteration.index
-        record.waiting_reason = None
+        if not preserve_reused_follow_up_frontier:
+            record.waiting_reason = None
         record.updated_at = datetime.now(UTC)
         execution_id = None
         if record.current_execution_id is not None:
@@ -100,8 +114,11 @@ class AgentResultService:
                 run.last_heartbeat_at = run.completed_at
             record.last_terminal_execution_id = execution_id
             record.current_execution_id = None
-        artifact = self._loaded_operation.store_result_artifact(state, task, session, result)
+        artifact = None
+        if not preserve_reused_follow_up_frontier:
+            artifact = self._loaded_operation.store_result_artifact(state, task, session, result)
         if self.is_rate_limit_result(result):
+            assert artifact is not None
             await self.enter_rate_limit_wait(state, record, session, iteration, result)
             return
         if result.status is AgentResultStatus.DISCONNECTED:
@@ -132,9 +149,12 @@ class AgentResultService:
                 ),
             )
         if task is not None:
-            task.artifact_refs.append(artifact.artifact_id)
             task.updated_at = datetime.now(UTC)
-            if result.status is AgentResultStatus.SUCCESS:
+            if artifact is not None:
+                task.artifact_refs.append(artifact.artifact_id)
+            if preserve_reused_follow_up_frontier:
+                task.status = TaskStatus.BLOCKED
+            elif result.status is AgentResultStatus.SUCCESS:
                 task.status = TaskStatus.COMPLETED
             elif result.status is AgentResultStatus.INCOMPLETE:
                 task.status = TaskStatus.BLOCKED
@@ -148,7 +168,18 @@ class AgentResultService:
                 task.status = TaskStatus.BLOCKED
             else:
                 task.status = TaskStatus.FAILED
-            await self.refresh_task_memory(state, task, artifact)
+            if artifact is not None:
+                await self.refresh_task_memory(state, task, artifact)
+        if preserve_reused_follow_up_frontier:
+            state.current_focus = FocusState(
+                kind=FocusKind.SESSION,
+                target_id=session.session_id,
+                mode=FocusMode.BLOCKING,
+                blocking_reason=record.waiting_reason,
+                interrupt_policy=InterruptPolicy.MATERIAL_WAKEUP,
+                resume_policy=ResumePolicy.RETURN_IF_STILL_RELEVANT,
+            )
+            return
         if result.status is AgentResultStatus.INCOMPLETE:
             attention = self._attention_coordinator.attention_from_incomplete_result(
                 state,
@@ -206,6 +237,31 @@ class AgentResultService:
             result.model_dump(mode="json"),
             task_id=iteration.task_id,
             session_id=session.session_id,
+        )
+
+    def _should_preserve_cancelled_follow_up_frontier(
+        self,
+        state: OperationState,
+        session: AgentSessionHandle,
+        result: AgentResult,
+        *,
+        wakeup_event_id: str | None,
+        was_stopping_attached_turn: bool,
+    ) -> bool:
+        if wakeup_event_id is None or was_stopping_attached_turn:
+            return False
+        if result.status is not AgentResultStatus.CANCELLED:
+            return False
+        if result.output_text.strip():
+            return False
+        if result.error is not None:
+            return False
+        focus = state.current_focus
+        return (
+            focus is not None
+            and focus.kind is FocusKind.SESSION
+            and focus.target_id == session.session_id
+            and focus.mode is FocusMode.BLOCKING
         )
 
     async def enter_rate_limit_wait(

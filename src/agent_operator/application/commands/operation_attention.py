@@ -73,6 +73,7 @@ class OperationAttentionCoordinator:
         target_id: str | None,
         blocking: bool,
         suggested_options: list[str] | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> AttentionRequest:
         normalized_question = question.strip()
         existing = next(
@@ -98,6 +99,7 @@ class OperationAttentionCoordinator:
             question=normalized_question,
             context_brief=context_brief,
             suggested_options=suggested_options or [],
+            metadata=dict(metadata or {}),
             blocking=(blocking and self.attention_should_block(state, attention_type)),
         )
         state.attention_requests.append(attention)
@@ -126,6 +128,7 @@ class OperationAttentionCoordinator:
     ) -> AttentionRequest | None:
         if result.error is None:
             return None
+        metadata = dict(result.error.raw) if isinstance(result.error.raw, dict) else None
         if result.error.code == "agent_waiting_input":
             return self.open_attention_request(
                 state,
@@ -139,6 +142,7 @@ class OperationAttentionCoordinator:
                 target_scope=CommandTargetScope.SESSION,
                 target_id=session.session_id,
                 blocking=True,
+                metadata=metadata,
             )
         if result.error.code == "agent_requested_escalation":
             return self.open_attention_request(
@@ -153,6 +157,7 @@ class OperationAttentionCoordinator:
                 target_scope=CommandTargetScope.SESSION,
                 target_id=session.session_id,
                 blocking=True,
+                metadata=metadata,
             )
         return None
 

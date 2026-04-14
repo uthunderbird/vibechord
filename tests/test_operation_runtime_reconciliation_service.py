@@ -9,10 +9,14 @@ from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,
     AgentSessionHandle,
+    AttentionRequest,
+    AttentionStatus,
+    AttentionType,
     BackgroundRunStatus,
     BackgroundRuntimeMode,
     BrainActionType,
     BrainDecision,
+    CommandTargetScope,
     Evaluation,
     ExecutionState,
     FocusKind,
@@ -29,6 +33,7 @@ from agent_operator.domain import (
     RunOptions,
     SessionState,
     SessionStatus,
+    TaskStatus,
 )
 from agent_operator.testing.operator_service_support import (
     FakeAgent,
@@ -320,6 +325,241 @@ async def test_resume_releases_unhandled_wakeup_for_retry() -> None:
     assert operation.iterations[0].result is not None
     assert operation.iterations[0].result.output_text == "completed by fake background agent"
     assert await inbox.list_pending(operation.operation_id) == []
+
+
+@pytest.mark.anyio
+async def test_reconcile_cancelled_follow_up_wakeup_preserves_reused_session_frontier(
+) -> None:
+    store = MemoryStore()
+    trace_store = MemoryTraceStore()
+    inbox = MemoryWakeupInbox()
+    supervisor = FakeSupervisor()
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=trace_store,
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"codex_acp": FakeAgent(key="codex_acp")}
+        ),
+        wakeup_inbox=inbox,
+        supervisor=supervisor,
+    )
+
+    operation = OperationState(
+        goal=OperationGoal(objective="reconcile cancelled codex follow-up"),
+        **state_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+        status=OperationStatus.RUNNING,
+        current_focus=FocusState(
+            kind=FocusKind.SESSION,
+            target_id="session-1",
+            mode=FocusMode.BLOCKING,
+        ),
+    )
+    session = AgentSessionHandle(
+        adapter_key="codex_acp",
+        session_id="session-1",
+        session_name="codex-main",
+    )
+    operation.sessions.append(
+        SessionState(
+            handle=session,
+            status=SessionStatus.RUNNING,
+            current_execution_id="run-continue",
+            latest_iteration=1,
+        )
+    )
+    operation.iterations.append(
+        IterationState(index=1, task_id=operation.tasks[0].task_id, session=session)
+    )
+    operation.tasks[0].status = TaskStatus.RUNNING
+    operation.tasks[0].linked_session_id = session.session_id
+    operation.attention_requests.append(
+        AttentionRequest(
+            operation_id=operation.operation_id,
+            attention_id="attention-1",
+            attention_type=AttentionType.APPROVAL_REQUEST,
+            target_scope=CommandTargetScope.SESSION,
+            target_id=session.session_id,
+            title="Agent is waiting for approval",
+            question="Approve continuation?",
+            blocking=True,
+            status=AttentionStatus.RESOLVED,
+        )
+    )
+    operation.background_runs.append(
+        ExecutionState(
+            run_id="run-continue",
+            operation_id=operation.operation_id,
+            adapter_key="codex_acp",
+            session_id=session.session_id,
+            task_id=operation.tasks[0].task_id,
+            iteration=1,
+            status=BackgroundRunStatus.RUNNING,
+        )
+    )
+    await store.save_operation(operation)
+
+    supervisor.runs["run-continue"] = ExecutionState(
+        run_id="run-continue",
+        operation_id=operation.operation_id,
+        adapter_key="codex_acp",
+        session_id=session.session_id,
+        task_id=operation.tasks[0].task_id,
+        iteration=1,
+        status=BackgroundRunStatus.CANCELLED,
+        completed_at=datetime.now(UTC),
+        last_heartbeat_at=datetime.now(UTC),
+    )
+    supervisor.results["run-continue"] = AgentResult(
+        session_id=session.session_id,
+        status=AgentResultStatus.CANCELLED,
+        output_text="",
+        completed_at=datetime.now(UTC),
+    )
+    await inbox.enqueue(
+        RunEvent(
+            event_type="background_run.cancelled",
+            kind=RunEventKind.WAKEUP,
+            operation_id=operation.operation_id,
+            iteration=1,
+            task_id=operation.tasks[0].task_id,
+            session_id=session.session_id,
+            dedupe_key="run-continue:cancelled",
+            payload={"run_id": "run-continue"},
+        )
+    )
+
+    await service._operation_runtime_reconciliation_service.reconcile_background_wakeups(operation)
+
+    assert operation.tasks[0].status is not TaskStatus.CANCELLED
+    assert operation.sessions[0].status is not SessionStatus.CANCELLED
+    assert not any(
+        artifact.kind == "agent_result" and artifact.content == ""
+        for artifact in operation.artifacts
+    )
+
+
+@pytest.mark.anyio
+async def test_reconcile_repeated_waiting_input_does_not_reopen_identical_resolved_approval(
+) -> None:
+    store = MemoryStore()
+    trace_store = MemoryTraceStore()
+    inbox = MemoryWakeupInbox()
+    supervisor = FakeSupervisor()
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=trace_store,
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"codex_acp": FakeAgent(key="codex_acp")}
+        ),
+        wakeup_inbox=inbox,
+        supervisor=supervisor,
+    )
+
+    operation = OperationState(
+        goal=OperationGoal(objective="avoid duplicate approval loop"),
+        **state_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+        status=OperationStatus.RUNNING,
+        current_focus=FocusState(
+            kind=FocusKind.SESSION,
+            target_id="session-1",
+            mode=FocusMode.BLOCKING,
+        ),
+    )
+    session = AgentSessionHandle(
+        adapter_key="codex_acp",
+        session_id="session-1",
+        session_name="codex-main",
+    )
+    operation.sessions.append(
+        SessionState(
+            handle=session,
+            status=SessionStatus.RUNNING,
+            current_execution_id="run-repeat",
+            latest_iteration=1,
+        )
+    )
+    operation.iterations.append(
+        IterationState(index=1, task_id=operation.tasks[0].task_id, session=session)
+    )
+    operation.tasks[0].status = TaskStatus.BLOCKED
+    operation.tasks[0].linked_session_id = session.session_id
+    operation.attention_requests.append(
+        AttentionRequest(
+            operation_id=operation.operation_id,
+            attention_id="attention-resolved",
+            attention_type=AttentionType.APPROVAL_REQUEST,
+            target_scope=CommandTargetScope.SESSION,
+            target_id=session.session_id,
+            title="Agent is waiting for approval",
+            question="Agent is waiting for approval.",
+            blocking=True,
+            status=AttentionStatus.RESOLVED,
+        )
+    )
+    operation.background_runs.append(
+        ExecutionState(
+            run_id="run-repeat",
+            operation_id=operation.operation_id,
+            adapter_key="codex_acp",
+            session_id=session.session_id,
+            task_id=operation.tasks[0].task_id,
+            iteration=1,
+            status=BackgroundRunStatus.RUNNING,
+        )
+    )
+    await store.save_operation(operation)
+
+    supervisor.runs["run-repeat"] = ExecutionState(
+        run_id="run-repeat",
+        operation_id=operation.operation_id,
+        adapter_key="codex_acp",
+        session_id=session.session_id,
+        task_id=operation.tasks[0].task_id,
+        iteration=1,
+        status=BackgroundRunStatus.COMPLETED,
+        completed_at=datetime.now(UTC),
+        last_heartbeat_at=datetime.now(UTC),
+    )
+    supervisor.results["run-repeat"] = AgentResult(
+        session_id=session.session_id,
+        status=AgentResultStatus.INCOMPLETE,
+        output_text="Need approval again before continuing.",
+        error=AgentError(
+            code="agent_waiting_input",
+            message="Agent is waiting for approval.",
+            retryable=False,
+        ),
+        completed_at=datetime.now(UTC),
+    )
+    await inbox.enqueue(
+        RunEvent(
+            event_type="background_run.completed",
+            kind=RunEventKind.WAKEUP,
+            operation_id=operation.operation_id,
+            iteration=1,
+            task_id=operation.tasks[0].task_id,
+            session_id=session.session_id,
+            dedupe_key="run-repeat:completed",
+            payload={"run_id": "run-repeat"},
+        )
+    )
+
+    await service._operation_runtime_reconciliation_service.reconcile_background_wakeups(operation)
+
+    open_identical = [
+        attention
+        for attention in operation.attention_requests
+        if attention.status is AttentionStatus.OPEN
+        and attention.attention_type is AttentionType.APPROVAL_REQUEST
+        and attention.target_scope is CommandTargetScope.SESSION
+        and attention.target_id == session.session_id
+        and attention.question == "Agent is waiting for approval."
+    ]
+    assert open_identical == []
 
 
 @pytest.mark.anyio
