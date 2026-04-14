@@ -2456,9 +2456,13 @@ def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> No
     _seed_command(tmp_path, operation_id)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
+    def _fail_outcome_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect should not serialize OperationOutcome directly")
+
     def _fail_command_model_dump(self, *args, **kwargs):
         raise AssertionError("debug inspect should not serialize OperationCommand directly")
 
+    monkeypatch.setattr(OperationOutcome, "model_dump", _fail_outcome_model_dump)
     monkeypatch.setattr(OperationCommand, "model_dump", _fail_command_model_dump)
 
     result = runner.invoke(app, ["inspect", operation_id, "--json"])

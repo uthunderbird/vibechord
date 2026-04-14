@@ -15,7 +15,7 @@ from agent_operator.bootstrap import (
 )
 from agent_operator.domain.control import OperationCommand
 from agent_operator.domain.events import RunEvent
-from agent_operator.domain.operation import ExecutionState, WakeupRef
+from agent_operator.domain.operation import ExecutionState, OperationOutcome, WakeupRef
 
 from ..app import app, debug_app
 from ..helpers.rendering import (
@@ -129,6 +129,15 @@ def _operation_command_payload(command: OperationCommand) -> dict[str, object]:
         "status": command.status.value,
         "rejection_reason": command.rejection_reason,
         "applied_at": command.applied_at.isoformat() if command.applied_at is not None else None,
+    }
+
+
+def _operation_outcome_payload(outcome: OperationOutcome) -> dict[str, object]:
+    return {
+        "operation_id": outcome.operation_id,
+        "status": outcome.status.value,
+        "summary": outcome.summary,
+        "ended_at": outcome.ended_at.isoformat() if outcome.ended_at is not None else None,
     }
 
 
@@ -408,7 +417,7 @@ def inspect(
         if json_mode:
             payload: dict[str, object] = {
                 "operation": operation_payload(operation),
-                "outcome": outcome.model_dump(mode="json") if outcome is not None else None,
+                "outcome": _operation_outcome_payload(outcome) if outcome is not None else None,
                 "brief": brief.model_dump(mode="json") if brief is not None else None,
                 "report": report,
                 "commands": commands,
@@ -441,7 +450,9 @@ def inspect(
             typer.echo(runtime_alert)
         if outcome is not None:
             typer.echo("\nOutcome:")
-            typer.echo(json.dumps(outcome.model_dump(mode="json"), indent=2, ensure_ascii=False))
+            typer.echo(
+                json.dumps(_operation_outcome_payload(outcome), indent=2, ensure_ascii=False)
+            )
         if report is not None:
             typer.echo("\nReport:")
             typer.echo(report)
