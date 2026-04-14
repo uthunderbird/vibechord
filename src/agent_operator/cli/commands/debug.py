@@ -13,6 +13,7 @@ from agent_operator.bootstrap import (
     build_trace_store,
     build_wakeup_inbox,
 )
+from agent_operator.domain.control import OperationCommand
 from agent_operator.domain.events import RunEvent
 from agent_operator.domain.operation import ExecutionState, WakeupRef
 
@@ -112,6 +113,22 @@ def _execution_payload(execution: ExecutionState) -> dict[str, object]:
         ),
         "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
         "raw_ref": execution.raw_ref,
+    }
+
+
+def _operation_command_payload(command: OperationCommand) -> dict[str, object]:
+    return {
+        "command_id": command.command_id,
+        "operation_id": command.operation_id,
+        "command_type": command.command_type.value,
+        "target_scope": command.target_scope.value,
+        "target_id": command.target_id,
+        "payload": dict(command.payload),
+        "submitted_by": command.submitted_by,
+        "submitted_at": command.submitted_at.isoformat(),
+        "status": command.status.value,
+        "rejection_reason": command.rejection_reason,
+        "applied_at": command.applied_at.isoformat() if command.applied_at is not None else None,
     }
 
 
@@ -383,7 +400,9 @@ def inspect(
         trace_records = await trace_store.load_trace_records(operation_id)
         memos = await trace_store.load_decision_memos(operation_id)
         events = event_sink.read_events(operation_id)
-        commands = [item.model_dump(mode="json") for item in await command_inbox.list(operation_id)]
+        commands = [
+            _operation_command_payload(item) for item in await command_inbox.list(operation_id)
+        ]
         if operation is None:
             raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
         if json_mode:
