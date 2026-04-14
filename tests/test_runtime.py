@@ -12,6 +12,7 @@ import pytest
 from agent_operator.application.agent_session_manager import AttachedSessionManager
 from agent_operator.domain import (
     AgentDescriptor,
+    AgentError,
     AgentProgress,
     AgentProgressState,
     AgentResult,
@@ -184,6 +185,64 @@ class _TrackingSessionManager:
 
     async def close(self, handle: AgentSessionHandle) -> None:
         self.close_calls += 1
+
+
+class _StickyRunningSessionManager:
+    """Fake session manager that emits stale-progress RUNNING for one poll, then WAITING_INPUT."""
+
+    def __init__(self, *, stale_progress: datetime | None = None) -> None:
+        self.handle = AgentSessionHandle(adapter_key="codex_acp", session_id="sticky-session")
+        self._stale_progress_at = stale_progress or datetime(2000, 1, 1, tzinfo=UTC)
+        self._poll_count = 0
+        self._result = AgentResult(
+            session_id=self.handle.session_id,
+            status=AgentResultStatus.INCOMPLETE,
+            output_text="",
+            completed_at=self._stale_progress_at,
+            error=AgentError(
+                code="agent_waiting_input",
+                message="waiting input",
+                retryable=False,
+                raw={},
+            ),
+        )
+
+    def keys(self) -> list[str]:
+        return ["codex_acp"]
+
+    def has(self, adapter_key: str) -> bool:
+        return adapter_key == "codex_acp"
+
+    async def describe(self, adapter_key: str) -> AgentDescriptor:
+        return AgentDescriptor(key=adapter_key, display_name=adapter_key)
+
+    async def start(self, adapter_key: str, request: AgentRunRequest) -> AgentSessionHandle:
+        return self.handle
+
+    async def send(self, handle: AgentSessionHandle, message: str) -> None:
+        return None
+
+    async def poll(self, handle: AgentSessionHandle) -> AgentProgress:
+        self._poll_count += 1
+        state = AgentProgressState.RUNNING
+        if self._poll_count > 1:
+            state = AgentProgressState.WAITING_INPUT
+        return AgentProgress(
+            session_id=handle.session_id,
+            state=state,
+            message="working" if state is AgentProgressState.RUNNING else "waiting input",
+            updated_at=self._stale_progress_at,
+            partial_output="work",
+        )
+
+    async def collect(self, handle: AgentSessionHandle) -> AgentResult:
+        return self._result
+
+    async def cancel(self, handle: AgentSessionHandle) -> None:
+        return None
+
+    async def close(self, handle: AgentSessionHandle) -> None:
+        return None
 
 
 @pytest.mark.anyio
@@ -548,6 +607,47 @@ async def test_inprocess_supervisor_keeps_reusable_session_open_after_success(
     assert result.status is AgentResultStatus.SUCCESS
     assert manager.close_calls == 0
     assert manager.cancel_calls == 0
+
+
+@pytest.mark.anyio
+async def test_inprocess_supervisor_refreshes_stale_background_run_heartbeat(
+    tmp_path: Path,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    stale_progress = datetime(2000, 1, 1, tzinfo=UTC)
+    manager = _StickyRunningSessionManager(stale_progress=stale_progress)
+    supervisor = InProcessAgentRunSupervisor(
+        tmp_path / "background",
+        tmp_path,
+        session_manager=manager,
+        wakeup_inbox=inbox,
+    )
+
+    run = await supervisor.start_background_turn(
+        "op-1",
+        1,
+        "codex_acp",
+        AgentRunRequest(goal="hello", instruction="hold"),
+    )
+
+    deadline = time.time() + 3.0
+    heartbeat_advanced = False
+    while time.time() < deadline:
+        polled = await supervisor.poll_background_turn(run.run_id)
+        if polled is not None and polled.last_heartbeat_at is not None:
+            heartbeat_advanced = heartbeat_advanced or polled.last_heartbeat_at > stale_progress
+            if polled.status is BackgroundRunStatus.COMPLETED:
+                break
+        await anyio.sleep(0.05)
+
+    result = await supervisor.collect_background_turn(run.run_id)
+    final = await supervisor.poll_background_turn(run.run_id)
+
+    assert result is not None
+    assert result.status is AgentResultStatus.INCOMPLETE
+    assert heartbeat_advanced is True
+    assert final is not None
+    assert final.status is BackgroundRunStatus.COMPLETED
 
 
 @pytest.mark.anyio

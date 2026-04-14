@@ -357,7 +357,7 @@ class InProcessAgentRunSupervisor:
         while True:
             progress = await self._session_registry.poll(session_handle)
             record.progress = _progress_snapshot(progress)
-            record.last_heartbeat_at = progress.updated_at
+            record.last_heartbeat_at = datetime.now(UTC)
             self._save_run_file(record)
             if progress.state in {AgentProgressState.PENDING, AgentProgressState.RUNNING}:
                 await asyncio.sleep(1.0)
