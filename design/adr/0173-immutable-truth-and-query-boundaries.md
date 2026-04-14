@@ -25,6 +25,9 @@ Implementation grounding on 2026-04-14:
 - `implemented`: the stale `overlay_live_background_progress()` helper and the unused
   `OperationStatusQueryService` overlay hook are now removed from this tranche's read/query
   boundary instead of lingering as an alternate mutation path
+- `implemented`: the generic debug/inspect operation-session projection surface now derives
+  operation/session payloads explicitly instead of using `OperationState.model_dump()` and
+  `SessionRecord.model_dump()` as read-time payload assembly shortcuts
 - `verified`: regression coverage for the status-query immutability tranche now exists in
   `tests/test_operation_status_query_immutability.py`
 - `verified`: CLI regression coverage now asserts that debug-session inspection derives live
@@ -155,6 +158,8 @@ Current tranche closure on 2026-04-14:
   `OperationState` session records during read assembly
 - `partial`: the debug-session inspection path now emits explicit derived live-progress fields in
   its session payloads instead of mutating copied session models
+- `partial`: the generic operation/session payload projection used by debug/inspect no longer
+  serializes mutable truth models wholesale during read assembly
 - `partial`: a regression test now asserts that status-query assembly leaves stored session truth
   untouched even when runtime background progress exists
 - `remaining`: other read surfaces still derive output by mutating copied truth models, especially

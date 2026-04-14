@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from rich.console import Console
 
 from agent_operator.application import OperationProjectionService
@@ -401,6 +402,31 @@ def test_build_dashboard_payload_emits_normalized_session_views() -> None:
     assert session_view["session_brief"]["review"] is None
     assert session_view["transcript_hint"]["command"] == "operator log op-1 --agent codex"
     assert payload["report_text"] == "# Report\n\nRetrospective summary."
+
+
+def test_operation_payload_is_derived_without_truth_model_dump_patchup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation_with_task_session()
+    service = OperationProjectionService()
+
+    def _fail_operation_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize OperationState directly")
+
+    def _fail_session_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize SessionRecord directly")
+
+    monkeypatch.setattr(OperationState, "model_dump", _fail_operation_model_dump)
+    monkeypatch.setattr(SessionRecord, "model_dump", _fail_session_model_dump)
+
+    payload = service.operation_payload(operation)
+
+    assert payload["operation_id"] == "op-1"
+    assert payload["goal"]["objective"] == "Ship dashboard"
+    assert payload["sessions"][0]["session_id"] == "session-1"
+    assert payload["sessions"][0]["adapter_key"] == "codex_acp"
+    assert payload["sessions"][0]["waiting_reason"] == "Working"
+    assert payload["sessions"][0]["bound_task_ids"] == ["task-1"]
 
 
 def test_build_operation_brief_payload_splits_blocking_and_nonblocking_attention() -> None:

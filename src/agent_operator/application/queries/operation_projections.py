@@ -163,6 +163,62 @@ class FleetWorkbenchPayload:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class SessionReadPayload:
+    session_id: str
+    adapter_key: str
+    status: str
+    session_name: str | None
+    display_name: str
+    one_shot: bool
+    current_execution_id: str | None
+    last_terminal_execution_id: str | None
+    bound_task_ids: list[str]
+    last_result_iteration: int | None
+    latest_iteration: int | None
+    attached_turn_started_at: str | None
+    last_progress_at: str | None
+    last_event_at: str | None
+    waiting_reason: str | None
+    cooldown_until: str | None
+    cooldown_reason: str | None
+    last_rate_limited_at: str | None
+    recovery_summary: str | None
+    recovery_count: int
+    recovery_attempted_at: str | None
+    last_recovered_at: str | None
+    created_at: str
+    updated_at: str
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "session_id": self.session_id,
+            "adapter_key": self.adapter_key,
+            "status": self.status,
+            "session_name": self.session_name,
+            "display_name": self.display_name,
+            "one_shot": self.one_shot,
+            "current_execution_id": self.current_execution_id,
+            "last_terminal_execution_id": self.last_terminal_execution_id,
+            "bound_task_ids": list(self.bound_task_ids),
+            "last_result_iteration": self.last_result_iteration,
+            "latest_iteration": self.latest_iteration,
+            "attached_turn_started_at": self.attached_turn_started_at,
+            "last_progress_at": self.last_progress_at,
+            "last_event_at": self.last_event_at,
+            "waiting_reason": self.waiting_reason,
+            "cooldown_until": self.cooldown_until,
+            "cooldown_reason": self.cooldown_reason,
+            "last_rate_limited_at": self.last_rate_limited_at,
+            "recovery_summary": self.recovery_summary,
+            "recovery_count": self.recovery_count,
+            "recovery_attempted_at": self.recovery_attempted_at,
+            "last_recovered_at": self.last_recovered_at,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
 class OperationProjectionService:
     def memory_entries(
         self,
@@ -176,18 +232,138 @@ class OperationProjectionService:
         return [entry for entry in entries if entry.freshness is MemoryFreshness.CURRENT]
 
     def session_payload(self, session: SessionRecord) -> dict[str, object]:
-        payload = session.model_dump(mode="json")
-        payload["session_id"] = session.session_id
-        payload["adapter_key"] = session.adapter_key
-        payload["status"] = session.status.value
-        payload["session_name"] = session.handle.session_name
-        payload["display_name"] = session.handle.display_name
-        return payload
+        return SessionReadPayload(
+            session_id=session.session_id,
+            adapter_key=session.adapter_key,
+            status=session.status.value,
+            session_name=session.handle.session_name,
+            display_name=session.handle.display_name,
+            one_shot=session.handle.one_shot,
+            current_execution_id=session.current_execution_id,
+            last_terminal_execution_id=session.last_terminal_execution_id,
+            bound_task_ids=list(session.bound_task_ids),
+            last_result_iteration=session.last_result_iteration,
+            latest_iteration=session.latest_iteration,
+            attached_turn_started_at=(
+                session.attached_turn_started_at.isoformat()
+                if session.attached_turn_started_at is not None
+                else None
+            ),
+            last_progress_at=(
+                session.last_progress_at.isoformat()
+                if session.last_progress_at is not None
+                else None
+            ),
+            last_event_at=(
+                session.last_event_at.isoformat() if session.last_event_at is not None else None
+            ),
+            waiting_reason=session.waiting_reason,
+            cooldown_until=(
+                session.cooldown_until.isoformat() if session.cooldown_until is not None else None
+            ),
+            cooldown_reason=session.cooldown_reason,
+            last_rate_limited_at=(
+                session.last_rate_limited_at.isoformat()
+                if session.last_rate_limited_at is not None
+                else None
+            ),
+            recovery_summary=session.recovery_summary,
+            recovery_count=session.recovery_count,
+            recovery_attempted_at=(
+                session.recovery_attempted_at.isoformat()
+                if session.recovery_attempted_at is not None
+                else None
+            ),
+            last_recovered_at=(
+                session.last_recovered_at.isoformat()
+                if session.last_recovered_at is not None
+                else None
+            ),
+            created_at=session.created_at.isoformat(),
+            updated_at=session.updated_at.isoformat(),
+        ).to_payload()
 
     def operation_payload(self, operation: OperationState) -> dict[str, object]:
-        payload = operation.model_dump(mode="json")
-        payload["sessions"] = [self.session_payload(item) for item in operation.sessions]
-        return payload
+        return {
+            "schema_version": operation.schema_version,
+            "operation_id": operation.operation_id,
+            "canonical_persistence_mode": operation.canonical_persistence_mode.value,
+            "goal": {
+                "objective": operation.goal.objective,
+                "harness_instructions": operation.goal.harness_instructions,
+                "success_criteria": list(operation.goal.success_criteria),
+                "metadata": dict(operation.goal.metadata),
+                "external_ticket": (
+                    operation.goal.external_ticket.model_dump(mode="json")
+                    if operation.goal.external_ticket is not None
+                    else None
+                ),
+            },
+            "policy": {
+                "allowed_agents": list(operation.policy.allowed_agents),
+                "involvement_level": operation.policy.involvement_level.value,
+            },
+            "execution_budget": {
+                "max_iterations": operation.execution_budget.max_iterations,
+                "timeout_seconds": operation.execution_budget.timeout_seconds,
+                "max_task_retries": operation.execution_budget.max_task_retries,
+            },
+            "runtime_hints": {
+                "operator_message_window": operation.runtime_hints.operator_message_window,
+                "metadata": dict(operation.runtime_hints.metadata),
+            },
+            "objective": (
+                operation.objective_state.model_dump(mode="json")
+                if operation.objective is not None
+                else None
+            ),
+            "status": operation.status.value,
+            "iterations": [item.model_dump(mode="json") for item in operation.iterations],
+            "features": [item.model_dump(mode="json") for item in operation.features],
+            "tasks": [item.model_dump(mode="json") for item in operation.tasks],
+            "sessions": [self.session_payload(item) for item in operation.sessions],
+            "executions": [item.model_dump(mode="json") for item in operation.executions],
+            "artifacts": [item.model_dump(mode="json") for item in operation.artifacts],
+            "memory_entries": [item.model_dump(mode="json") for item in operation.memory_entries],
+            "operation_brief": (
+                operation.operation_brief.model_dump(mode="json")
+                if operation.operation_brief is not None
+                else None
+            ),
+            "iteration_briefs": [
+                item.model_dump(mode="json") for item in operation.iteration_briefs
+            ],
+            "agent_turn_briefs": [
+                item.model_dump(mode="json") for item in operation.agent_turn_briefs
+            ],
+            "current_focus": (
+                operation.current_focus.model_dump(mode="json")
+                if operation.current_focus is not None
+                else None
+            ),
+            "pending_wakeups": [item.model_dump(mode="json") for item in operation.pending_wakeups],
+            "attention_requests": [
+                item.model_dump(mode="json") for item in operation.attention_requests
+            ],
+            "active_policies": [item.model_dump(mode="json") for item in operation.active_policies],
+            "policy_coverage": operation.policy_coverage.model_dump(mode="json"),
+            "involvement_level": operation.involvement_level.value,
+            "scheduler_state": operation.scheduler_state.value,
+            "operator_messages": [
+                item.model_dump(mode="json") for item in operation.operator_messages
+            ],
+            "processed_command_ids": list(operation.processed_command_ids),
+            "pending_replan_command_ids": list(operation.pending_replan_command_ids),
+            "pending_attention_resolution_ids": list(operation.pending_attention_resolution_ids),
+            "final_summary": operation.final_summary,
+            "run_started_at": (
+                operation.run_started_at.isoformat()
+                if operation.run_started_at is not None
+                else None
+            ),
+            "created_at": operation.created_at.isoformat(),
+            "updated_at": operation.updated_at.isoformat(),
+        }
 
     def resolve_run_mode(self, operation: OperationState) -> str:
         raw_mode = operation.runtime_hints.metadata.get("continuity_run_mode")
