@@ -55,6 +55,14 @@ class DecisionExecutionService:
         self._turn_execution_service = turn_execution_service
         self._agent_result_service = agent_result_service
 
+    @staticmethod
+    def _permission_resume_mode(descriptor) -> str | None:
+        metadata = getattr(descriptor, "metadata", None)
+        if not isinstance(metadata, dict):
+            return None
+        value = metadata.get("permission_resume_mode")
+        return value if isinstance(value, str) and value else None
+
     async def execute_decision(
         self,
         state: OperationState,
@@ -380,6 +388,12 @@ class DecisionExecutionService:
                     descriptor,
                 )
             except AgentSessionBusyError as exc:
+                if self._permission_resume_mode(descriptor) == "in_turn_continuation":
+                    iteration.notes.append(
+                        "Busy follow-up ignored because the adapter continues the same "
+                        "turn after permission interruption."
+                    )
+                    return options.run_mode is not RunMode.ATTACHED
                 return _mark_busy_session_block(exc)
             return options.run_mode is not RunMode.ATTACHED
         try:

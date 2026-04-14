@@ -214,6 +214,7 @@ def _claude_descriptor(*, supports_fork: bool) -> AgentDescriptor:
         supports_follow_up=True,
         supports_cancellation=True,
         supports_fork=supports_fork,
+        metadata={"permission_resume_mode": "in_turn_continuation"},
     )
 
 
@@ -228,6 +229,7 @@ def _codex_descriptor(*, supports_fork: bool) -> AgentDescriptor:
         supports_follow_up=True,
         supports_cancellation=True,
         supports_fork=supports_fork,
+        metadata={"permission_resume_mode": "explicit_follow_up"},
     )
 
 
@@ -242,6 +244,7 @@ def _opencode_descriptor(*, supports_fork: bool) -> AgentDescriptor:
         supports_follow_up=True,
         supports_cancellation=True,
         supports_fork=supports_fork,
+        metadata={"permission_resume_mode": "explicit_follow_up"},
     )
 
 

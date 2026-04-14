@@ -375,6 +375,7 @@ def build_test_runtime_bindings(
                 capabilities=_coerce_capabilities(adapter),
                 supports_follow_up=_coerce_supports_follow_up(adapter),
                 supports_fork=_coerce_supports_fork(adapter),
+                metadata=_coerce_metadata(adapter),
             ),
             build_adapter_runtime=_unsupported_adapter_runtime_factory,
             build_session_runtime=_build_test_session_runtime_factory(
@@ -396,6 +397,7 @@ def _build_test_session_runtime_factory(
         capabilities=_coerce_capabilities(adapter),
         supports_follow_up=_coerce_supports_follow_up(adapter),
         supports_fork=_coerce_supports_fork(adapter),
+        metadata=_coerce_metadata(adapter),
     )
 
     def factory(*, working_directory: Path, log_path: Path) -> AgentSessionRuntime:
@@ -436,3 +438,12 @@ def _coerce_capabilities(adapter: TestAgentFacade) -> list[AgentCapability]:
     if isinstance(capabilities, list):
         return [item for item in capabilities if isinstance(item, AgentCapability)]
     return standard_coding_agent_capabilities()
+
+
+def _coerce_metadata(adapter: TestAgentFacade) -> dict[str, object]:
+    metadata = getattr(adapter, "metadata", None)
+    normalized = dict(metadata) if isinstance(metadata, Mapping) else {}
+    permission_resume_mode = getattr(adapter, "permission_resume_mode", None)
+    if isinstance(permission_resume_mode, str) and permission_resume_mode:
+        normalized["permission_resume_mode"] = permission_resume_mode
+    return normalized

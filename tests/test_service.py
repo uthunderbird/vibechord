@@ -895,6 +895,42 @@ class StartThenContinueAfterApprovalBrain:
         return result
 
 
+class StartThenContinueBusyClaudeSessionBrain:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        if self.calls == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="claude_acp",
+                instruction="start background work",
+                rationale="Dispatch the first background turn.",
+            )
+        if self.calls == 2:
+            return BrainDecision(
+                action_type=BrainActionType.CONTINUE_AGENT,
+                target_agent="claude_acp",
+                instruction="send a follow-up immediately",
+                rationale="Continue on the same session.",
+            )
+        return BrainDecision(action_type=BrainActionType.STOP, rationale="done")
+
+    async def evaluate_result(self, state) -> Evaluation:
+        return Evaluation(
+            goal_satisfied=False,
+            should_continue=True,
+            summary="continue",
+        )
+
+    async def summarize_progress(self, state) -> ProgressSummary:
+        return ProgressSummary(summary="summary")
+
+    async def normalize_artifact(self, goal, result) -> AgentResult:
+        return result
+
+
 @pytest.mark.anyio
 async def test_resume_does_not_spawn_duplicate_background_turn_without_wakeup() -> None:
     store = MemoryStore()
@@ -1135,6 +1171,92 @@ async def test_answered_attention_keeps_reusable_codex_session_for_continue_agen
     assert supervisor.existing_sessions[1] is not None
     assert supervisor.existing_sessions[1].session_id == operation.sessions[0].session_id
     assert supervisor.requests[1].instruction == "continue after approval"
+
+
+@pytest.mark.anyio
+async def test_busy_follow_up_for_claude_in_turn_continuation_keeps_waiting_on_live_turn() -> None:
+    class BusyFollowUpSupervisor(FakeSupervisor):
+        async def start_background_turn(
+            self,
+            operation_id: str,
+            iteration: int,
+            adapter_key: str,
+            request,
+            *,
+            existing_session: AgentSessionHandle | None = None,
+            task_id: str | None = None,
+            wakeup_delivery: str = "enqueue",
+        ) -> ExecutionState:
+            if existing_session is not None:
+                for run in self.runs.values():
+                    if (
+                        run.session_id == existing_session.session_id
+                        and run.status is BackgroundRunStatus.RUNNING
+                    ):
+                        raise AgentSessionBusyError(
+                            "Cannot send a follow-up while a Claude ACP turn is still running.",
+                            session_id=existing_session.session_id,
+                            execution_id=run.run_id,
+                        )
+            return await super().start_background_turn(
+                operation_id,
+                iteration,
+                adapter_key,
+                request,
+                existing_session=existing_session,
+                task_id=task_id,
+                wakeup_delivery=wakeup_delivery,
+            )
+
+    class _ClaudeAgent(FakeAgent):
+        permission_resume_mode = "in_turn_continuation"
+
+        def __init__(self) -> None:
+            super().__init__(key="claude_acp")
+
+    store = MemoryStore()
+    supervisor = BusyFollowUpSupervisor()
+    brain = StartThenContinueBusyClaudeSessionBrain()
+    service = make_service(
+        brain=brain,
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": _ClaudeAgent()}),
+        supervisor=supervisor,
+    )
+
+    first = await service.run(
+        OperationGoal(objective="background task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(first.operation_id)
+    assert first.status is OperationStatus.RUNNING
+    assert operation is not None
+    assert len(operation.background_runs) == 1
+    assert operation.background_runs[0].status is BackgroundRunStatus.RUNNING
+
+    resumed = await service.resume(
+        operation.operation_id,
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert resumed.status is OperationStatus.RUNNING
+    assert updated is not None
+    assert updated.status is OperationStatus.RUNNING
+    assert updated.tasks[0].status is TaskStatus.RUNNING
+    assert updated.current_focus is not None
+    assert updated.current_focus.kind is FocusKind.TASK
+    assert updated.sessions[0].status is SessionStatus.RUNNING
+    assert updated.sessions[0].waiting_reason is None
 
 
 @pytest.mark.anyio
