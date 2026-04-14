@@ -367,6 +367,94 @@ class OperationProjectionService:
             updated_at=session.updated_at.isoformat(),
         ).to_payload()
 
+    def _external_ticket_payload(self, ticket) -> dict[str, object]:
+        return {
+            "provider": ticket.provider,
+            "project_key": ticket.project_key,
+            "ticket_id": ticket.ticket_id,
+            "url": ticket.url,
+            "title": ticket.title,
+            "reported": ticket.reported,
+        }
+
+    def _objective_payload(self, objective) -> dict[str, object]:
+        return {
+            "objective_id": objective.objective_id,
+            "objective": objective.objective,
+            "harness_instructions": objective.harness_instructions,
+            "success_criteria": list(objective.success_criteria),
+            "metadata": dict(objective.metadata),
+            "summary": objective.summary,
+            "root_task_id": objective.root_task_id,
+        }
+
+    def _task_payload(self, task: TaskState) -> dict[str, object]:
+        return {
+            "task_id": task.task_id,
+            "task_short_id": task.task_short_id,
+            "title": task.title,
+            "goal": task.goal,
+            "definition_of_done": task.definition_of_done,
+            "status": task.status.value,
+            "brain_priority": task.brain_priority,
+            "effective_priority": task.effective_priority,
+            "feature_id": task.feature_id,
+            "dependencies": list(task.dependencies),
+            "assigned_agent": task.assigned_agent,
+            "linked_session_id": task.linked_session_id,
+            "session_policy": task.session_policy.value,
+            "memory_refs": list(task.memory_refs),
+            "artifact_refs": list(task.artifact_refs),
+            "attempt_count": task.attempt_count,
+            "notes": list(task.notes),
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
+        }
+
+    def _artifact_payload(self, artifact) -> dict[str, object]:
+        return {
+            "artifact_id": artifact.artifact_id,
+            "kind": artifact.kind,
+            "producer": artifact.producer,
+            "task_id": artifact.task_id,
+            "session_id": artifact.session_id,
+            "content": artifact.content,
+            "raw_ref": artifact.raw_ref,
+            "created_at": artifact.created_at.isoformat(),
+        }
+
+    def _memory_source_ref_payload(self, source_ref) -> dict[str, object]:
+        return {
+            "kind": source_ref.kind,
+            "ref_id": source_ref.ref_id,
+        }
+
+    def _memory_entry_payload(self, entry: MemoryEntry) -> dict[str, object]:
+        return {
+            "memory_id": entry.memory_id,
+            "scope": entry.scope.value,
+            "scope_id": entry.scope_id,
+            "summary": entry.summary,
+            "source_refs": [self._memory_source_ref_payload(item) for item in entry.source_refs],
+            "freshness": entry.freshness.value,
+            "superseded_by": entry.superseded_by,
+            "created_at": entry.created_at.isoformat(),
+            "updated_at": entry.updated_at.isoformat(),
+        }
+
+    def _operator_message_payload(self, message) -> dict[str, object]:
+        return {
+            "message_id": message.message_id,
+            "submitted_at": message.submitted_at.isoformat(),
+            "text": message.text,
+            "source_command_id": message.source_command_id,
+            "applied_at": (
+                message.applied_at.isoformat() if message.applied_at is not None else None
+            ),
+            "dropped_from_context": message.dropped_from_context,
+            "planning_cycles_active": message.planning_cycles_active,
+        }
+
     def operation_payload(self, operation: OperationState) -> dict[str, object]:
         return {
             "schema_version": operation.schema_version,
@@ -378,7 +466,7 @@ class OperationProjectionService:
                 "success_criteria": list(operation.goal.success_criteria),
                 "metadata": dict(operation.goal.metadata),
                 "external_ticket": (
-                    operation.goal.external_ticket.model_dump(mode="json")
+                    self._external_ticket_payload(operation.goal.external_ticket)
                     if operation.goal.external_ticket is not None
                     else None
                 ),
@@ -397,18 +485,20 @@ class OperationProjectionService:
                 "metadata": dict(operation.runtime_hints.metadata),
             },
             "objective": (
-                operation.objective_state.model_dump(mode="json")
+                self._objective_payload(operation.objective_state)
                 if operation.objective is not None
                 else None
             ),
             "status": operation.status.value,
             "iterations": [item.model_dump(mode="json") for item in operation.iterations],
             "features": [item.model_dump(mode="json") for item in operation.features],
-            "tasks": [item.model_dump(mode="json") for item in operation.tasks],
+            "tasks": [self._task_payload(item) for item in operation.tasks],
             "sessions": [self.session_payload(item) for item in operation.sessions],
             "executions": [item.model_dump(mode="json") for item in operation.executions],
-            "artifacts": [item.model_dump(mode="json") for item in operation.artifacts],
-            "memory_entries": [item.model_dump(mode="json") for item in operation.memory_entries],
+            "artifacts": [self._artifact_payload(item) for item in operation.artifacts],
+            "memory_entries": [
+                self._memory_entry_payload(item) for item in operation.memory_entries
+            ],
             "operation_brief": (
                 operation.operation_brief.model_dump(mode="json")
                 if operation.operation_brief is not None
@@ -427,14 +517,14 @@ class OperationProjectionService:
             ),
             "pending_wakeups": [item.model_dump(mode="json") for item in operation.pending_wakeups],
             "attention_requests": [
-                item.model_dump(mode="json") for item in operation.attention_requests
+                self._attention_payload(item) for item in operation.attention_requests
             ],
-            "active_policies": [item.model_dump(mode="json") for item in operation.active_policies],
-            "policy_coverage": operation.policy_coverage.model_dump(mode="json"),
+            "active_policies": [self._policy_payload(item) for item in operation.active_policies],
+            "policy_coverage": self._policy_coverage_payload(operation.policy_coverage),
             "involvement_level": operation.involvement_level.value,
             "scheduler_state": operation.scheduler_state.value,
             "operator_messages": [
-                item.model_dump(mode="json") for item in operation.operator_messages
+                self._operator_message_payload(item) for item in operation.operator_messages
             ],
             "processed_command_ids": list(operation.processed_command_ids),
             "pending_replan_command_ids": list(operation.pending_replan_command_ids),
@@ -497,16 +587,16 @@ class OperationProjectionService:
         all_memory = self.memory_entries(operation, include_inactive=include_inactive_memory)
         return {
             "task_counts": self._summarize_task_counts(operation),
-            "tasks": [task.model_dump(mode="json") for task in operation.tasks],
+            "tasks": [self._task_payload(task) for task in operation.tasks],
             "memory": {
-                "current": [entry.model_dump(mode="json") for entry in current_memory],
+                "current": [self._memory_entry_payload(entry) for entry in current_memory],
                 "inactive": [
-                    entry.model_dump(mode="json")
+                    self._memory_entry_payload(entry)
                     for entry in all_memory
                     if entry.freshness is not MemoryFreshness.CURRENT
                 ],
             },
-            "artifacts": [artifact.model_dump(mode="json") for artifact in operation.artifacts],
+            "artifacts": [self._artifact_payload(artifact) for artifact in operation.artifacts],
         }
 
     def build_operation_context_payload(self, operation: OperationState) -> dict[str, object]:

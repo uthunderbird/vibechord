@@ -14,10 +14,12 @@ from agent_operator.domain import (
     AgentSessionHandle,
     AgentTurnBrief,
     AgentTurnSummary,
+    ArtifactRecord,
     AttentionRequest,
     AttentionStatus,
     AttentionType,
     CommandTargetScope,
+    ExternalTicketLink,
     FocusKind,
     FocusMode,
     FocusState,
@@ -30,6 +32,7 @@ from agent_operator.domain import (
     OperationState,
     OperationStatus,
     OperationSummary,
+    OperatorMessage,
     PolicyCategory,
     PolicyCoverage,
     PolicyCoverageStatus,
@@ -486,6 +489,149 @@ def test_operation_payload_is_derived_without_truth_model_dump_patchup(
     assert payload["sessions"][0]["adapter_key"] == "codex_acp"
     assert payload["sessions"][0]["waiting_reason"] == "Working"
     assert payload["sessions"][0]["bound_task_ids"] == ["task-1"]
+
+
+def test_operation_payload_uses_explicit_truth_serializers_for_targeted_objects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation_with_task_session()
+    operation.goal.external_ticket = ExternalTicketLink(
+        provider="github_issues",
+        project_key="owner/repo",
+        ticket_id="123",
+        url="https://github.com/owner/repo/issues/123",
+        title="Ship dashboard",
+    )
+    operation.objective_state.summary = "Dashboard delivery is underway."
+    operation.artifacts = [
+        ArtifactRecord(
+            artifact_id="artifact-1",
+            kind="note",
+            producer="codex_acp",
+            task_id="task-1",
+            session_id="session-1",
+            content="Captured the implementation plan.",
+            raw_ref="log://artifact-1",
+        )
+    ]
+    operation.operator_messages = [
+        OperatorMessage(
+            message_id="msg-1",
+            text="Stay inside the projection boundary.",
+            source_command_id="cmd-1",
+            dropped_from_context=True,
+            planning_cycles_active=2,
+        )
+    ]
+    operation.active_policies = [
+        PolicyEntry(
+            policy_id="policy-1",
+            project_scope="profile:operator",
+            title="Use codex",
+            category=PolicyCategory.GENERAL,
+            rule_text="Prefer codex_acp.",
+            status=PolicyStatus.ACTIVE,
+        )
+    ]
+    operation.policy_coverage = PolicyCoverage(
+        status=PolicyCoverageStatus.COVERED,
+        project_scope="profile:operator",
+        scoped_policy_count=1,
+        active_policy_count=1,
+        summary="1 active policy entry applies now.",
+    )
+
+    def _fail_external_ticket_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize ExternalTicketLink directly")
+
+    def _fail_objective_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize ObjectiveState directly")
+
+    def _fail_task_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize TaskState directly")
+
+    def _fail_artifact_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize ArtifactRecord directly")
+
+    def _fail_memory_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize MemoryEntry directly")
+
+    def _fail_attention_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AttentionRequest directly")
+
+    def _fail_policy_entry_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize PolicyEntry directly")
+
+    def _fail_policy_coverage_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize PolicyCoverage directly")
+
+    def _fail_operator_message_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize OperatorMessage directly")
+
+    monkeypatch.setattr(ExternalTicketLink, "model_dump", _fail_external_ticket_model_dump)
+    monkeypatch.setattr(type(operation.objective_state), "model_dump", _fail_objective_model_dump)
+    monkeypatch.setattr(TaskState, "model_dump", _fail_task_model_dump)
+    monkeypatch.setattr(ArtifactRecord, "model_dump", _fail_artifact_model_dump)
+    monkeypatch.setattr(MemoryEntry, "model_dump", _fail_memory_model_dump)
+    monkeypatch.setattr(AttentionRequest, "model_dump", _fail_attention_model_dump)
+    monkeypatch.setattr(PolicyEntry, "model_dump", _fail_policy_entry_model_dump)
+    monkeypatch.setattr(PolicyCoverage, "model_dump", _fail_policy_coverage_model_dump)
+    monkeypatch.setattr(OperatorMessage, "model_dump", _fail_operator_message_model_dump)
+
+    payload = OperationProjectionService().operation_payload(operation)
+
+    assert payload["goal"]["external_ticket"]["ticket_id"] == "123"
+    assert payload["objective"]["summary"] == "Dashboard delivery is underway."
+    assert payload["tasks"][0]["task_id"] == "task-1"
+    assert payload["artifacts"][0]["artifact_id"] == "artifact-1"
+    assert payload["memory_entries"][0]["memory_id"] == "m1"
+    assert payload["attention_requests"][0]["attention_id"] == "att-1"
+    assert payload["active_policies"][0]["policy_id"] == "policy-1"
+    assert payload["policy_coverage"]["status"] == "covered"
+    assert payload["operator_messages"][0]["message_id"] == "msg-1"
+
+
+def test_build_durable_truth_payload_uses_explicit_truth_serializers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation_with_task_session()
+    operation.artifacts = [
+        ArtifactRecord(
+            artifact_id="artifact-1",
+            kind="note",
+            producer="codex_acp",
+            task_id="task-1",
+            session_id="session-1",
+            content="Captured the implementation plan.",
+        )
+    ]
+
+    def _fail_task_model_dump(self, *args, **kwargs):
+        raise AssertionError("build_durable_truth_payload should not serialize TaskState directly")
+
+    def _fail_memory_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "build_durable_truth_payload should not serialize MemoryEntry directly"
+        )
+
+    def _fail_artifact_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "build_durable_truth_payload should not serialize ArtifactRecord directly"
+        )
+
+    monkeypatch.setattr(TaskState, "model_dump", _fail_task_model_dump)
+    monkeypatch.setattr(MemoryEntry, "model_dump", _fail_memory_model_dump)
+    monkeypatch.setattr(ArtifactRecord, "model_dump", _fail_artifact_model_dump)
+
+    payload = OperationProjectionService().build_durable_truth_payload(
+        operation,
+        include_inactive_memory=True,
+    )
+
+    assert payload["tasks"][0]["task_id"] == "task-1"
+    assert payload["memory"]["current"][0]["memory_id"] == "m1"
+    assert payload["memory"]["inactive"][0]["memory_id"] == "m2"
+    assert payload["artifacts"][0]["artifact_id"] == "artifact-1"
 
 
 def test_build_operation_brief_payload_splits_blocking_and_nonblocking_attention() -> None:
