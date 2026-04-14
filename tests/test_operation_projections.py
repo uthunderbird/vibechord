@@ -290,6 +290,35 @@ def test_build_fleet_payload_returns_actions() -> None:
     assert any(action["cli_command"] == "operator watch op-1" for action in payload["actions"])
 
 
+def test_build_fleet_payload_uses_explicit_agenda_item_serializer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    item = AgendaItem(
+        operation_id="op-1",
+        bucket=AgendaBucket.ACTIVE,
+        status=OperationStatus.RUNNING,
+        scheduler_state=SchedulerState.ACTIVE,
+        involvement_level=InvolvementLevel.COLLABORATIVE,
+        objective_brief="Ship dashboard",
+        runtime_alert="wakeup pending",
+        updated_at=datetime.now(UTC),
+    )
+
+    def _fail_agenda_item_model_dump(self, *args, **kwargs):
+        raise AssertionError("build_fleet_payload should not serialize AgendaItem directly")
+
+    monkeypatch.setattr(AgendaItem, "model_dump", _fail_agenda_item_model_dump)
+
+    payload = OperationProjectionService().build_fleet_payload(
+        AgendaSnapshot(total_operations=1, needs_attention=[], active=[item], recent=[]),
+        project=None,
+    )
+
+    assert payload["active"][0]["operation_id"] == "op-1"
+    assert payload["active"][0]["runtime_alert"] == "wakeup pending"
+    assert payload["active"][0]["bucket"] == "active"
+
+
 def test_build_session_view_payload_includes_selected_event_details() -> None:
     operation = _operation_with_task_session()
     service = OperationProjectionService()
@@ -437,6 +466,30 @@ def test_build_project_dashboard_payload_merges_fleet_actions() -> None:
     assert "operator dashboard op-1" in commands
 
 
+def test_build_project_dashboard_payload_uses_explicit_profile_serializer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = ProjectProfile(name="operator", cwd=Path("/tmp/operator"))
+
+    def _fail_profile_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "project dashboard payload should not serialize ProjectProfile directly"
+        )
+
+    monkeypatch.setattr(ProjectProfile, "model_dump", _fail_profile_model_dump)
+
+    payload = OperationProjectionService().build_project_dashboard_payload(
+        profile=profile,
+        resolved={},
+        profile_path=Path("/tmp/operator-profile.yaml"),
+        fleet={"actions": []},
+        active_policies=[],
+    )
+
+    assert payload["profile"]["name"] == "operator"
+    assert payload["profile"]["cwd"] == "/tmp/operator"
+
+
 def test_build_dashboard_payload_emits_normalized_session_views() -> None:
     operation = _operation_with_task_session()
     payload = OperationProjectionService().build_dashboard_payload(
@@ -495,6 +548,11 @@ def test_operation_payload_uses_explicit_truth_serializers_for_targeted_objects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     operation = _operation_with_task_session()
+    operation.current_focus = FocusState(
+        kind=FocusKind.SESSION,
+        target_id="session-1",
+        mode=FocusMode.ADVISORY,
+    )
     operation.goal.external_ticket = ExternalTicketLink(
         provider="github_issues",
         project_key="owner/repo",
@@ -568,6 +626,9 @@ def test_operation_payload_uses_explicit_truth_serializers_for_targeted_objects(
     def _fail_operator_message_model_dump(self, *args, **kwargs):
         raise AssertionError("operation_payload should not serialize OperatorMessage directly")
 
+    def _fail_focus_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize FocusState directly")
+
     monkeypatch.setattr(ExternalTicketLink, "model_dump", _fail_external_ticket_model_dump)
     monkeypatch.setattr(type(operation.objective_state), "model_dump", _fail_objective_model_dump)
     monkeypatch.setattr(TaskState, "model_dump", _fail_task_model_dump)
@@ -577,6 +638,7 @@ def test_operation_payload_uses_explicit_truth_serializers_for_targeted_objects(
     monkeypatch.setattr(PolicyEntry, "model_dump", _fail_policy_entry_model_dump)
     monkeypatch.setattr(PolicyCoverage, "model_dump", _fail_policy_coverage_model_dump)
     monkeypatch.setattr(OperatorMessage, "model_dump", _fail_operator_message_model_dump)
+    monkeypatch.setattr(FocusState, "model_dump", _fail_focus_model_dump)
 
     payload = OperationProjectionService().operation_payload(operation)
 
@@ -589,6 +651,7 @@ def test_operation_payload_uses_explicit_truth_serializers_for_targeted_objects(
     assert payload["active_policies"][0]["policy_id"] == "policy-1"
     assert payload["policy_coverage"]["status"] == "covered"
     assert payload["operator_messages"][0]["message_id"] == "msg-1"
+    assert payload["current_focus"]["target_id"] == "session-1"
 
 
 def test_build_durable_truth_payload_uses_explicit_truth_serializers(
@@ -658,6 +721,40 @@ def test_build_live_snapshot_and_format_live_snapshot() -> None:
     assert "state: running" in rendered
     assert "objective=Ship dashboard" in rendered
     assert "alert=rate limit soon" in rendered
+
+
+def test_brief_summary_and_live_snapshot_use_explicit_agent_turn_serializer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation()
+    brief = TraceBriefBundle(
+        agent_turn_briefs=[
+            AgentTurnBrief(
+                operation_id="op-1",
+                iteration=2,
+                agent_key="codex_acp",
+                session_id="session-1",
+                assignment_brief="Implement the projection serializer.",
+                result_brief="Serializer landed cleanly.",
+                status="completed",
+            )
+        ]
+    )
+
+    def _fail_agent_turn_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "brief/live snapshot payloads should not serialize AgentTurnBrief directly"
+        )
+
+    monkeypatch.setattr(AgentTurnBrief, "model_dump", _fail_agent_turn_brief_model_dump)
+
+    service = OperationProjectionService()
+    summary = service.build_brief_summary_payload(operation, brief, runtime_alert=None)
+    snapshot = service.build_live_snapshot(operation, brief, runtime_alert=None)
+
+    assert summary["latest_turn"]["iteration"] == 2
+    assert summary["latest_turn"]["agent_key"] == "codex_acp"
+    assert snapshot["latest_turn"]["session_id"] == "session-1"
 
 
 def test_render_dashboard_prefers_runtime_alert_over_waiting_reason() -> None:

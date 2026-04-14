@@ -455,6 +455,136 @@ class OperationProjectionService:
             "planning_cycles_active": message.planning_cycles_active,
         }
 
+    def _agenda_item_payload(self, item) -> dict[str, object]:
+        return {
+            "operation_id": item.operation_id,
+            "bucket": item.bucket.value,
+            "status": item.status.value,
+            "objective_brief": item.objective_brief,
+            "project_profile_name": item.project_profile_name,
+            "policy_scope": item.policy_scope,
+            "scheduler_state": item.scheduler_state.value,
+            "involvement_level": item.involvement_level.value,
+            "focus_brief": item.focus_brief,
+            "latest_outcome_brief": item.latest_outcome_brief,
+            "blocker_brief": item.blocker_brief,
+            "runtime_alert": item.runtime_alert,
+            "open_attention_count": item.open_attention_count,
+            "open_blocking_attention_count": item.open_blocking_attention_count,
+            "open_nonblocking_attention_count": item.open_nonblocking_attention_count,
+            "attention_titles": list(item.attention_titles),
+            "attention_briefs": list(item.attention_briefs),
+            "blocking_attention_titles": list(item.blocking_attention_titles),
+            "nonblocking_attention_titles": list(item.nonblocking_attention_titles),
+            "runnable_task_count": item.runnable_task_count,
+            "reusable_session_count": item.reusable_session_count,
+            "updated_at": item.updated_at.isoformat(),
+        }
+
+    def _project_profile_mcp_server_payload(self, server) -> dict[str, object]:
+        return {
+            "name": server.name,
+            "command": server.command,
+            "args": list(server.args),
+            "env": dict(server.env),
+            "url": server.url,
+            "cwd": str(server.cwd) if server.cwd is not None else None,
+        }
+
+    def _project_profile_adapter_settings_payload(self, settings) -> dict[str, object]:
+        payload = {
+            "timeout_seconds": settings.timeout_seconds,
+            "mcp_servers": [
+                self._project_profile_mcp_server_payload(item) for item in settings.mcp_servers
+            ],
+        }
+        extra = getattr(settings, "__pydantic_extra__", None)
+        if isinstance(extra, dict):
+            payload.update(extra)
+        return payload
+
+    def _ticket_reporting_payload(self, reporting) -> dict[str, object]:
+        return {
+            "on_success": reporting.on_success,
+            "on_failure": reporting.on_failure,
+            "on_cancelled": reporting.on_cancelled,
+            "webhook_url": reporting.webhook_url,
+            "intake_hook": (
+                str(reporting.intake_hook) if reporting.intake_hook is not None else None
+            ),
+        }
+
+    def _project_profile_payload(self, profile: ProjectProfile) -> dict[str, object]:
+        return {
+            "name": profile.name,
+            "cwd": str(profile.cwd) if profile.cwd is not None else None,
+            "paths": [str(item) for item in profile.paths],
+            "history_ledger": profile.history_ledger,
+            "default_objective": profile.default_objective,
+            "default_agents": list(profile.default_agents),
+            "default_harness_instructions": profile.default_harness_instructions,
+            "default_success_criteria": list(profile.default_success_criteria),
+            "default_max_iterations": profile.default_max_iterations,
+            "default_run_mode": (
+                profile.default_run_mode.value if profile.default_run_mode is not None else None
+            ),
+            "default_involvement_level": (
+                profile.default_involvement_level.value
+                if profile.default_involvement_level is not None
+                else None
+            ),
+            "adapter_settings": {
+                key: self._project_profile_adapter_settings_payload(value)
+                for key, value in profile.adapter_settings.items()
+            },
+            "dashboard_prefs": dict(profile.dashboard_prefs),
+            "session_reuse_policy": (
+                profile.session_reuse_policy.value
+                if profile.session_reuse_policy is not None
+                else None
+            ),
+            "default_message_window": profile.default_message_window,
+            "ticket_reporting": self._ticket_reporting_payload(profile.ticket_reporting),
+        }
+
+    def _agent_turn_summary_payload(self, summary) -> dict[str, object]:
+        return {
+            "declared_goal": summary.declared_goal,
+            "actual_work_done": summary.actual_work_done,
+            "route_or_target_chosen": summary.route_or_target_chosen,
+            "repo_changes": list(summary.repo_changes),
+            "progress_class": summary.progress_class,
+            "blocker_keys": list(summary.blocker_keys),
+            "state_delta": summary.state_delta,
+            "verification_status": summary.verification_status,
+            "remaining_blockers": list(summary.remaining_blockers),
+            "recommended_next_step": summary.recommended_next_step,
+            "rationale": summary.rationale,
+        }
+
+    def _agent_turn_brief_payload(self, turn: AgentTurnBrief) -> dict[str, object]:
+        return {
+            "operation_id": turn.operation_id,
+            "iteration": turn.iteration,
+            "agent_key": turn.agent_key,
+            "session_id": turn.session_id,
+            "background_run_id": turn.background_run_id,
+            "session_display_name": turn.session_display_name,
+            "assignment_brief": turn.assignment_brief,
+            "expected_outcome": turn.expected_outcome,
+            "result_brief": turn.result_brief,
+            "turn_summary": (
+                self._agent_turn_summary_payload(turn.turn_summary)
+                if turn.turn_summary is not None
+                else None
+            ),
+            "status": turn.status,
+            "artifact_refs": list(turn.artifact_refs),
+            "raw_log_refs": list(turn.raw_log_refs),
+            "wakeup_refs": list(turn.wakeup_refs),
+            "created_at": turn.created_at.isoformat(),
+        }
+
     def operation_payload(self, operation: OperationState) -> dict[str, object]:
         return {
             "schema_version": operation.schema_version,
@@ -511,7 +641,7 @@ class OperationProjectionService:
                 item.model_dump(mode="json") for item in operation.agent_turn_briefs
             ],
             "current_focus": (
-                operation.current_focus.model_dump(mode="json")
+                self._focus_payload(operation.current_focus)
                 if operation.current_focus is not None
                 else None
             ),
@@ -681,9 +811,11 @@ class OperationProjectionService:
                     items, lambda item: item.involvement_level.value
                 ),
             },
-            "needs_attention": [item.model_dump(mode="json") for item in snapshot.needs_attention],
-            "active": [item.model_dump(mode="json") for item in snapshot.active],
-            "recent": [item.model_dump(mode="json") for item in snapshot.recent],
+            "needs_attention": [
+                self._agenda_item_payload(item) for item in snapshot.needs_attention
+            ],
+            "active": [self._agenda_item_payload(item) for item in snapshot.active],
+            "recent": [self._agenda_item_payload(item) for item in snapshot.recent],
             "actions": [action.to_payload() for action in self._fleet_actions(snapshot)],
         }
 
@@ -897,7 +1029,7 @@ class OperationProjectionService:
         return {
             "project": profile.name,
             "profile_path": str(profile_path),
-            "profile": profile.model_dump(mode="json"),
+            "profile": self._project_profile_payload(profile),
             "resolved": resolved,
             "policy_scope": f"profile:{profile.name}",
             "active_policies": active_policy_payloads,
@@ -928,7 +1060,9 @@ class OperationProjectionService:
                 limit=120,
             ),
             "task_counts": self._summarize_task_counts(operation),
-            "latest_turn": latest_turn.model_dump(mode="json") if latest_turn is not None else None,
+            "latest_turn": (
+                self._agent_turn_brief_payload(latest_turn) if latest_turn is not None else None
+            ),
             "work_summary": self._turn_work_summary(latest_turn),
             "next_step": self._turn_next_step(latest_turn),
             "verification_summary": self._turn_verification_summary(latest_turn),
@@ -1178,7 +1312,9 @@ class OperationProjectionService:
                 brief,
                 runtime_alert=runtime_alert,
             ),
-            "latest_turn": latest_turn.model_dump(mode="json") if latest_turn is not None else None,
+            "latest_turn": (
+                self._agent_turn_brief_payload(latest_turn) if latest_turn is not None else None
+            ),
             "runtime_alert": runtime_alert,
         }
 
