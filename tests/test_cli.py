@@ -3268,6 +3268,29 @@ def test_debug_wakeups_json_derives_claimed_wakeups_without_serializing_wakeup_r
     assert payload["claimed"][0]["session_id"] == "session-1"
 
 
+def test_debug_wakeups_json_derives_pending_wakeups_without_serializing_run_events(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from agent_operator.domain.events import RunEvent
+
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_run_event_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug wakeups should not serialize RunEvent directly")
+
+    monkeypatch.setattr(RunEvent, "model_dump", _fail_run_event_model_dump)
+
+    result = runner.invoke(app, ["debug", "wakeups", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["pending"][0]["event_type"] == "background_run.completed"
+    assert payload["pending"][0]["session_id"] == "session-1"
+
+
 def test_sessions_json_shows_sessions_and_background_runs(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))

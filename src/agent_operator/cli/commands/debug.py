@@ -13,6 +13,7 @@ from agent_operator.bootstrap import (
     build_trace_store,
     build_wakeup_inbox,
 )
+from agent_operator.domain.events import RunEvent
 from agent_operator.domain.operation import WakeupRef
 
 from ..app import app, debug_app
@@ -43,6 +44,23 @@ def _wakeup_ref_payload(item: WakeupRef) -> dict[str, object]:
         "claimed_at": item.claimed_at.isoformat() if item.claimed_at is not None else None,
         "acked_at": item.acked_at.isoformat() if item.acked_at is not None else None,
         "created_at": item.created_at.isoformat(),
+    }
+
+
+def _run_event_payload(event: RunEvent) -> dict[str, object]:
+    return {
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "kind": event.kind.value,
+        "category": event.category,
+        "operation_id": event.operation_id,
+        "iteration": event.iteration,
+        "task_id": event.task_id,
+        "session_id": event.session_id,
+        "dedupe_key": event.dedupe_key,
+        "timestamp": event.timestamp.isoformat(),
+        "not_before": event.not_before.isoformat() if event.not_before is not None else None,
+        "payload": dict(event.payload),
     }
 
 
@@ -159,7 +177,7 @@ def wakeups(
                 json.dumps(
                     {
                         "operation_id": operation_id,
-                        "pending": [item.model_dump(mode="json") for item in pending],
+                        "pending": [_run_event_payload(item) for item in pending],
                         "claimed": claimed,
                     },
                     indent=2,
