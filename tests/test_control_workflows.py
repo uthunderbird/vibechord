@@ -88,6 +88,14 @@ CONTROL_WORKFLOW_FILE = (
     / "workflows"
     / "control.py"
 )
+RUN_SUPPORT_FILE = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "agent_operator"
+    / "cli"
+    / "workflows"
+    / "run_support.py"
+)
 
 
 @pytest.mark.anyio
@@ -206,3 +214,36 @@ def test_control_run_async_delegates_startup_failure_handling_without_direct_per
 
     assert len(helper_calls) == 1
     assert direct_persistence == []
+
+
+def test_run_support_startup_failure_terminalization_avoids_direct_persistence() -> None:
+    source = RUN_SUPPORT_FILE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    target_functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name in {"finalize_startup_failure", "run_with_startup_failure_handling"}
+    }
+
+    assert set(target_functions) == {
+        "finalize_startup_failure",
+        "run_with_startup_failure_handling",
+    }
+
+    direct_persistence = [
+        child.lineno
+        for node in target_functions.values()
+        for child in ast.walk(node)
+        if isinstance(child, ast.Attribute)
+        and child.attr in {"save_operation", "save_outcome"}
+    ]
+    coordinator_terminalization = [
+        child.lineno
+        for child in ast.walk(target_functions["finalize_startup_failure"])
+        if isinstance(child, ast.Attribute)
+        and child.attr in {"mark_failed", "finalize_outcome"}
+    ]
+
+    assert direct_persistence == []
+    assert coordinator_terminalization

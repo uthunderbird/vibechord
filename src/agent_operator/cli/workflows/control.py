@@ -34,7 +34,6 @@ from agent_operator.domain import (
     OperationOutcome,
     OperationPolicy,
     OperationStatus,
-    RunEvent,
     RunMode,
     RunOptions,
     RuntimeHints,
@@ -52,7 +51,6 @@ from ..helpers.exit_codes import EXIT_INTERNAL_ERROR, raise_for_operation_status
 from ..helpers.rendering import (
     cli_projection_payload,
     format_live_event,
-    format_live_snapshot,
     render_dashboard,
     render_watch_snapshot,
 )
@@ -74,53 +72,11 @@ from .converse import (
 from .converse import (
     converse_async as converse_loop_async,
 )
+from .run_output import CliEventProjector, emit_run_outcome
 from .run_support import run_with_startup_failure_handling
 
 if TYPE_CHECKING:
     from agent_operator.application import OperatorService
-
-
-class CliEventProjector:
-    def __init__(self, *, json_mode: bool) -> None:
-        self._json_mode = json_mode
-
-    def emit_operation(self, operation_id: str) -> None:
-        if self._json_mode:
-            typer.echo(
-                json.dumps({"type": "operation", "operation_id": operation_id}, ensure_ascii=False)
-            )
-            return
-        typer.echo(f"operation_id={operation_id}", err=True)
-
-    def handle_event(self, event: RunEvent) -> None:
-        if self._json_mode:
-            typer.echo(
-                json.dumps(
-                    {"type": "event", "event": event.model_dump(mode="json")}, ensure_ascii=False
-                )
-            )
-            return
-        rendered = format_live_event(event)
-        if rendered is not None:
-            typer.echo(rendered)
-
-    def emit_snapshot(self, snapshot: dict[str, object]) -> None:
-        if self._json_mode:
-            typer.echo(json.dumps({"type": "snapshot", "snapshot": snapshot}, ensure_ascii=False))
-            return
-        typer.echo(format_live_snapshot(snapshot))
-
-    def emit_outcome(self, outcome) -> None:
-        if self._json_mode:
-            typer.echo(
-                json.dumps(
-                    {"type": "outcome", "outcome": outcome.model_dump(mode="json")},
-                    ensure_ascii=False,
-                )
-            )
-            return
-        typer.echo(f"{outcome.status.value}: {outcome.summary}")
-
 
 def _build_cli_service(settings: OperatorSettings) -> OperatorService:
     try:
@@ -399,33 +355,15 @@ async def run_async(
             timeout=timeout,
             json_mode=json_mode,
         )
-    if wait:
-        if json_mode:
-            typer.echo(
-                json.dumps(
-                    {
-                        "operation_id": outcome.operation_id,
-                        "status": outcome.status.value,
-                        "summary": outcome.summary,
-                        "metadata": outcome.metadata,
-                    },
-                    indent=2,
-                    ensure_ascii=False,
-                )
-            )
-        elif brief:
-            status_service = build_status_query_service(load_settings())
-            operation, _, _, _ = await status_service.build_status_payload(operation_id)
-            iteration_count = len(operation.iterations) if operation is not None else 0
-            typer.echo(
-                "STATUS="
-                f"{outcome.status.value} OPERATION={outcome.operation_id} "
-                f"ITERATIONS={iteration_count}"
-            )
-        else:
-            projector.emit_outcome(outcome)
-        raise_for_operation_status(outcome.status)
-    projector.emit_outcome(outcome)
+    await emit_run_outcome(
+        outcome=outcome,
+        operation_id=operation_id,
+        effective_mode=effective_mode,
+        wait=wait,
+        brief=brief,
+        json_mode=json_mode,
+        projector=projector,
+    )
 
 
 async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_interval: float) -> None:
