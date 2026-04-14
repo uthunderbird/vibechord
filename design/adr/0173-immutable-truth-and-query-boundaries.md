@@ -6,7 +6,7 @@ Proposed
 
 ## Implementation Status
 
-Planned
+Partial
 
 Implementation grounding on 2026-04-14:
 
@@ -16,7 +16,21 @@ Implementation grounding on 2026-04-14:
   `TaskState`, `SessionRecord`, and related models in place across many code paths
 - `implemented`: stale-status bugs have shown that read-time mutation of operation/session models
   is currently possible and can create hybrid false state
-- `planned`: immutable boundaries have not yet been enforced in the domain models or query DTOs
+- `implemented`: `OperationStatusQueryService.build_status_payload()` no longer overlays runtime
+  background progress onto a copied `OperationState` for status/inspect query assembly; it now
+  derives runtime alerts from inspection data while leaving stored session truth untouched
+- `implemented`: the hidden debug-session inspection path now builds explicit derived session
+  payloads from stored session truth plus background-run progress facts instead of patching copied
+  `SessionRecord` models through `overlay_live_background_progress()`
+- `implemented`: the stale `overlay_live_background_progress()` helper and the unused
+  `OperationStatusQueryService` overlay hook are now removed from this tranche's read/query
+  boundary instead of lingering as an alternate mutation path
+- `verified`: regression coverage for the status-query immutability tranche now exists in
+  `tests/test_operation_status_query_immutability.py`
+- `verified`: CLI regression coverage now asserts that debug-session inspection derives live
+  progress fields without routing through the mutation-style overlay helper
+- `planned`: immutable boundaries are not yet enforced repository-wide across all query DTOs,
+  projection helpers, and forensic/read surfaces
 
 ## Context
 
@@ -134,6 +148,17 @@ The first bounded tranche under this ADR should focus on:
 - removing read-time mutation from status/projection helpers
 - preventing query helpers from rewriting session summary fields
 - adding regression tests for stale-status and hybrid-state failure modes
+
+Current tranche closure on 2026-04-14:
+
+- `partial`: the status-query path now avoids patching runtime progress timestamps onto copied
+  `OperationState` session records during read assembly
+- `partial`: the debug-session inspection path now emits explicit derived live-progress fields in
+  its session payloads instead of mutating copied session models
+- `partial`: a regression test now asserts that status-query assembly leaves stored session truth
+  untouched even when runtime background progress exists
+- `remaining`: other read surfaces still derive output by mutating copied truth models, especially
+  broader projection/dashboard assembly paths that still operate directly on mutable truth objects
 
 ## Related
 

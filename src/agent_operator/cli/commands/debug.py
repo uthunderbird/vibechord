@@ -22,7 +22,6 @@ from ..helpers.rendering import (
     format_task_line,
     memory_payload,
     operation_payload,
-    overlay_live_background_progress,
     render_inspect_summary,
     session_payload,
     shorten_live_text,
@@ -200,13 +199,29 @@ def sessions(
         if operation is None:
             raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
         runs = await supervisor.list_runs(operation_id)
-        operation_view = overlay_live_background_progress(operation, runs)
+        run_by_id = {run.run_id: run for run in runs}
+        session_views: list[dict[str, object]] = []
+        for session in operation.sessions:
+            payload = session_payload(session)
+            run_id = session.current_execution_id
+            if run_id is not None:
+                run = run_by_id.get(run_id)
+                if run is not None and run.progress is not None:
+                    payload["live_progress_updated_at"] = run.progress.updated_at.isoformat()
+                    payload["live_progress_message"] = run.progress.message
+                    if run.progress.last_event_at is not None:
+                        payload["live_progress_last_event_at"] = (
+                            run.progress.last_event_at.isoformat()
+                        )
+                    if run.progress.partial_output:
+                        payload["live_progress_partial_output"] = run.progress.partial_output
+            session_views.append(payload)
         if json_mode:
             typer.echo(
                 json.dumps(
                     {
                         "operation_id": operation_id,
-                        "sessions": [session_payload(item) for item in operation_view.sessions],
+                        "sessions": session_views,
                         "background_runs": [item.model_dump(mode="json") for item in runs],
                     },
                     indent=2,
@@ -216,17 +231,17 @@ def sessions(
             return
         typer.echo(f"Operation {operation_id}")
         typer.echo("Sessions:")
-        if operation_view.sessions:
-            for session in operation_view.sessions:
+        if session_views:
+            for session in session_views:
                 suffix = (
-                    f" waiting={shorten_live_text(session.waiting_reason, limit=80)}"
-                    if session.waiting_reason
+                    f" waiting={shorten_live_text(str(session.get('waiting_reason')), limit=80)}"
+                    if session.get("waiting_reason")
                     else ""
                 )
                 typer.echo(
-                    f"- {session.session_id} [{session.adapter_key}] "
-                    f"status={session.status.value} "
-                    f"run={session.current_execution_id or '-'}{suffix}"
+                    f"- {session.get('session_id')} [{session.get('adapter_key')}] "
+                    f"status={session.get('status')} "
+                    f"run={session.get('current_execution_id') or '-'}{suffix}"
                 )
         else:
             typer.echo("- none")

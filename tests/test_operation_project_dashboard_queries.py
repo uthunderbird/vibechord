@@ -121,7 +121,6 @@ def _status_queries(store: MemoryStore) -> OperationStatusQueryService:
         trace_store=MemoryTraceStore(),
         background_inspection_store=_BackgroundInspectionStore(),
         wakeup_inspection_store=None,
-        overlay_live_background_progress=lambda operation, runs: operation,
         build_runtime_alert=lambda **kwargs: None,
         render_status_brief=lambda operation: "",
         render_inspect_summary=lambda operation, brief, runtime_alert=None: "",

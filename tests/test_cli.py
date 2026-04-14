@@ -3234,6 +3234,67 @@ def test_sessions_json_shows_sessions_and_background_runs(tmp_path: Path, monkey
     assert '"run-1"' in result.stdout
 
 
+def test_sessions_json_derives_live_progress_without_overlaying_session_models(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import agent_operator.cli.helpers.rendering as rendering_helpers
+
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+    persisted = anyio.run(store.load_operation, operation_id)
+    assert persisted is not None
+    persisted.sessions[0].current_execution_id = "run-1"
+    anyio.run(store.save_operation, persisted)
+
+    class _FakeSupervisor:
+        async def list_runs(self, requested_operation_id: str):
+            assert requested_operation_id == operation_id
+            return [
+                SimpleNamespace(
+                    run_id="run-1",
+                    adapter_key="codex_acp",
+                    session_id="session-1",
+                    status=SimpleNamespace(value="running"),
+                    progress=SimpleNamespace(
+                        updated_at=datetime(2026, 4, 14, 12, 5, tzinfo=UTC),
+                        last_event_at=datetime(2026, 4, 14, 12, 6, tzinfo=UTC),
+                        message="Applying the next repository slice.",
+                        partial_output="Touched planning notes.",
+                    ),
+                    model_dump=lambda mode="json": {
+                        "run_id": "run-1",
+                        "adapter_key": "codex_acp",
+                        "session_id": "session-1",
+                        "status": "running",
+                    },
+                )
+            ]
+
+    monkeypatch.setattr(
+        "agent_operator.cli.commands.debug.build_background_run_inspection_store",
+        lambda settings: _FakeSupervisor(),
+    )
+
+    result = runner.invoke(app, ["debug", "sessions", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert not hasattr(rendering_helpers, "overlay_live_background_progress")
+    payload = json.loads(result.stdout)
+    assert payload["background_runs"][0]["run_id"] == "run-1"
+    assert payload["sessions"][0]["session_id"] == "session-1"
+    assert payload["sessions"][0]["live_progress_message"] == "Applying the next repository slice."
+    assert payload["sessions"][0]["live_progress_partial_output"] == "Touched planning notes."
+    assert payload["sessions"][0]["live_progress_updated_at"] == "2026-04-14T12:05:00+00:00"
+    assert payload["sessions"][0]["live_progress_last_event_at"] == "2026-04-14T12:06:00+00:00"
+
+    persisted = anyio.run(FileOperationStore(tmp_path / "runs").load_operation, operation_id)
+    assert persisted is not None
+    assert persisted.sessions[0].updated_at.isoformat() != "2026-04-14T12:05:00+00:00"
+    assert persisted.sessions[0].last_event_at is None
+
+
 def test_debug_namespace_surfaces_recovery_runtime_and_forensic_commands(
     tmp_path: Path,
     monkeypatch,

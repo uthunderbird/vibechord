@@ -29,7 +29,6 @@ class OperationStatusQueryService:
     trace_store: TraceStoreLike
     background_inspection_store: BackgroundInspectionStoreLike
     wakeup_inspection_store: WakeupInspectionStoreLike | None
-    overlay_live_background_progress: Callable[[OperationState, list], OperationState]
     build_runtime_alert: Callable[..., str | None]
     render_status_brief: Callable[[OperationState], str]
     render_inspect_summary: Callable[..., str]
@@ -51,7 +50,6 @@ class OperationStatusQueryService:
             else []
         )
         runs = await self.background_inspection_store.list_runs(operation_id)
-        operation = self.overlay_live_background_progress(operation, runs)
         brief_bundle = await self.trace_store.load_brief_bundle(operation_id)
         runtime_alert = self.build_runtime_alert(
             status=operation.status,

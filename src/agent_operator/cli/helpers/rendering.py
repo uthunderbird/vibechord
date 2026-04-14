@@ -196,27 +196,6 @@ def build_runtime_alert(
     return None
 
 
-def overlay_live_background_progress(
-    operation: OperationState,
-    runs: list,
-) -> OperationState:
-    if not runs:
-        return operation
-    overlaid = operation.model_copy(deep=True)
-    run_by_id = {run.run_id: run for run in runs}
-    for session in overlaid.sessions:
-        run_id = session.current_execution_id
-        if run_id is None:
-            continue
-        run = run_by_id.get(run_id)
-        if run is None or run.progress is None:
-            continue
-        session.updated_at = run.progress.updated_at
-        if run.progress.last_event_at is not None:
-            session.last_event_at = run.progress.last_event_at
-    return overlaid
-
-
 def render_inspect_summary(
     operation: OperationState,
     brief: TraceBriefBundle | None,
