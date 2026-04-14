@@ -246,10 +246,13 @@ Later ADRs refine and operationalize parts of this target rather than replacing 
 
 Implemented
 
-Skim-safe current truth on 2026-04-12:
+Skim-safe current truth on 2026-04-14:
 
-- `implemented`: application layer matches the ideal organization — `service.py` (thin shell),
-  `drive/` (workflow authority), `commands/`, `queries/`, `runtime/`, `event_sourcing/`
-- `implemented`: `LoadedOperation` is the central domain-boundary object; `OperatorPolicy` is the
+- `implemented`: application layer materially matches the ideal organization — `service.py`
+  remains a thin shell over `OperationEntrypointService`, `OperationCancellationService`, and
+  `OperationDriveService`, while `commands/`, `queries/`, `runtime/`, `drive/`, and
+  `event_sourcing/` hold the broader application families
+- `implemented`: `LoadedOperation` is the one-operation runtime boundary; `OperatorPolicy` is the
   policy seam; `OperationDriveService` owns the operator loop
-- `verified`: `tests/test_application_structure.py` enforces package boundary rules; full suite green
+- `verified`: package boundary rules are covered in `tests/test_application_structure.py`, and the
+  shell surface is covered directly in `tests/test_operator_service_shell.py`

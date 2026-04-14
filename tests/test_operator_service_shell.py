@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from agent_operator.domain import (
@@ -32,6 +35,44 @@ from agent_operator.testing.operator_service_support import (
     run_settings,
 )
 from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
+
+
+def test_operator_service_shell_surface_remains_small_and_delegating() -> None:
+    service_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "agent_operator"
+        / "application"
+        / "service.py"
+    )
+    module = ast.parse(service_path.read_text(encoding="utf-8"))
+    service_class = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "OperatorService"
+    )
+
+    public_methods: list[str] = []
+    private_methods: list[str] = []
+    for node in service_class.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name == "__init__":
+            continue
+        if node.name.startswith("_"):
+            private_methods.append(node.name)
+        else:
+            public_methods.append(node.name)
+
+    assert public_methods == [
+        "run",
+        "resume",
+        "recover",
+        "tick",
+        "cancel",
+        "answer_question",
+    ]
+    assert private_methods == ["_drive_state", "_merge_runtime_flags"]
 
 
 class StopImmediatelyBrain:
