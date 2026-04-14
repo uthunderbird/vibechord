@@ -93,6 +93,7 @@ def test_run_cli_startup_connect_error_marks_operation_failed(tmp_path: Path, mo
     runs_dir = data_dir / "runs"
     store = FileOperationStore(runs_dir)
     captured: dict[str, str] = {}
+    lifecycle_calls: list[tuple[str, str]] = []
 
     settings = SimpleNamespace(
         data_dir=data_dir,
@@ -148,7 +149,29 @@ def test_run_cli_startup_connect_error_marks_operation_failed(tmp_path: Path, mo
         )
         await store.save_operation(state)
 
+    class _LifecycleCoordinator:
+        def mark_failed(self, state, *, summary: str) -> None:
+            lifecycle_calls.append(("mark_failed", summary))
+            state.status = OperationStatus.FAILED
+            state.final_summary = summary
+            state.objective_state.summary = summary
+
+        async def finalize_outcome(self, state) -> OperationOutcome:
+            lifecycle_calls.append(("finalize_outcome", state.final_summary or ""))
+            await store.save_operation(state)
+            outcome = OperationOutcome(
+                operation_id=state.operation_id,
+                status=state.status,
+                summary=state.final_summary or "",
+                ended_at=state.updated_at,
+            )
+            await store.save_outcome(outcome)
+            return outcome
+
     class _ExplodingService:
+        _store = store
+        _operation_lifecycle_coordinator = _LifecycleCoordinator()
+
         async def run(self, goal, **kwargs):
             operation_id = kwargs["operation_id"]
             captured["operation_id"] = operation_id
@@ -179,7 +202,7 @@ def test_run_cli_startup_connect_error_marks_operation_failed(tmp_path: Path, mo
         lambda *args, **kwargs: _ResolvedRunConfig(),
     )
     monkeypatch.setattr(
-        "agent_operator.cli.workflows.control.snapshot_effective_adapter_settings",
+        "agent_operator.cli.workflows.control_runtime.snapshot_effective_adapter_settings",
         lambda settings, adapter_keys: {},
     )
     monkeypatch.setattr(
@@ -194,6 +217,11 @@ def test_run_cli_startup_connect_error_marks_operation_failed(tmp_path: Path, mo
     persisted = anyio.run(store.load_operation, operation_id)
     assert persisted is not None
     assert persisted.status is OperationStatus.FAILED
+    assert lifecycle_calls[0][0] == "mark_failed"
+    assert lifecycle_calls[1][0] == "finalize_outcome"
+    persisted_outcome = anyio.run(store.load_outcome, operation_id)
+    assert persisted_outcome is not None
+    assert persisted_outcome.status is OperationStatus.FAILED
 
 
 def test_run_cli_startup_exception_does_not_overwrite_completed_operation(
@@ -205,6 +233,7 @@ def test_run_cli_startup_exception_does_not_overwrite_completed_operation(
     runs_dir = data_dir / "runs"
     store = FileOperationStore(runs_dir)
     captured: dict[str, str] = {}
+    lifecycle_calls: list[tuple[str, str]] = []
 
     settings = SimpleNamespace(
         data_dir=data_dir,
@@ -263,7 +292,29 @@ def test_run_cli_startup_exception_does_not_overwrite_completed_operation(
         state.tasks[0].updated_at = datetime.now(UTC)
         await store.save_operation(state)
 
+    class _LifecycleCoordinator:
+        def mark_failed(self, state, *, summary: str) -> None:
+            lifecycle_calls.append(("mark_failed", summary))
+            state.status = OperationStatus.FAILED
+            state.final_summary = summary
+            state.objective_state.summary = summary
+
+        async def finalize_outcome(self, state) -> OperationOutcome:
+            lifecycle_calls.append(("finalize_outcome", state.final_summary or ""))
+            await store.save_operation(state)
+            outcome = OperationOutcome(
+                operation_id=state.operation_id,
+                status=state.status,
+                summary=state.final_summary or "",
+                ended_at=state.updated_at,
+            )
+            await store.save_outcome(outcome)
+            return outcome
+
     class _ExplodingService:
+        _store = store
+        _operation_lifecycle_coordinator = _LifecycleCoordinator()
+
         async def run(self, goal, **kwargs):
             operation_id = kwargs["operation_id"]
             captured["operation_id"] = operation_id
@@ -294,7 +345,7 @@ def test_run_cli_startup_exception_does_not_overwrite_completed_operation(
         lambda *args, **kwargs: _ResolvedRunConfig(),
     )
     monkeypatch.setattr(
-        "agent_operator.cli.workflows.control.snapshot_effective_adapter_settings",
+        "agent_operator.cli.workflows.control_runtime.snapshot_effective_adapter_settings",
         lambda settings, adapter_keys: {},
     )
     monkeypatch.setattr(
@@ -5273,7 +5324,11 @@ def test_run_wait_brief_uses_semantic_exit_code_for_resumable_completion(
         lambda settings, event_sink=None: FakeService(),
     )
     monkeypatch.setattr(
-        "agent_operator.cli.workflows.control.build_status_query_service",
+        "agent_operator.cli.workflows.control_runtime.build_status_query_service",
+        lambda settings: FakeStatusService(),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.run_output.build_status_query_service",
         lambda settings: FakeStatusService(),
     )
 
@@ -5329,7 +5384,7 @@ def test_run_wait_uses_needs_human_exit_code(tmp_path: Path, monkeypatch) -> Non
         lambda settings, event_sink=None: FakeService(),
     )
     monkeypatch.setattr(
-        "agent_operator.cli.workflows.control.build_status_query_service",
+        "agent_operator.cli.workflows.control_runtime.build_status_query_service",
         lambda settings: FakeStatusService(),
     )
 
@@ -5450,6 +5505,42 @@ def test_resume_restores_effective_adapter_settings_from_operation_metadata(
     assert captured["codex_command"] == "npx @zed-industries/codex-acp --"
     assert captured["codex_model"] == "gpt-5.4"
     assert captured["codex_effort"] == "high"
+
+
+def test_resume_surfaces_connect_error_honestly(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-resume-connect-error"
+    store = FileOperationStore(tmp_path / "runs")
+
+    async def _seed() -> None:
+        state = OperationState(
+            operation_id=operation_id,
+            goal=OperationGoal(objective="Resume after answered attention."),
+            **state_settings(),
+            status=OperationStatus.RUNNING,
+        )
+        await store.save_operation(state)
+
+    anyio.run(_seed)
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            raise httpx.ConnectError(
+                "[Errno 8] nodename nor servname provided, or not known",
+                request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["resume", operation_id])
+
+    assert result.exit_code == 4
+    rendered = result.stdout + result.stderr
+    assert "ConnectError: [Errno 8] nodename nor servname provided, or not known" in rendered
+    assert "Traceback" not in rendered
 
 
 def test_watch_follows_live_attached_events_and_state(tmp_path: Path, monkeypatch) -> None:

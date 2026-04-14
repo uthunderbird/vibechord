@@ -132,6 +132,15 @@ def _progress_snapshot(progress: AgentProgress) -> BackgroundProgressSnapshot:
     )
 
 
+def _heartbeat_from_progress(progress: AgentProgress, *, now: datetime) -> datetime:
+    """Use real session activity when the adapter exposes it, else fall back to poll time."""
+
+    snapshot = _progress_snapshot(progress)
+    if isinstance(progress.raw, dict) and "last_event_at" in progress.raw:
+        return snapshot.last_event_at or snapshot.updated_at
+    return now
+
+
 class InProcessAgentRunSupervisor:
     """Run background turns as asyncio tasks inside the current process.
 
@@ -356,8 +365,9 @@ class InProcessAgentRunSupervisor:
 
         while True:
             progress = await self._session_registry.poll(session_handle)
+            now = datetime.now(UTC)
             record.progress = _progress_snapshot(progress)
-            record.last_heartbeat_at = datetime.now(UTC)
+            record.last_heartbeat_at = _heartbeat_from_progress(progress, now=now)
             self._save_run_file(record)
             if progress.state in {AgentProgressState.PENDING, AgentProgressState.RUNNING}:
                 await asyncio.sleep(1.0)

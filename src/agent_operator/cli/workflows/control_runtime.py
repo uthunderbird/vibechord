@@ -270,18 +270,24 @@ async def dashboard_async(
 
 
 async def resume_async(operation_id: str, max_cycles: int, json_mode: bool) -> None:
-    settings = load_settings()
-    await _restore_operation_scoped_runtime_settings(settings, operation_id)
-    projector = CliEventProjector(json_mode=json_mode)
-    if json_mode:
-        projector.emit_operation(operation_id)
-    delivery = build_projecting_delivery_commands_service(
-        settings,
-        operation_id=operation_id,
-        projector=projector,
-    )
-    outcome = await delivery.resume(operation_id, max_cycles=max_cycles)
-    projector.emit_outcome(outcome)
+    try:
+        settings = load_settings()
+        await _restore_operation_scoped_runtime_settings(settings, operation_id)
+        projector = CliEventProjector(json_mode=json_mode)
+        if json_mode:
+            projector.emit_operation(operation_id)
+        delivery = build_projecting_delivery_commands_service(
+            settings,
+            operation_id=operation_id,
+            projector=projector,
+        )
+        outcome = await delivery.resume(operation_id, max_cycles=max_cycles)
+        projector.emit_outcome(outcome)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(f"{exc.__class__.__name__}: {exc}", err=True)
+        raise typer.Exit(code=EXIT_INTERNAL_ERROR) from exc
 
 
 async def ask_async(operation_ref: str, question: str, json_mode: bool) -> None:
