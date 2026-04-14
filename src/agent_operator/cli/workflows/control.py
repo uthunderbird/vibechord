@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
@@ -14,6 +13,7 @@ from rich.live import Live
 
 from agent_operator.application.ticketing import TicketIntakeService
 from agent_operator.bootstrap import (
+    build_brain,
     build_event_sink,
     build_store,
     build_wakeup_inbox,
@@ -39,7 +39,6 @@ from agent_operator.domain import (
     RunOptions,
     RuntimeHints,
     SchedulerState,
-    TaskStatus,
 )
 from agent_operator.runtime import (
     apply_effective_adapter_settings_snapshot,
@@ -68,6 +67,14 @@ from ..helpers.services import (
     load_settings,
     load_settings_with_data_dir,
 )
+from .converse import (
+    ConverseCommand,
+    resolve_ask_operation_id,
+)
+from .converse import (
+    converse_async as converse_loop_async,
+)
+from .run_support import finalize_startup_failure
 
 if TYPE_CHECKING:
     from agent_operator.application import OperatorService
@@ -103,7 +110,7 @@ class CliEventProjector:
             return
         typer.echo(format_live_snapshot(snapshot))
 
-    def emit_outcome(self, outcome: OperationOutcome) -> None:
+    def emit_outcome(self, outcome) -> None:
         if self._json_mode:
             typer.echo(
                 json.dumps(
@@ -123,6 +130,76 @@ def _build_cli_service(settings: OperatorSettings) -> OperatorService:
     except Exception:
         factory = bootstrap_build_service
     return cast("OperatorService", factory(settings))
+
+
+async def _execute_converse_command(command: ConverseCommand) -> None:
+    if command.command_name == "answer":
+        assert command.attention_id is not None
+        assert command.text is not None
+        await answer_async(
+            command.operation_id,
+            command.attention_id,
+            command.text,
+            False,
+            None,
+            None,
+            "general",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            False,
+        )
+        return
+    if command.command_name == "message":
+        assert command.text is not None
+        await enqueue_command_async(
+            command.operation_id,
+            OperationCommandType.INJECT_OPERATOR_MESSAGE,
+            command.text,
+        )
+        return
+    if command.command_name == "pause":
+        await enqueue_command_async(
+            command.operation_id,
+            OperationCommandType.PAUSE_OPERATOR,
+            None,
+        )
+        return
+    if command.command_name == "unpause":
+        await enqueue_command_async(
+            command.operation_id,
+            OperationCommandType.RESUME_OPERATOR,
+            None,
+            True,
+        )
+        return
+    if command.command_name == "interrupt":
+        await stop_turn_async(command.operation_id, command.task_id)
+        return
+    if command.command_name == "patch-objective":
+        assert command.text is not None
+        await enqueue_command_async(
+            command.operation_id,
+            OperationCommandType.PATCH_OBJECTIVE,
+            command.text,
+            False,
+            CommandTargetScope.OPERATION,
+            None,
+            None,
+            None,
+            False,
+            None,
+            None,
+            True,
+        )
+        return
+    if command.command_name == "cancel":
+        await cancel_async(command.operation_id, None, None, False)
+        return
+    raise RuntimeError(f"Unsupported converse command: {command.command_name}")
 
 
 async def run_async(
@@ -282,46 +359,15 @@ async def run_async(
             attached_sessions=attached_sessions or None,
         )
     except Exception:
-        store = build_store(settings)
-        state = await store.load_operation(operation_id)
-        if state is not None:
-            summary = "Operation failed during startup."
-            exc_type, exc, _tb = sys.exc_info()
-            if exc is not None:
-                summary = str(exc) or summary
-            operation_terminal = state.status in {
-                OperationStatus.COMPLETED,
-                OperationStatus.FAILED,
-                OperationStatus.CANCELLED,
-            }
-            root_task_terminal = bool(state.tasks) and state.tasks[0].status in {
-                TaskStatus.COMPLETED,
-                TaskStatus.FAILED,
-                TaskStatus.CANCELLED,
-            }
-            if not operation_terminal and not root_task_terminal:
-                state.status = OperationStatus.FAILED
-                state.final_summary = summary
-                state.objective_state.summary = summary
-                state.updated_at = datetime.now(UTC)
-                if state.tasks:
-                    root_task = state.tasks[0]
-                    if root_task.status not in {
-                        TaskStatus.COMPLETED,
-                        TaskStatus.FAILED,
-                        TaskStatus.CANCELLED,
-                    }:
-                        root_task.status = TaskStatus.FAILED
-                        root_task.updated_at = state.updated_at
-                await store.save_operation(state)
-                await store.save_outcome(
-                    OperationOutcome(
-                        operation_id=operation_id,
-                        status=OperationStatus.FAILED,
-                        summary=summary,
-                        ended_at=state.updated_at,
-                    )
-                )
+        summary = "Operation failed during startup."
+        _exc_type, exc, _tb = sys.exc_info()
+        if exc is not None:
+            summary = str(exc) or summary
+        await finalize_startup_failure(
+            service=service,
+            operation_id=operation_id,
+            summary=summary,
+        )
         raise
     if wait and effective_mode is RunMode.RESUMABLE:
         outcome = await _wait_for_operation_outcome(
@@ -528,54 +574,30 @@ async def resume_async(operation_id: str, max_cycles: int, json_mode: bool) -> N
     projector.emit_outcome(outcome)
 
 
-async def _resolve_ask_operation_id(operation_ref: str) -> str:
-    settings = load_settings()
-    store = build_store(settings)
-    summaries = await store.list_operations()
-    if operation_ref == "last":
-        if not summaries:
-            raise RuntimeError("No persisted operations were found.")
-        states = [
-            operation
-            for summary in summaries
-            if (operation := await store.load_operation(summary.operation_id)) is not None
-        ]
-        if not states:
-            raise RuntimeError("No persisted operations were found.")
-        return max(states, key=lambda item: item.created_at).operation_id
-    exact = next(
-        (item.operation_id for item in summaries if item.operation_id == operation_ref),
-        None,
+async def converse_async(
+    operation_ref: str | None,
+    project: str | None,
+    context_level: str,
+) -> None:
+    await converse_loop_async(
+        operation_ref=operation_ref,
+        project=project,
+        context_level=context_level,
+        build_brain=build_brain,
+        load_settings=load_settings,
+        build_store=build_store,
+        build_event_sink=build_event_sink,
+        execute_command=_execute_converse_command,
     )
-    if exact is not None:
-        return exact
-    prefix_matches = [
-        item.operation_id for item in summaries if item.operation_id.startswith(operation_ref)
-    ]
-    if len(prefix_matches) == 1:
-        return prefix_matches[0]
-    if len(prefix_matches) > 1:
-        raise RuntimeError(
-            f"Operation reference {operation_ref!r} is ambiguous. Matches: "
-            + ", ".join(sorted(prefix_matches))
-        )
-    profile_matches = []
-    for summary in summaries:
-        operation = await store.load_operation(summary.operation_id)
-        if operation is None:
-            continue
-        profile_name = operation.goal.metadata.get("project_profile_name")
-        if isinstance(profile_name, str) and profile_name == operation_ref:
-            profile_matches.append(operation)
-    if profile_matches:
-        return max(profile_matches, key=lambda item: item.created_at).operation_id
-    raise RuntimeError(f"Operation {operation_ref!r} was not found.")
 
 
 async def ask_async(operation_ref: str, question: str, json_mode: bool) -> None:
     settings = load_settings()
     try:
-        operation_id = await _resolve_ask_operation_id(operation_ref)
+        operation_id = await resolve_ask_operation_id(
+            operation_ref,
+            store=build_store(settings),
+        )
         service = _build_cli_service(settings)
         answer = (await service.answer_question(operation_id, question)).strip()
     except RuntimeError as exc:
@@ -673,6 +695,7 @@ async def cancel_async(
 ) -> None:
     service = delivery_commands_service()
     outcome = await service.cancel(operation_id, session_id=session_id, run_id=run_id)
+    is_operation_level = session_id is None and run_id is None
     if json_mode:
         typer.echo(
             json.dumps(
@@ -686,10 +709,13 @@ async def cancel_async(
                 ensure_ascii=False,
             )
         )
-        raise_for_operation_status(outcome.status)
+        if is_operation_level or outcome.status is not OperationStatus.RUNNING:
+            raise_for_operation_status(outcome.status)
+        return
     typer.echo(f"{outcome.status.value}: {outcome.summary}")
     typer.echo(f"operation_id={outcome.operation_id}", err=True)
-    raise_for_operation_status(outcome.status)
+    if is_operation_level or outcome.status is not OperationStatus.RUNNING:
+        raise_for_operation_status(outcome.status)
 
 
 async def stop_turn_async(operation_id: str, task_id: str | None = None) -> None:

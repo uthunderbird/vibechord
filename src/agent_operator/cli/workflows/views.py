@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from collections.abc import Iterable
 from dataclasses import asdict
@@ -71,6 +72,13 @@ from ..helpers.services import (
     build_project_dashboard_query_service,
     delivery_commands_service,
     load_settings,
+)
+from .control import _execute_converse_command
+from .converse import (
+    _load_converse_fleet_operations,
+    build_converse_fleet_prompt,
+    build_converse_operation_prompt,
+    parse_converse_command,
 )
 
 
@@ -490,6 +498,7 @@ async def fleet_async(
 
 async def fleet_tui_async(project: str | None, include_all: bool, poll_interval: float) -> None:
     settings = load_settings()
+    brain = build_brain(settings)
     codex_home = Path.home() / ".codex"
 
     async def load_payload() -> dict[str, object]:
@@ -544,6 +553,89 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
         )
         return f"{outcome.status.value}: {outcome.summary}"
 
+    def _normalize_tui_command(
+        command_text: str,
+        *,
+        default_operation_id: str | None,
+        default_task_id: str | None,
+    ) -> str:
+        tokens = shlex.split(command_text)
+        if not tokens:
+            raise RuntimeError("Empty command.")
+        command_name = tokens[0]
+        if command_name in {"message", "patch-objective"}:
+            if default_operation_id is None:
+                raise RuntimeError(f"`{command_name}` requires a selected operation.")
+            if len(tokens) == 1:
+                raise RuntimeError(f"`{command_name}` requires text.")
+            return shlex.join([command_name, default_operation_id, " ".join(tokens[1:])])
+        if command_name == "answer":
+            if default_operation_id is None:
+                raise RuntimeError("`answer` requires a selected operation.")
+            if len(tokens) < 3:
+                raise RuntimeError("`answer` requires an attention id and text.")
+            return shlex.join([command_name, tokens[1], "--text", " ".join(tokens[2:])])
+        if command_name == "interrupt" and "--task" not in tokens:
+            if default_task_id is None:
+                raise RuntimeError("`interrupt` requires a selected task with a live session.")
+            return shlex.join([command_name, "--task", default_task_id])
+        return command_text
+
+    async def execute_tui_command(
+        command_text: str,
+        default_operation_id: str | None,
+        default_task_id: str | None,
+    ) -> str:
+        normalized_command = _normalize_tui_command(
+            command_text,
+            default_operation_id=default_operation_id,
+            default_task_id=default_task_id,
+        )
+        command = parse_converse_command(
+            normalized_command,
+            default_operation_id=default_operation_id,
+        )
+        await _execute_converse_command(command)
+        return f"Executed: {normalized_command}"
+
+    async def converse_turn(
+        view_level: str,
+        user_message: str,
+        operation_id: str | None,
+        task_id: str | None,
+        event_summary: str | None,
+        active_project: str | None,
+        history: list[dict[str, str]],
+    ) -> tuple[str, str | None]:
+        scoped_message = user_message
+        if view_level == "session" and task_id is not None:
+            scoped_message = f"[Session task {task_id}] {user_message}"
+        if view_level == "forensic" and event_summary is not None:
+            scoped_message = f"[Forensic focus: {event_summary}] {user_message}"
+        if operation_id is not None:
+            state = await build_store(settings).load_operation(operation_id)
+            if state is None:
+                raise RuntimeError(f"Operation {operation_id!r} was not found.")
+            prompt = build_converse_operation_prompt(
+                state,
+                user_message=scoped_message,
+                conversation_history=history,
+                context_level="brief",
+                recent_events=None,
+            )
+        else:
+            operations = await _load_converse_fleet_operations(active_project)
+            prompt = build_converse_fleet_prompt(
+                operations,
+                user_message=scoped_message,
+                conversation_history=history,
+                context_level="brief",
+            )
+        turn = await brain.converse(prompt)
+        answer = turn.answer.strip()
+        proposed = turn.proposed_command.strip() if turn.proposed_command is not None else None
+        return answer, proposed
+
     controller = build_fleet_workbench_controller(
         load_payload=load_payload,
         load_operation_payload=load_operation_payload,
@@ -558,6 +650,8 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
         interrupt_operation=interrupt_operation,
         answer_attention=answer_attention,
         cancel_operation=cancel_operation,
+        execute_tui_command=execute_tui_command,
+        converse_turn=converse_turn,
     )
     await run_fleet_workbench(controller=controller, poll_interval=poll_interval)
 
