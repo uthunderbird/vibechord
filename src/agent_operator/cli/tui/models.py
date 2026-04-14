@@ -203,6 +203,14 @@ class FleetWorkbenchState:
     filter_query: str = ""
     pending_filter_text: str | None = None
     pending_filter_restore_query: str = ""
+    pending_palette_text: str | None = None
+    pending_palette_preview: str | None = None
+    converse_panel_active: bool = False
+    converse_input_text: str = ""
+    converse_history: list[dict[str, str]] = field(default_factory=list)
+    converse_transcript_lines: list[str] = field(default_factory=list)
+    converse_pending_command_text: str | None = None
+    converse_editing_command: bool = False
 
     @property
     def selected_item(self) -> FleetItem | None:
@@ -510,7 +518,9 @@ def session_identity_text(payload: dict[str, object] | None, task: OperationTask
     adapter = optional_text(session.get("adapter_key")) or "-"
     session_id = optional_text(session.get("session_id")) or "-"
     status = optional_text(session.get("status")) or "-"
-    runtime_alert = optional_text(payload.get("runtime_alert")) if isinstance(payload, dict) else None
+    runtime_alert = (
+        optional_text(payload.get("runtime_alert")) if isinstance(payload, dict) else None
+    )
     wait = None if runtime_alert is not None else optional_text(session.get("waiting_reason"))
     summary = f"Session: {adapter} · {session_id} · {status}"
     if runtime_alert is not None:
@@ -646,8 +656,12 @@ def task_session_summary(payload: dict[str, object], task: OperationTaskItem) ->
         adapter = optional_text(session.get("adapter_key")) or "-"
         session_id = optional_text(session.get("session_id")) or task.linked_session_id or "-"
         status = optional_text(session.get("status")) or "-"
-        runtime_alert = optional_text(payload.get("runtime_alert")) if isinstance(payload, dict) else None
-        waiting = None if runtime_alert is not None else optional_text(session.get("waiting_reason"))
+        runtime_alert = (
+            optional_text(payload.get("runtime_alert")) if isinstance(payload, dict) else None
+        )
+        waiting = (
+            None if runtime_alert is not None else optional_text(session.get("waiting_reason"))
+        )
         summary = f"{adapter} · {session_id} · Status: {status}"
         if runtime_alert is not None:
             summary += f" · {runtime_alert}"
@@ -954,4 +968,6 @@ def normalize_key(key: str) -> str:
         return "ctrl+c"
     if key == "\r":
         return "enter"
+    if key == "N":
+        return "N"
     return key.lower()

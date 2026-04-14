@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from collections.abc import Awaitable, Callable
 
 from .models import (
@@ -19,6 +20,21 @@ from .models import (
 )
 from .rendering import render_workbench
 
+type TuiCommandExecutor = Callable[[str, str | None, str | None], Awaitable[str]]
+type TuiConverseTurn = Callable[
+    [str, str, str | None, str | None, str | None, str | None, list[dict[str, str]]],
+    Awaitable[tuple[str, str | None]],
+]
+
+_PALETTE_COMMANDS = (
+    "pause",
+    "unpause",
+    "cancel",
+    "answer",
+    "message",
+    "interrupt",
+    "patch-objective",
+)
 
 class FleetWorkbenchController:
     def __init__(
@@ -31,6 +47,8 @@ class FleetWorkbenchController:
         interrupt_operation: Callable[[str, str | None], Awaitable[str]],
         cancel_operation: Callable[[str], Awaitable[str]],
         answer_attention: Callable[[str, str, str], Awaitable[str]],
+        execute_tui_command: TuiCommandExecutor | None = None,
+        converse_turn: TuiConverseTurn | None = None,
     ) -> None:
         self._load_payload = load_payload
         self._load_operation_payload = load_operation_payload
@@ -39,6 +57,8 @@ class FleetWorkbenchController:
         self._interrupt_operation = interrupt_operation
         self._cancel_operation = cancel_operation
         self._answer_attention = answer_attention
+        self._execute_tui_command = execute_tui_command
+        self._converse_turn = converse_turn
         self.state = FleetWorkbenchState()
 
     async def refresh(self) -> None:
@@ -101,6 +121,10 @@ class FleetWorkbenchController:
 
     async def handle_key(self, key: str) -> bool:
         normalized = normalize_key(key)
+        if self.state.pending_palette_text is not None:
+            return await self._handle_palette_key(key, normalized)
+        if self.state.converse_panel_active:
+            return await self._handle_converse_key(key, normalized)
         if self.state.attention_picker_active:
             return self._handle_attention_picker_key(normalized)
         if self.state.pending_forensic_filter_text is not None:
@@ -117,6 +141,12 @@ class FleetWorkbenchController:
             return await self._handle_confirmation_key(normalized)
         if self.state.help_overlay_active:
             return self._handle_help_overlay_key(normalized)
+        if normalized == ":":
+            self._open_command_palette()
+            return True
+        if key == "n":
+            self._open_converse_panel()
+            return True
         if key == "A":
             self._open_attention_picker_for_scope()
             return True
@@ -146,8 +176,8 @@ class FleetWorkbenchController:
         if normalized == "a":
             await self._select_oldest_blocking_attention_for_scope()
             return True
-        if normalized == "n":
-            await self._select_oldest_nonblocking_attention_for_scope()
+        if key == "N":
+            await self._select_oldest_nonblocking_attention_for_current_scope()
             return True
         if normalized == "?":
             self.state.help_overlay_active = True
@@ -269,6 +299,242 @@ class FleetWorkbenchController:
     def render(self):
         return render_workbench(self.state)
 
+    async def _handle_palette_key(self, key: str, normalized: str) -> bool:
+        if key in {"\x1b", "\x03", "esc", "ctrl+c"}:
+            self._close_command_palette("Command palette closed.")
+            return True
+        if self.state.pending_palette_preview is not None:
+            if normalized == "y":
+                command_text = self.state.pending_palette_preview
+                self._close_command_palette(None)
+                try:
+                    self.state.last_message = await self._run_tui_command(command_text)
+                    await self.refresh()
+                except Exception as exc:
+                    self.state.last_message = f"Command failed: {exc}"
+                return True
+            if normalized == "n":
+                self._close_command_palette("Command cancelled.")
+            return True
+        if normalized == "tab":
+            self._complete_palette_input()
+            return True
+        if normalized == "enter":
+            command_text = (self.state.pending_palette_text or "").strip()
+            if not command_text:
+                self.state.last_message = "Command palette is empty."
+                return True
+            self.state.pending_palette_preview = command_text
+            self.state.last_message = None
+            return True
+        if key in {"\x7f", "\b"}:
+            self.state.pending_palette_text = (self.state.pending_palette_text or "")[:-1]
+            return True
+        if len(key) == 1 and key.isprintable():
+            self.state.pending_palette_text = (self.state.pending_palette_text or "") + key
+            self.state.last_message = None
+        return True
+
+    async def _handle_converse_key(self, key: str, normalized: str) -> bool:
+        if self.state.converse_editing_command:
+            if key in {"\x1b", "\x03", "esc", "ctrl+c"}:
+                self.state.converse_editing_command = False
+                self.state.converse_input_text = ""
+                self.state.last_message = "Converse command edit cancelled."
+                return True
+            if normalized == "enter":
+                edited = self.state.converse_input_text.strip()
+                if edited:
+                    self.state.converse_pending_command_text = edited
+                    self.state.converse_transcript_lines.append(f"→ Proposed: {edited}")
+                self.state.converse_editing_command = False
+                self.state.converse_input_text = ""
+                self.state.last_message = None
+                return True
+            if key in {"\x7f", "\b"}:
+                self.state.converse_input_text = self.state.converse_input_text[:-1]
+                return True
+            if len(key) == 1 and key.isprintable():
+                self.state.converse_input_text += key
+            return True
+        if self.state.converse_pending_command_text is not None:
+            if key in {"\x1b", "\x03", "esc", "ctrl+c"} or normalized == "n":
+                self.state.converse_transcript_lines.append("System: Proposed action declined.")
+                self.state.converse_pending_command_text = None
+                self.state.last_message = None
+                return True
+            if normalized == "e":
+                self.state.converse_editing_command = True
+                self.state.converse_input_text = self.state.converse_pending_command_text
+                self.state.last_message = None
+                return True
+            if normalized == "y":
+                command_text = self.state.converse_pending_command_text
+                self.state.converse_pending_command_text = None
+                try:
+                    result = await self._run_tui_command(command_text)
+                    self.state.converse_transcript_lines.append(f"System: {result}")
+                    self.state.last_message = result
+                    await self.refresh()
+                except Exception as exc:
+                    self.state.converse_transcript_lines.append(f"System: Command failed: {exc}")
+                    self.state.last_message = f"Command failed: {exc}"
+                return True
+            return True
+        if key in {"\x1b", "\x03", "esc", "ctrl+c"}:
+            self._close_converse_panel()
+            return True
+        if normalized == "enter":
+            user_message = self.state.converse_input_text.strip()
+            if not user_message:
+                return True
+            self.state.converse_transcript_lines.append(f"You: {user_message}")
+            try:
+                answer, proposed = await self._run_converse_turn(user_message)
+            except Exception as exc:
+                self.state.converse_transcript_lines.append(f"System: Converse failed: {exc}")
+                self.state.last_message = f"Converse failed: {exc}"
+                self.state.converse_input_text = ""
+                return True
+            self.state.converse_history.append({"role": "user", "content": user_message})
+            self.state.converse_history.append({"role": "assistant", "content": answer})
+            self.state.converse_transcript_lines.append(f"Operator: {answer}")
+            self.state.converse_input_text = ""
+            self.state.last_message = None
+            if proposed:
+                self.state.converse_pending_command_text = proposed
+                self.state.converse_transcript_lines.append(f"→ Proposed: {proposed}")
+            return True
+        if key in {"\x7f", "\b"}:
+            self.state.converse_input_text = self.state.converse_input_text[:-1]
+            return True
+        if len(key) == 1 and key.isprintable():
+            self.state.converse_input_text += key
+        return True
+
+    def _open_command_palette(self) -> None:
+        self.state.pending_palette_text = ""
+        self.state.pending_palette_preview = None
+        self.state.last_message = None
+        self.state.pending_confirmation = None
+
+    def _close_command_palette(self, message: str | None) -> None:
+        self.state.pending_palette_text = None
+        self.state.pending_palette_preview = None
+        self.state.last_message = message
+
+    def _open_converse_panel(self) -> None:
+        self.state.converse_panel_active = True
+        self.state.converse_input_text = ""
+        self.state.converse_pending_command_text = None
+        self.state.converse_editing_command = False
+        self.state.last_message = None
+        if not self.state.converse_transcript_lines:
+            self.state.converse_transcript_lines.append("System: Converse panel opened.")
+
+    def _close_converse_panel(self) -> None:
+        self.state.converse_panel_active = False
+        self.state.converse_input_text = ""
+        self.state.converse_pending_command_text = None
+        self.state.converse_editing_command = False
+        self.state.converse_history = []
+        self.state.converse_transcript_lines = []
+        self.state.last_message = None
+
+    def _palette_default_operation_id(self) -> str | None:
+        selected = self.state.selected_item
+        return selected.operation_id if selected is not None else None
+
+    def _palette_default_task_id(self) -> str | None:
+        task = self.state.selected_task
+        if task is None or task.linked_session_id is None:
+            return None
+        return task.task_id
+
+    async def _run_tui_command(self, command_text: str) -> str:
+        if self._execute_tui_command is None:
+            raise RuntimeError("TUI command execution is not configured.")
+        return await self._execute_tui_command(
+            command_text,
+            self._palette_default_operation_id(),
+            self._palette_default_task_id(),
+        )
+
+    async def _run_converse_turn(self, user_message: str) -> tuple[str, str | None]:
+        if self._converse_turn is None:
+            raise RuntimeError("TUI converse is not configured.")
+        selected = self.state.selected_item
+        task = self.state.selected_task
+        event = self.state.selected_timeline_event
+        operation_id = None if self.state.view_level == "fleet" else (
+            selected.operation_id if selected is not None else None
+        )
+        task_id = task.task_id if task is not None else None
+        event_summary = event.summary if event is not None else None
+        return await self._converse_turn(
+            self.state.view_level,
+            user_message,
+            operation_id,
+            task_id,
+            event_summary,
+            self.state.project,
+            list(self.state.converse_history),
+        )
+
+    def _complete_palette_input(self) -> None:
+        text = (self.state.pending_palette_text or "").strip()
+        if not text:
+            self.state.last_message = "Commands: " + ", ".join(_PALETTE_COMMANDS)
+            return
+        try:
+            tokens = shlex.split(text)
+        except ValueError:
+            tokens = text.split()
+        if not tokens:
+            self.state.last_message = "Commands: " + ", ".join(_PALETTE_COMMANDS)
+            return
+        if len(tokens) == 1 and not text.endswith(" "):
+            matches = [name for name in _PALETTE_COMMANDS if name.startswith(tokens[0])]
+            if len(matches) == 1:
+                self.state.pending_palette_text = matches[0] + " "
+                self.state.last_message = None
+                return
+            if matches:
+                self.state.last_message = "Commands: " + ", ".join(matches)
+            return
+        if tokens[0] == "answer":
+            prefix = "" if text.endswith(" ") else tokens[-1]
+            matches = [
+                attention_id
+                for attention_id in self._palette_attention_ids()
+                if attention_id.startswith(prefix)
+            ]
+            if len(matches) == 1:
+                self.state.pending_palette_text = f"answer {matches[0]} "
+                self.state.last_message = None
+                return
+            if matches:
+                self.state.last_message = "Attention ids: " + ", ".join(matches[:8])
+
+    def _palette_attention_ids(self) -> list[str]:
+        payload = self.state.selected_operation_payload
+        operation_id = self._palette_default_operation_id()
+        if not isinstance(payload, dict) or operation_id is None:
+            return []
+        task = self.state.selected_task
+        attentions = (
+            task_scope_attentions(payload, task_id=task.task_id)
+            if task is not None
+            else operation_scope_attentions(payload, operation_id=operation_id)
+        )
+        return [item.attention_id for item in attentions]
+
+    async def _select_oldest_nonblocking_attention_for_current_scope(self) -> None:
+        if self.state.view_level == "fleet":
+            await self._select_oldest_nonblocking_attention_for_scope()
+            return
+        await self._select_oldest_nonblocking_attention_for_current_task()
+
     async def _handle_operation_key(self, key: str) -> bool:
         if key in {"q", "ctrl+c"}:
             return False
@@ -293,7 +559,7 @@ class FleetWorkbenchController:
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
             return True
-        if key == "n":
+        if key == "N":
             await self._select_oldest_nonblocking_attention_for_current_task()
             return True
         if key == "/":
@@ -372,7 +638,7 @@ class FleetWorkbenchController:
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
             return True
-        if key == "n":
+        if key == "N":
             await self._select_oldest_nonblocking_attention_for_current_task()
             return True
         if key == "/":
@@ -432,7 +698,7 @@ class FleetWorkbenchController:
         if key == "a":
             await self._select_oldest_blocking_attention_for_current_task()
             return True
-        if key == "n":
+        if key == "N":
             await self._select_oldest_nonblocking_attention_for_current_task()
             return True
         if key == "/":
@@ -1056,7 +1322,6 @@ class FleetWorkbenchController:
             return
         self.state.selected_index = min(self.state.selected_index, len(self.state.items) - 1)
 
-
 def build_fleet_workbench_controller(
     *,
     load_payload: Callable[[], Awaitable[dict[str, object]]],
@@ -1066,6 +1331,8 @@ def build_fleet_workbench_controller(
     interrupt_operation: Callable[[str, str | None], Awaitable[str]],
     cancel_operation: Callable[[str], Awaitable[str]],
     answer_attention: Callable[[str, str, str], Awaitable[str]],
+    execute_tui_command: TuiCommandExecutor | None = None,
+    converse_turn: TuiConverseTurn | None = None,
 ) -> FleetWorkbenchController:
     return FleetWorkbenchController(
         load_payload=load_payload,
@@ -1075,4 +1342,6 @@ def build_fleet_workbench_controller(
         interrupt_operation=interrupt_operation,
         cancel_operation=cancel_operation,
         answer_attention=answer_attention,
+        execute_tui_command=execute_tui_command,
+        converse_turn=converse_turn,
     )

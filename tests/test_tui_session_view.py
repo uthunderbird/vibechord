@@ -46,10 +46,12 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     assert "Fleet / op-run / session / task-1" in rendered
     assert "Timeline       Selected 1 of 2 events (newest first)" in rendered
     assert "Open forensic Enter/r" in rendered
-    assert (
-        "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
-    ) in rendered
+    for footer_fragment in (
+        "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o",
+        "Answer a/N  Pick A  Command :  Converse n",
+        "Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit",
+    ):
+        assert footer_fragment in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:

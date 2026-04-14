@@ -164,6 +164,8 @@ def _fleet_scope_line(state: FleetWorkbenchState, project_label: str) -> str:
 def right_pane_title(state: FleetWorkbenchState) -> str:
     if state.attention_picker_active:
         return "Attention Picker"
+    if state.converse_panel_active:
+        return "Converse"
     if state.help_overlay_active:
         return "Help"
     if state.view_level == "operation":
@@ -202,6 +204,8 @@ def render_left_pane(state: FleetWorkbenchState) -> Table:
 def render_right_pane(state: FleetWorkbenchState) -> Group | Table | Text:
     if state.attention_picker_active:
         return render_attention_picker(state)
+    if state.converse_panel_active:
+        return render_converse_panel(state)
     if state.help_overlay_active:
         return render_help_overlay(state)
     if state.view_level == "forensic":
@@ -468,8 +472,10 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("/", "filter tasks"),
             ("Tab", "jump to next blocking task attention"),
             ("a", "answer oldest blocking attention for selected task"),
-            ("n", "answer oldest non-blocking attention for selected task"),
+            ("N", "answer oldest non-blocking attention for selected task"),
             ("A", "open attention picker for selected task"),
+            (":", "open command palette"),
+            ("n", "open converse panel"),
             ("i / d / t / m / o", "switch right pane detail mode"),
             ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
             *common,
@@ -482,8 +488,10 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
             ("r", "open forensic view"),
             ("i / o", "show live session detail or retrospective report"),
             ("a", "answer oldest blocking attention for current task"),
-            ("n", "answer oldest non-blocking attention for current task"),
+            ("N", "answer oldest non-blocking attention for current task"),
             ("A", "open attention picker for current task"),
+            (":", "open command palette"),
+            ("n", "open converse panel"),
             ("p / u / s / c", "pause, unpause, interrupt, cancel"),
             *common,
         ]
@@ -491,8 +499,10 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
         return [
             ("/", "filter forensic transcript/detail"),
             ("a", "answer oldest blocking attention for current task"),
-            ("n", "answer oldest non-blocking attention for current task"),
+            ("N", "answer oldest non-blocking attention for current task"),
             ("A", "open attention picker for current task"),
+            (":", "open command palette"),
+            ("n", "open converse panel"),
             ("?", "close help"),
             ("Esc / q", "return to session timeline"),
             ("ctrl+c", "quit"),
@@ -503,8 +513,10 @@ def _help_rows_for_view(view_level: str) -> list[tuple[str, str]]:
         ("/", "filter fleet operations"),
         ("Tab", "jump to next blocking attention"),
         ("a", "answer oldest blocking attention in selected operation"),
-        ("n", "answer oldest non-blocking attention in selected operation"),
+        ("N", "answer oldest non-blocking attention in selected operation"),
         ("A", "open attention picker in selected operation"),
+        (":", "open command palette"),
+        ("n", "open converse panel"),
         ("p / u / s / c / r", "pause, unpause, interrupt, cancel, refresh"),
         *common,
     ]
@@ -530,6 +542,17 @@ def render_attention_picker(state: FleetWorkbenchState) -> Table:
             item.question or "-",
         )
     return table
+
+
+def render_converse_panel(state: FleetWorkbenchState) -> Text:
+    lines = [f"Context: {_converse_scope_label(state)}", ""]
+    if not state.converse_transcript_lines:
+        lines.append("No conversation yet. Type a message and press Enter.")
+    else:
+        lines.extend(state.converse_transcript_lines)
+    if state.converse_pending_command_text is not None:
+        lines.extend(["", f"Pending action: {state.converse_pending_command_text}"])
+    return Text("\n".join(lines))
 
 
 def _attention_picker_items(state: FleetWorkbenchState):
@@ -851,6 +874,32 @@ def human_footer_text(state: FleetWorkbenchState) -> Text:
     selected = state.selected_item
     if state.attention_picker_active:
         return Text("Move j/k  Pick Enter  Close A/Esc  Quit q")
+    if state.pending_palette_text is not None:
+        if state.pending_palette_preview is not None:
+            return Text(
+                "Command preview: :"
+                + state.pending_palette_preview
+                + "  Confirm y  Cancel N/Esc"
+            )
+        return Text(
+            "Command: :"
+            + (state.pending_palette_text or "")
+            + "  Complete Tab  Preview Enter  Cancel Esc"
+        )
+    if state.converse_panel_active:
+        if state.converse_editing_command:
+            return Text(
+                "Edit proposed action: "
+                + state.converse_input_text
+                + "  Save Enter  Cancel Esc"
+            )
+        if state.converse_pending_command_text is not None:
+            return Text(
+                "Converse proposed action: "
+                + state.converse_pending_command_text
+                + "  Execute y  Decline N/Esc  Edit e"
+            )
+        return Text("Converse: " + state.converse_input_text + "  Send Enter  Close Esc")
     if state.help_overlay_active:
         return Text("Close help ?/Esc  Quit q")
     if state.pending_filter_text is not None:
@@ -888,23 +937,44 @@ def human_footer_text(state: FleetWorkbenchState) -> Text:
     if state.last_message is not None:
         return Text(state.last_message)
     if state.view_level == "forensic":
-        return Text("Forensic: Filter /  Answer a/n  Pick A  Back Esc/q  Help ?  Quit ctrl+c")
+        return Text(
+            "Forensic: Filter /  Answer a/N  Pick A  Command :  Converse n"
+            "  Back Esc/q  Help ?  Quit ctrl+c"
+        )
     if state.view_level == "session":
         return Text(
             "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-            "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u"
+            "  Back Esc  Answer a/N  Pick A  Command :  Converse n  Interrupt s  Pause p  Resume u"
             "  Cancel c  Help ?  Quit q"
         )
     if state.view_level == "operation":
         return Text(
-            "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A"
+            "Move j/k  Open session Enter  Filter /  Answer a/N  Pick A  Command :  Converse n"
             "  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o"
             "  Back Esc  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
         )
     footer = Text(
-        "Move j/k  Open Enter  Answer a/n  Pick A  Next blocker Tab"
+        "Move j/k  Open Enter  Answer a/N  Pick A  Next blocker Tab  Command :  Converse n"
         "  Filter /  Pause p  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
     )
     if selected is None:
         return footer
     return Text(f"Selected {selected.operation_id}. ") + footer
+
+
+def _converse_scope_label(state: FleetWorkbenchState) -> str:
+    if state.view_level == "fleet":
+        return f"fleet ({state.project or 'all projects'})"
+    if state.view_level == "operation" and state.selected_item is not None:
+        return f"operation {state.selected_item.operation_id}"
+    if state.view_level == "session" and state.selected_task is not None:
+        return f"session {state.selected_task.task_short_id}"
+    if state.view_level == "forensic" and state.selected_timeline_event is not None:
+        return (
+            "forensic "
+            f"iter {state.selected_timeline_event.iteration} "
+            f"{state.selected_timeline_event.event_type}"
+        )
+    if state.selected_item is not None:
+        return state.selected_item.operation_id
+    return "fleet"

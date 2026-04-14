@@ -95,8 +95,10 @@ def test_human_footer_text_uses_compact_fleet_actions() -> None:
 
     rendered = str(human_footer_text(state))
 
-    assert rendered.startswith("Selected op-1. Move j/k  Open Enter  Answer a/n  Pick A")
+    assert rendered.startswith("Selected op-1. Move j/k  Open Enter  Answer a/N  Pick A")
     assert "Next blocker Tab" in rendered
+    assert "Command :" in rendered
+    assert "Converse n" in rendered
     assert "Pause p  Resume u  Interrupt s  Cancel c" in rendered
     assert "Help ?" in rendered
 
@@ -1175,7 +1177,7 @@ async def test_fleet_view_a_enters_answer_mode_and_dispatches_oldest_attention()
     )
 
 
-async def test_fleet_view_n_dispatches_oldest_nonblocking_attention() -> None:
+async def test_fleet_view_N_dispatches_oldest_nonblocking_attention() -> None:
     answers: list[tuple[str, str, str]] = []
     active_attention_ids = ["att-2"]
 
@@ -1206,6 +1208,14 @@ async def test_fleet_view_n_dispatches_oldest_nonblocking_attention() -> None:
     await controller.refresh()
     await controller.handle_key("j")
     await controller.handle_key("n")
+
+    assert answers == []
+    assert controller.state.pending_answer_operation_id is None
+    assert controller.state.converse_panel_active is True
+
+    await controller.handle_key("\x1b")
+
+    await controller.handle_key("N")
     await controller.handle_key("o")
     await controller.handle_key("k")
     await controller.handle_key("\r")
@@ -1269,7 +1279,7 @@ async def test_fleet_attention_picker_selects_specific_attention_item() -> None:
     assert controller.state.last_message == "answered op-run:att-2:ok"
 
 
-async def test_task_n_nonblocking_answer_chains_within_same_task_scope() -> None:
+async def test_task_N_nonblocking_answer_chains_within_same_task_scope() -> None:
     active_attention = [
         {
             "attention_id": "att-2",
@@ -1331,7 +1341,7 @@ async def test_task_n_nonblocking_answer_chains_within_same_task_scope() -> None
     await controller.refresh()
     await controller.handle_key("j")
     await controller.handle_key("\r")
-    await controller.handle_key("n")
+    await controller.handle_key("N")
     await controller.handle_key("o")
     await controller.handle_key("k")
     await controller.handle_key("\r")
@@ -1343,6 +1353,49 @@ async def test_task_n_nonblocking_answer_chains_within_same_task_scope() -> None
     assert controller.state.pending_answer_prompt == (
         "1 non-blocking attention remains in task task-1. Answer text: "
     )
+
+
+async def test_command_palette_opens_and_escape_closes_without_executing() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key(":")
+
+    assert controller.state.pending_palette_text == ""
+    assert human_footer_text(controller.state).plain == (
+        "Command: :  Complete Tab  Preview Enter  Cancel Esc"
+    )
+
+    await controller.handle_key("\x1b")
+
+    assert controller.state.pending_palette_text is None
+    assert controller.state.last_message == "Command palette closed."
+
+
+async def test_n_opens_converse_panel() -> None:
+    controller = build_fleet_workbench_controller(
+        load_payload=_load_payload,
+        load_operation_payload=_load_operation_payload,
+        pause_operation=_unexpected_action,
+        unpause_operation=_unexpected_action,
+        interrupt_operation=_unexpected_interrupt,
+        cancel_operation=_unexpected_action,
+        answer_attention=_unexpected_answer,
+    )
+
+    await controller.refresh()
+    await controller.handle_key("n")
+
+    assert controller.state.converse_panel_active is True
+    assert "Converse:" in human_footer_text(controller.state).plain
 
 
 async def test_fleet_view_answer_chains_to_next_oldest_blocking_attention() -> None:
@@ -1826,10 +1879,12 @@ async def test_session_view_renders_session_brief_and_selected_event_sections() 
     assert "Fleet / op-run / session / task-1" in rendered
     assert "Next step" in rendered
     assert "Open forensic Enter/r" in rendered
-    assert (
-        "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
-    ) in rendered
+    for footer_fragment in (
+        "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o",
+        "Answer a/N  Pick A  Command :  Converse n",
+        "Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit",
+    ):
+        assert footer_fragment in rendered
 
 
 async def test_session_timeline_uses_human_event_labels() -> None:
@@ -2340,7 +2395,8 @@ async def test_session_header_and_footer_use_human_action_language() -> None:
     assert (
         human_footer_text(controller.state).plain
         == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
+        "  Back Esc  Answer a/N  Pick A  Command :  Converse n  Interrupt s  Pause p  Resume u"
+        "  Cancel c  Help ?  Quit q"
     )
 
 
@@ -2363,7 +2419,8 @@ async def test_session_footer_uses_short_human_first_actions() -> None:
     assert (
         human_footer_text(controller.state).plain
         == "Move j/k  Filter /  Open forensic Enter/r  Live detail i  Report o"
-        "  Back Esc  Answer a/n  Pick A  Interrupt s  Pause p  Resume u  Cancel c  Help ?  Quit q"
+        "  Back Esc  Answer a/N  Pick A  Command :  Converse n  Interrupt s  Pause p  Resume u"
+        "  Cancel c  Help ?  Quit q"
     )
 
 
@@ -2384,9 +2441,9 @@ async def test_operation_footer_uses_short_human_first_actions() -> None:
 
     assert (
         human_footer_text(controller.state).plain
-        == "Move j/k  Open session Enter  Filter /  Answer a/n  Pick A  Detail i  "
-        "Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p  "
-        "Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
+        == "Move j/k  Open session Enter  Filter /  Answer a/N  Pick A  Command :  Converse n"
+        "  Detail i  Decisions d  Events t  Memory m  Transcript l  Report o  Back Esc  Pause p"
+        "  Resume u  Interrupt s  Cancel c  Refresh r  Help ?  Quit q"
     )
 
 
