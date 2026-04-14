@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from agent_operator.domain import RunEvent
+from agent_operator.runtime.files import atomic_write_text, model_validate_json_file_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +136,10 @@ class FileWakeupInbox:
         return self._root / f"{event_id}.json"
 
     def _load(self, path: Path) -> _WakeupEnvelope:
-        return _WakeupEnvelope.model_validate_json(path.read_text(encoding="utf-8"))
+        return model_validate_json_file_with_retry(_WakeupEnvelope, path, encoding="utf-8")
 
     def _save(self, path: Path, envelope: _WakeupEnvelope) -> None:
-        path.write_text(envelope.model_dump_json(indent=2), encoding="utf-8")
+        atomic_write_text(path, envelope.model_dump_json(indent=2), encoding="utf-8")
 
     def has_pending(self, operation_id: str) -> bool:
         """Return True if there is at least one pending wakeup for this operation."""

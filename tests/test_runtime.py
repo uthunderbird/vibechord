@@ -45,6 +45,7 @@ from agent_operator.domain import (
     ProjectProfileAdapterSettings,
     ProjectProfileMcpServer,
     RunEvent,
+    RunEventKind,
     SessionReusePolicy,
     SessionState,
     SessionStatus,
@@ -237,6 +238,48 @@ class _StickyRunningSessionManager:
 
     async def collect(self, handle: AgentSessionHandle) -> AgentResult:
         return self._result
+
+    async def cancel(self, handle: AgentSessionHandle) -> None:
+        return None
+
+    async def close(self, handle: AgentSessionHandle) -> None:
+        return None
+
+
+class _BackgroundedToolSessionManager:
+    """ACP-like fake that keeps polling but reports no new ACP events."""
+
+    def __init__(self, *, last_event_at: datetime) -> None:
+        self.handle = AgentSessionHandle(adapter_key="claude_acp", session_id="bg-tool-session")
+        self._last_event_at = last_event_at
+
+    def keys(self) -> list[str]:
+        return ["claude_acp"]
+
+    def has(self, adapter_key: str) -> bool:
+        return adapter_key == "claude_acp"
+
+    async def describe(self, adapter_key: str) -> AgentDescriptor:
+        return AgentDescriptor(key=adapter_key, display_name=adapter_key)
+
+    async def start(self, adapter_key: str, request: AgentRunRequest) -> AgentSessionHandle:
+        return self.handle
+
+    async def send(self, handle: AgentSessionHandle, message: str) -> None:
+        return None
+
+    async def poll(self, handle: AgentSessionHandle) -> AgentProgress:
+        return AgentProgress(
+            session_id=handle.session_id,
+            state=AgentProgressState.RUNNING,
+            message="Agent session is running.",
+            updated_at=datetime.now(UTC),
+            partial_output="Command running in background with ID: bnp6p5s81.",
+            raw={"last_event_at": self._last_event_at.isoformat()},
+        )
+
+    async def collect(self, handle: AgentSessionHandle) -> AgentResult:
+        raise AssertionError("collect should not be called while the background tool is stuck")
 
     async def cancel(self, handle: AgentSessionHandle) -> None:
         return None
@@ -651,6 +694,40 @@ async def test_inprocess_supervisor_refreshes_stale_background_run_heartbeat(
 
 
 @pytest.mark.anyio
+async def test_inprocess_supervisor_does_not_refresh_heartbeat_without_new_acp_events(
+    tmp_path: Path,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    stale_event = datetime(2000, 1, 1, tzinfo=UTC)
+    manager = _BackgroundedToolSessionManager(last_event_at=stale_event)
+    supervisor = InProcessAgentRunSupervisor(
+        tmp_path / "background",
+        tmp_path,
+        session_manager=manager,
+        wakeup_inbox=inbox,
+    )
+
+    run = await supervisor.start_background_turn(
+        "op-1",
+        1,
+        "claude_acp",
+        AgentRunRequest(goal="hello", instruction="hold"),
+    )
+    run_path = tmp_path / "background" / "runs" / f"{run.run_id}.json"
+    payload = json.loads(run_path.read_text(encoding="utf-8"))
+    payload["last_heartbeat_at"] = stale_event.isoformat()
+    run_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    await anyio.sleep(1.2)
+
+    polled = await supervisor.poll_background_turn(run.run_id)
+    await supervisor.cancel_background_turn(run.run_id)
+
+    assert polled is not None
+    assert polled.last_heartbeat_at == stale_event
+
+
+@pytest.mark.anyio
 async def test_file_command_inbox_sets_applied_at_only_for_applied_status(tmp_path: Path) -> None:
     inbox = FileOperationCommandInbox(tmp_path / "commands")
     command = OperationCommand(
@@ -676,6 +753,41 @@ async def test_file_command_inbox_sets_applied_at_only_for_applied_status(tmp_pa
     assert staged.applied_at is None
     assert applied.status is CommandStatus.APPLIED
     assert applied.applied_at == applied_at
+
+
+def test_file_wakeup_inbox_retries_transient_empty_json_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    event = RunEvent(
+        event_id="wakeup-1",
+        kind=RunEventKind.WAKEUP,
+        event_type="background_run.completed",
+        operation_id="op-1",
+        iteration=1,
+        task_id="task-1",
+        session_id="session-1",
+        payload={"run_id": "run-1"},
+    )
+    anyio.run(inbox.enqueue, event)
+
+    path = tmp_path / "wakeups" / "wakeup-1.json"
+    original_read_text = Path.read_text
+    calls = {"count": 0}
+
+    def flaky_read_text(self: Path, *args, **kwargs) -> str:
+        if self == path and calls["count"] == 0:
+            calls["count"] += 1
+            return ""
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    pending = anyio.run(inbox.list_pending, "op-1")
+
+    assert [item.event_id for item in pending] == ["wakeup-1"]
+    assert calls["count"] == 1
 
 
 def test_project_profile_loader_and_resolver(tmp_path: Path) -> None:
