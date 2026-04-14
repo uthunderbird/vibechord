@@ -678,7 +678,10 @@ def test_ask_cli_renders_text_output(tmp_path: Path, monkeypatch) -> None:
             captured.append((resolved_operation_id, question))
             return "It is completed."
 
-    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control._build_cli_service",
+        lambda settings: _Service(),
+    )
 
     result = runner.invoke(app, ["ask", "last", "What is the current status?"])
 
@@ -697,7 +700,10 @@ def test_ask_cli_json_output_contract(tmp_path: Path, monkeypatch) -> None:
             assert question == "Summarize the result."
             return "Completed successfully."
 
-    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control._build_cli_service",
+        lambda settings: _Service(),
+    )
 
     result = runner.invoke(app, ["ask", "op-cli-1", "Summarize the result.", "--json"])
 
@@ -744,7 +750,10 @@ def test_ask_cli_resolves_profile_name_to_latest_operation(tmp_path: Path, monke
             captured.append(resolved_operation_id)
             return "Newest profile operation."
 
-    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control._build_cli_service",
+        lambda settings: _Service(),
+    )
 
     result = runner.invoke(app, ["ask", "femtobot", "Which operation is current?"])
 
@@ -760,7 +769,10 @@ def test_ask_cli_missing_operation_exits_code_4(tmp_path: Path, monkeypatch) -> 
         async def answer_question(self, resolved_operation_id: str, question: str) -> str:
             raise AssertionError("service should not be called when operation resolution fails")
 
-    monkeypatch.setattr("agent_operator.cli.main.build_service", lambda settings: _Service())
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control._build_cli_service",
+        lambda settings: _Service(),
+    )
 
     result = runner.invoke(app, ["ask", "missing-op", "What happened?"])
 
