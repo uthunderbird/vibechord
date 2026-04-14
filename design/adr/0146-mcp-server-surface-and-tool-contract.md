@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 ## Context
 
@@ -135,6 +135,10 @@ Local verification for this ADR was completed with:
 
 - `uv run pytest tests/test_mcp_server.py`
 - `uv run pytest`
+
+Current repository-wide verification state relied on for verified closure:
+
+- `uv run pytest` -> `704 passed, 11 skipped`
 
 ## Related
 
