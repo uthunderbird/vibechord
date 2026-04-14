@@ -83,6 +83,8 @@ class OperationControlStateCoordinator:
         refreshed.run_started_at = state.run_started_at
         refreshed.iterations = [item.model_copy(deep=True) for item in state.iterations]
         refreshed.features = [item.model_copy(deep=True) for item in state.features]
+        refreshed.sessions = [item.model_copy(deep=True) for item in state.sessions]
+        refreshed.executions = [item.model_copy(deep=True) for item in state.executions]
         refreshed.memory_entries = [item.model_copy(deep=True) for item in state.memory_entries]
         refreshed.artifacts = [item.model_copy(deep=True) for item in state.artifacts]
         refreshed.active_policies = [item.model_copy(deep=True) for item in state.active_policies]

@@ -310,6 +310,15 @@ class LoadedOperation:
             if latest_task_session is not None:
                 session_id = latest_task_session.session_id
         if session_id is None:
+            waiting_matches = [
+                record
+                for record in state.sessions
+                if not record.handle.one_shot
+                and record.status is SessionRecordStatus.WAITING
+            ]
+            if len(waiting_matches) == 1:
+                return waiting_matches[0]
+        if session_id is None:
             return None
         for record in state.sessions:
             if record.session_id == session_id and not record.handle.one_shot:

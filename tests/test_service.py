@@ -7,12 +7,14 @@ import pytest
 from agent_operator.adapters.runtime_bindings import AgentRuntimeBinding
 from agent_operator.domain import (
     AgentDescriptor,
+    AgentError,
     AgentProgress,
     AgentProgressState,
     AgentResult,
     AgentResultStatus,
     AgentSessionBusyError,
     AgentSessionHandle,
+    AttentionStatus,
     BackgroundRunStatus,
     BackgroundRuntimeMode,
     BrainActionType,
@@ -857,6 +859,42 @@ class StartThenContinueBusySessionBrain:
         return result
 
 
+class StartThenContinueAfterApprovalBrain:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        if self.calls == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="codex_acp",
+                instruction="start the bounded codex slice",
+                rationale="Start the first background turn.",
+            )
+        if self.calls == 2:
+            return BrainDecision(
+                action_type=BrainActionType.CONTINUE_AGENT,
+                target_agent="codex_acp",
+                instruction="continue after approval",
+                rationale="Continue on the same codex session after approval.",
+            )
+        return BrainDecision(action_type=BrainActionType.STOP, rationale="done")
+
+    async def evaluate_result(self, state) -> Evaluation:
+        return Evaluation(
+            goal_satisfied=False,
+            should_continue=True,
+            summary="continue",
+        )
+
+    async def summarize_progress(self, state) -> ProgressSummary:
+        return ProgressSummary(summary="summary")
+
+    async def normalize_artifact(self, goal, result) -> AgentResult:
+        return result
+
+
 @pytest.mark.anyio
 async def test_resume_does_not_spawn_duplicate_background_turn_without_wakeup() -> None:
     store = MemoryStore()
@@ -972,6 +1010,131 @@ async def test_busy_follow_up_blocks_on_running_session_instead_of_failing() -> 
         updated.sessions[0].waiting_reason
         == "Cannot send a follow-up while a Codex ACP turn is still running."
     )
+
+
+@pytest.mark.anyio
+async def test_answered_attention_keeps_reusable_codex_session_for_continue_agent() -> None:
+    class ApprovalThenSuccessSupervisor(FakeSupervisor):
+        async def start_background_turn(
+            self,
+            operation_id: str,
+            iteration: int,
+            adapter_key: str,
+            request,
+            *,
+            existing_session: AgentSessionHandle | None = None,
+            task_id: str | None = None,
+            wakeup_delivery: str = "enqueue",
+        ) -> ExecutionState:
+            run = await super().start_background_turn(
+                operation_id,
+                iteration,
+                adapter_key,
+                request,
+                existing_session=existing_session,
+                task_id=task_id,
+                wakeup_delivery=wakeup_delivery,
+            )
+            if existing_session is None:
+                self.results[run.run_id] = AgentResult(
+                    session_id=run.session_id or "session-1",
+                    status=AgentResultStatus.INCOMPLETE,
+                    output_text="Waiting for operator input before continuing.",
+                    error=AgentError(
+                        code="agent_waiting_input",
+                        message="Agent is waiting for approval.",
+                        retryable=False,
+                    ),
+                    completed_at=datetime.now(UTC),
+                )
+            else:
+                self.results[run.run_id] = AgentResult(
+                    session_id=existing_session.session_id,
+                    status=AgentResultStatus.SUCCESS,
+                    output_text="continued successfully after approval",
+                    completed_at=datetime.now(UTC),
+                )
+            return run
+
+    store = MemoryStore()
+    inbox = MemoryCommandInbox()
+    supervisor = ApprovalThenSuccessSupervisor(auto_complete_on_poll=True)
+    brain = StartThenContinueAfterApprovalBrain()
+    service = make_service(
+        brain=brain,
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"codex_acp": FakeAgent(key="codex_acp")}
+        ),
+        command_inbox=inbox,
+        wakeup_inbox=MemoryWakeupInbox(),
+        supervisor=supervisor,
+    )
+
+    first = await service.run(
+        OperationGoal(objective="codex approval continuation"),
+        **run_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(first.operation_id)
+
+    assert first.status is OperationStatus.RUNNING
+    assert operation is not None
+    assert len(operation.background_runs) == 1
+
+    blocked = await service.resume(
+        operation.operation_id,
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(first.operation_id)
+
+    assert blocked.status is OperationStatus.NEEDS_HUMAN
+    assert operation is not None
+    assert operation.attention_requests[0].status is AttentionStatus.OPEN
+    assert supervisor.existing_sessions == [None]
+
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
+        target_scope=CommandTargetScope.ATTENTION_REQUEST,
+        target_id=operation.attention_requests[0].attention_id,
+        payload={"text": "Approved. Continue."},
+    )
+    await inbox.enqueue(command)
+
+    resumed = await service.resume(
+        operation.operation_id,
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    assert resumed.status is OperationStatus.RUNNING, resumed.summary
+
+    completed = await service.resume(
+        operation.operation_id,
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert completed.status is OperationStatus.COMPLETED, completed.summary
+    assert updated is not None
+    assert updated.attention_requests[0].status is AttentionStatus.RESOLVED
+    assert supervisor.existing_sessions[0] is None
+    assert supervisor.existing_sessions[1] is not None
+    assert supervisor.existing_sessions[1].session_id == operation.sessions[0].session_id
+    assert supervisor.requests[1].instruction == "continue after approval"
 
 
 @pytest.mark.anyio
