@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Verified
+Implemented
 
 ## Context
 
@@ -136,9 +136,10 @@ Local verification for this ADR was completed with:
 - `uv run pytest tests/test_mcp_server.py`
 - `uv run pytest`
 
-Current repository-wide verification state relied on for verified closure:
+Current repository-wide verification state is not green, so this ADR is not presently verified:
 
-- `uv run pytest` -> `704 passed, 11 skipped`
+- `uv run pytest` -> failed at
+  `tests/test_service.py::test_busy_follow_up_for_claude_in_turn_continuation_keeps_waiting_on_live_turn[asyncio]`
 
 ## Related
 
