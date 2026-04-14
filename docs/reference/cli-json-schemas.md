@@ -77,9 +77,13 @@ with `runtime_alert`.
 ### `operator cancel --json`
 
 - `operation_id`: string
-- `status`: `cancelled|failed|needs_human|completed`
+- `status`: `running|cancelled|failed|needs_human|completed`
 - `summary`: string
 - `metadata`: object
+
+`status` can be `running` for a scoped cancellation request (`--session`/`--run`) that has
+been queued but not yet terminal at the operation level; in that case the process exited with
+code `0`.
 
 ### `operator watch --once --json`
 

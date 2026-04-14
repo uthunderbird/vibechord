@@ -3396,6 +3396,61 @@ def test_cancel_json_emits_machine_readable_payload(tmp_path: Path, monkeypatch)
     assert payload["metadata"]["source"] == "test"
 
 
+def test_cancel_run_scope_json_returns_requested_status_and_zero_exit_code(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def cancel(self, operation_id: str, *, session_id=None, run_id=None):
+            assert session_id is None
+            assert run_id == "run-1"
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Cancellation requested.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["cancel", operation_id, "--run", "run-1", "--yes", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["status"] == "running"
+    assert payload["summary"] == "Cancellation requested."
+
+
+def test_cancel_session_scope_success_prints_requested_status(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        async def cancel(self, operation_id: str, *, session_id=None, run_id=None):
+            assert session_id == "session-1"
+            assert run_id is None
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Cancellation requested.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["cancel", operation_id, "--session", "session-1", "--yes"])
+
+    assert result.exit_code == 0
+    assert "running: Cancellation requested." in result.stdout
+
+
 def test_message_command_enqueues_operator_message(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
