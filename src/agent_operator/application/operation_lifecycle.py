@@ -37,6 +37,14 @@ class HistoryLedger(Protocol):
     async def append(self, state: OperationState, outcome: OperationOutcome) -> None: ...
 
 
+class TicketReporter(Protocol):
+    async def report_terminal_state(
+        self,
+        state: OperationState,
+        outcome: OperationOutcome,
+    ) -> bool: ...
+
+
 class AgentResultHandler(Protocol):
     async def __call__(
         self,
@@ -67,6 +75,7 @@ class OperationLifecycleCoordinator:
     history_ledger: HistoryLedger | None = None
     event_store: OperationEventStore | None = None
     replay_service: LifecycleReplayService | None = None
+    ticket_reporter: TicketReporter | None = None
 
     def mark_running(self, state: OperationState) -> None:
         state.status = OperationStatus.RUNNING
@@ -122,6 +131,8 @@ class OperationLifecycleCoordinator:
         await self.store.save_outcome(outcome)
         if self.history_ledger is not None and state.status in history_statuses:
             await self.history_ledger.append(state, outcome)
+        if self.ticket_reporter is not None:
+            await self.ticket_reporter.report_terminal_state(state, outcome)
         return outcome
 
     async def cancel_operation(

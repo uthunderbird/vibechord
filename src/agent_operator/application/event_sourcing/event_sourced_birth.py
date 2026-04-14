@@ -81,6 +81,13 @@ class EventSourcedOperationBirthService:
                 payload=payload,
             )
         ]
+        if state.goal.external_ticket is not None:
+            event_drafts.append(
+                OperationDomainEventDraft(
+                    event_type="operation.ticket_linked",
+                    payload=state.goal.external_ticket.model_dump(mode="json"),
+                )
+            )
         event_drafts.extend(
             OperationDomainEventDraft(
                 event_type="session.created",

@@ -48,6 +48,11 @@ from ..workflows import clear_async, run_async
 )
 def run(
     objective: str | None = typer.Argument(None, help="Objective for this run."),
+    from_ticket: str | None = typer.Option(
+        None,
+        "--from",
+        help="Populate the goal from a PM ticket ref such as github:owner/repo#123.",
+    ),
     project: str | None = PROJECT_OPTION,
     harness: str | None = HARNESS_OPTION,
     success_criterion: list[str] | None = RUN_SUCCESS_CRITERION_OPTION,
@@ -85,6 +90,7 @@ def run(
     anyio.run(
         run_async,
         objective,
+        from_ticket,
         project,
         harness,
         success_criterion,

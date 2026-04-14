@@ -47,11 +47,21 @@ if TYPE_CHECKING:
     from agent_operator.domain.brain import BrainDecision
 
 
+class ExternalTicketLink(BaseModel):
+    provider: str
+    project_key: str
+    ticket_id: str
+    url: str | None = None
+    title: str | None = None
+    reported: bool = False
+
+
 class OperationGoal(BaseModel):
     objective: str
     harness_instructions: str | None = None
     success_criteria: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    external_ticket: ExternalTicketLink | None = None
 
     @property
     def objective_text(self) -> str:

@@ -44,7 +44,8 @@ from agent_operator.application.runtime.operation_process_dispatch import (
     OperationProcessSignalDispatcher,
 )
 from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
-from agent_operator.config import OperatorSettings
+from agent_operator.application.ticketing import TicketReportingService
+from agent_operator.config import OperatorSettings, load_global_config
 from agent_operator.projectors import DefaultOperationProjector
 from agent_operator.protocols import AgentSessionManager, EventSink, ProcessManager
 from agent_operator.providers import (
@@ -304,20 +305,24 @@ class OperatorGraphProvider(_BootstrapProviderBase):
         history_ledger: FileOperationHistoryLedger,
         event_store: FileOperationEventStore,
         replay_service: EventSourcedReplayService,
+        operation_attention_coordinator: OperationAttentionCoordinator,
     ) -> OperationLifecycleCoordinator:
         return OperationLifecycleCoordinator(
             store=store,
             history_ledger=history_ledger,
             event_store=event_store,
             replay_service=replay_service,
+            ticket_reporter=TicketReportingService(
+                store=store,
+                global_config=load_global_config(),
+                attention_coordinator=operation_attention_coordinator,
+            ),
         )
 
     @provide(scope=Scope.APP)
     def attached_turn_service(self) -> AttachedTurnService:
         return AttachedTurnService(
-            attached_turn_timeout=timedelta(
-                minutes=self._settings.attached_turn_timeout_minutes
-            ),
+            attached_turn_timeout=timedelta(minutes=self._settings.attached_turn_timeout_minutes),
         )
 
     @provide(scope=Scope.APP)
@@ -651,9 +656,7 @@ class OperatorGraphProvider(_BootstrapProviderBase):
             project_memory_store=project_memory_store,
             supervisor=supervisor,
             process_manager_builder=process_manager_builder,
-            attached_turn_timeout=timedelta(
-                minutes=self._settings.attached_turn_timeout_minutes
-            ),
+            attached_turn_timeout=timedelta(minutes=self._settings.attached_turn_timeout_minutes),
             operation_lifecycle_coordinator=operation_lifecycle_coordinator,
             event_sourced_command_service=event_sourced_command_service,
             event_sourced_operation_birth_service=birth_service,

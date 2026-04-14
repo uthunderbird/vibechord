@@ -10,7 +10,10 @@ import typer
 from rich.console import Console as RichConsole
 from rich.live import Live
 
+from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
+from agent_operator.application.ticketing import TicketReportingService
 from agent_operator.bootstrap import build_store, build_trace_store
+from agent_operator.config import load_global_config
 from agent_operator.domain import TaskState
 from agent_operator.runtime import (
     find_codex_session_log,
@@ -427,14 +430,45 @@ def artifacts(
 @app.command()
 def report(
     operation_ref: str,
+    ticket: bool = typer.Option(False, "--ticket", help="Retry PM ticket reporting."),
     json_mode: bool = typer.Option(False, "--json", help="Emit a machine-readable report payload."),
 ) -> None:
     resolved_operation_id = resolve_operation_id(operation_ref)
     settings = load_settings()
     trace_store = build_trace_store(settings)
     status_queries = build_status_query_service(settings)
+    store = build_store(settings)
 
     async def _report() -> None:
+        if ticket:
+            operation = await store.load_operation(resolved_operation_id)
+            outcome = await store.load_outcome(resolved_operation_id)
+            if operation is None or outcome is None:
+                raise typer.BadParameter(
+                    f"Ticket report for {resolved_operation_id!r} was not found."
+                )
+            reporter = TicketReportingService(
+                store=store,
+                global_config=load_global_config(),
+                attention_coordinator=OperationAttentionCoordinator(),
+            )
+            changed = await reporter.retry(operation, outcome)
+            payload = {
+                "operation_id": resolved_operation_id,
+                "ticket_reported": operation.goal.external_ticket.reported
+                if operation.goal.external_ticket is not None
+                else False,
+                "changed": changed,
+            }
+            if json_mode:
+                typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+                return
+            typer.echo(
+                "Ticket reporting retried."
+                if changed
+                else "Ticket reporting was already complete or silent."
+            )
+            return
         try:
             operation, outcome, brief, _ = await status_queries.build_status_payload(
                 resolved_operation_id

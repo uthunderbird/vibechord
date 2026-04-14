@@ -438,3 +438,11 @@ def _resolve_profile_relative_paths(payload: dict[str, object], *, base_dir: Pat
                     candidate = Path(cwd_value)
                     if not candidate.is_absolute():
                         server["cwd"] = (base_dir / candidate).resolve()
+
+    ticket_reporting = payload.get("ticket_reporting")
+    if isinstance(ticket_reporting, dict):
+        intake_hook = ticket_reporting.get("intake_hook")
+        if isinstance(intake_hook, str) and intake_hook.strip():
+            candidate = Path(intake_hook)
+            if not candidate.is_absolute():
+                ticket_reporting["intake_hook"] = (base_dir / candidate).resolve()

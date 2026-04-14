@@ -77,6 +77,7 @@ from agent_operator.domain.operation import (
     ExecutionBudget,
     ExecutionHandleRef,
     ExecutionState,
+    ExternalTicketLink,
     FeatureDraft,
     FeaturePatch,
     FeatureState,
@@ -121,6 +122,7 @@ from agent_operator.domain.profile import (
     ProjectProfileAdapterSettings,
     ProjectProfileMcpServer,
     ResolvedProjectRunConfig,
+    TicketReportingConfig,
 )
 from agent_operator.domain.session_runtime import AgentSessionCommand, AgentSessionCommandType
 from agent_operator.domain.traceability import (
@@ -175,6 +177,7 @@ __all__ = [
     "ExecutionObservedState",
     "ExecutionState",
     "ExecutionBudget",
+    "ExternalTicketLink",
     "BlockingFocus",
     "BrainActionType",
     "BrainDecision",
@@ -234,6 +237,7 @@ __all__ = [
     "ProjectProfile",
     "ProjectProfileAdapterSettings",
     "ProjectProfileMcpServer",
+    "TicketReportingConfig",
     "RunMode",
     "SessionReusePolicy",
     "ResumePolicy",

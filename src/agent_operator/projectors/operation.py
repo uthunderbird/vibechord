@@ -12,6 +12,7 @@ from agent_operator.domain import (
     CommandTargetScope,
     ExecutionObservedState,
     ExecutionState,
+    ExternalTicketLink,
     FocusState,
     InvolvementLevel,
     ObjectiveState,
@@ -133,6 +134,8 @@ class DefaultOperationProjector:
             checkpoint.final_summary = self._payload_optional_string(event.payload, "final_summary")
             if checkpoint.objective is not None and checkpoint.final_summary:
                 checkpoint.objective.summary = checkpoint.final_summary
+        elif event.event_type == "operation.ticket_linked":
+            checkpoint.external_ticket = self._payload_model(event.payload, ExternalTicketLink)
         elif event.event_type == "objective.updated":
             checkpoint.objective = self._payload_model(event.payload, ObjectiveState)
         elif event.event_type == "operation.allowed_agents.updated":
@@ -403,9 +406,7 @@ class DefaultOperationProjector:
         if event.event_type == "operation.focus.updated":
             focus_payload = event.payload.get("focus")
             checkpoint.current_focus = (
-                None
-                if focus_payload is None
-                else self._payload_model(focus_payload, FocusState)
+                None if focus_payload is None else self._payload_model(focus_payload, FocusState)
             )
         elif event.event_type == "session.waiting_reason.updated":
             session = self._find_by_attr(

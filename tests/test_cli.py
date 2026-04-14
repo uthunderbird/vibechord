@@ -31,6 +31,7 @@ from agent_operator.domain import (
     CommandTargetScope,
     DecisionMemo,
     ExecutionBudget,
+    ExternalTicketLink,
     FocusKind,
     FocusState,
     InvolvementLevel,
@@ -2264,6 +2265,48 @@ def test_report_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
     assert '"tasks"' in result.stdout
     assert '"memory"' in result.stdout
     assert '"artifacts"' in result.stdout
+
+
+def test_report_ticket_retries_pm_reporting(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+    anyio.run(
+        store.save_operation,
+        OperationState(
+            operation_id="op-ticket",
+            goal=OperationGoal(
+                objective="Ship the change.",
+                external_ticket=ExternalTicketLink(
+                    provider="github_issues",
+                    project_key="owner/repo",
+                    ticket_id="123",
+                ),
+            ),
+        ),
+    )
+    anyio.run(
+        store.save_outcome,
+        OperationOutcome(
+            operation_id="op-ticket",
+            status=OperationStatus.COMPLETED,
+            summary="Completed cleanly.",
+        ),
+    )
+
+    async def fake_retry(self, state, outcome):
+        state.goal.external_ticket.reported = True
+        return True
+
+    monkeypatch.setattr(
+        "agent_operator.cli.commands.operation_detail.TicketReportingService.retry",
+        fake_retry,
+    )
+
+    result = runner.invoke(app, ["report", "op-ticket", "--ticket", "--json"])
+
+    assert result.exit_code == 0
+    assert '"ticket_reported": true' in result.stdout
+    assert '"changed": true' in result.stdout
 
 
 def test_context_command_prints_effective_control_plane_context(
@@ -4607,6 +4650,121 @@ def test_run_uses_profile_default_objective_when_cli_objective_is_omitted(
     assert result.exit_code == 0
     goal = captured["goal"]
     assert goal.objective == "Prove problem 461 completely."
+
+
+def test_run_from_ticket_populates_goal_and_ticket_metadata(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text("name: repo\ncwd: .\n", encoding="utf-8")
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    async def fake_resolve(self, ticket_ref: str, *, profile):
+        assert ticket_ref == "github:owner/repo#123"
+        return SimpleNamespace(
+            goal_text="Imported title\n\nImported body",
+            ticket=ExternalTicketLink(
+                provider="github_issues",
+                project_key="owner/repo",
+                ticket_id="123",
+                url="https://github.com/owner/repo/issues/123",
+                title="Imported title",
+            ),
+        )
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            captured["goal"] = goal
+            return OperationOutcome(
+                operation_id="op-ticket-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from ticket.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.TicketIntakeService.resolve",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["run", "--from", "github:owner/repo#123"])
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    assert goal.objective == "Imported title\n\nImported body"
+    assert goal.external_ticket.ticket_id == "123"
+
+
+def test_run_cli_objective_overrides_ticket_goal_text(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text("name: repo\ncwd: .\n", encoding="utf-8")
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    async def fake_resolve(self, ticket_ref: str, *, profile):
+        return SimpleNamespace(
+            goal_text="Imported title\n\nImported body",
+            ticket=ExternalTicketLink(
+                provider="github_issues",
+                project_key="owner/repo",
+                ticket_id="123",
+                url="https://github.com/owner/repo/issues/123",
+                title="Imported title",
+            ),
+        )
+
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            captured["goal"] = goal
+            return OperationOutcome(
+                operation_id="op-ticket-run",
+                status=OperationStatus.RUNNING,
+                summary="Started from ticket.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.TicketIntakeService.resolve",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(app, ["run", "Use local override", "--from", "github:owner/repo#123"])
+
+    assert result.exit_code == 0
+    goal = captured["goal"]
+    assert goal.objective == "Use local override"
+    assert goal.metadata["external_ticket_context"] == "Imported title\n\nImported body"
 
 
 def test_run_prompts_for_objective_when_profile_has_no_default_objective(

@@ -9,6 +9,7 @@ from agent_operator.domain.control import OperatorMessage
 from agent_operator.domain.enums import InvolvementLevel, OperationStatus, SchedulerState
 from agent_operator.domain.operation import (
     ExecutionState,
+    ExternalTicketLink,
     FocusState,
     ObjectiveState,
     SessionState,
@@ -58,6 +59,7 @@ class OperationCheckpoint(BaseModel):
     involvement_level: InvolvementLevel = InvolvementLevel.AUTO
     processed_command_ids: list[str] = Field(default_factory=list)
     current_focus: FocusState | None = None
+    external_ticket: ExternalTicketLink | None = None
     final_summary: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

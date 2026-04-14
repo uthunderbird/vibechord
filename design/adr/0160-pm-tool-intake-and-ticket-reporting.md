@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Not implemented
+Partial
 
 ## Context
 

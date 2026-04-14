@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +24,14 @@ class ProjectProfileAdapterSettings(BaseModel):
     mcp_servers: list[ProjectProfileMcpServer] = Field(default_factory=list)
 
 
+class TicketReportingConfig(BaseModel):
+    on_success: Literal["comment_and_close", "comment_only", "silent"] = "silent"
+    on_failure: Literal["comment_only", "silent"] = "silent"
+    on_cancelled: Literal["comment_only", "silent"] = "silent"
+    webhook_url: str | None = None
+    intake_hook: Path | None = None
+
+
 class ProjectProfile(BaseModel):
     name: str
     cwd: Path | None = None
@@ -39,6 +48,7 @@ class ProjectProfile(BaseModel):
     dashboard_prefs: dict[str, object] = Field(default_factory=dict)
     session_reuse_policy: SessionReusePolicy | None = None
     default_message_window: int | None = Field(default=None, ge=0)
+    ticket_reporting: TicketReportingConfig = Field(default_factory=TicketReportingConfig)
 
 
 class ResolvedProjectRunConfig(BaseModel):

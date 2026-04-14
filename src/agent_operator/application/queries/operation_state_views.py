@@ -36,6 +36,11 @@ class OperationStateViewService:
             harness_instructions=objective_payload.get("harness_instructions"),
             success_criteria=list(objective_payload.get("success_criteria", [])),
             metadata=dict(objective_payload.get("metadata", {})),
+            external_ticket=(
+                checkpoint.external_ticket.model_copy(deep=True)
+                if checkpoint.external_ticket is not None
+                else None
+            ),
         )
         return OperationState(
             operation_id=checkpoint.operation_id,

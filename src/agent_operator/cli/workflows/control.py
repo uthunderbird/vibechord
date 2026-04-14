@@ -12,6 +12,7 @@ import typer
 from rich.console import Console as RichConsole
 from rich.live import Live
 
+from agent_operator.application.ticketing import TicketIntakeService
 from agent_operator.bootstrap import (
     build_event_sink,
     build_store,
@@ -20,7 +21,7 @@ from agent_operator.bootstrap import (
 from agent_operator.bootstrap import (
     build_service as bootstrap_build_service,
 )
-from agent_operator.config import OperatorSettings
+from agent_operator.config import OperatorSettings, load_global_config
 from agent_operator.domain import (
     AgentSessionHandle,
     BackgroundRuntimeMode,
@@ -126,6 +127,7 @@ def _build_cli_service(settings: OperatorSettings) -> OperatorService:
 
 async def run_async(
     objective: str | None,
+    from_ticket: str | None,
     project: str | None,
     harness: str | None,
     success_criteria: list[str] | None,
@@ -155,10 +157,16 @@ async def run_async(
         emit_free_mode_stub(cwd=launch_dir, json_mode=json_mode)
         return
     apply_project_profile_settings(settings, profile)
+    intake_result = None
+    if from_ticket is not None:
+        intake_service = TicketIntakeService(global_config=load_global_config())
+        intake_result = await intake_service.resolve(from_ticket, profile=profile)
     resolved = resolve_project_run_config(
         settings,
         profile=profile,
-        objective=objective,
+        objective=objective
+        if objective is not None
+        else (intake_result.goal_text if intake_result is not None else None),
         harness=harness,
         success_criteria=success_criteria,
         allowed_agents=allowed_agent,
@@ -207,6 +215,10 @@ async def run_async(
     effective_working_dir = attach_working_dir or resolved.cwd
     if effective_working_dir is not None:
         goal_metadata["working_directory"] = str(effective_working_dir)
+    if intake_result is not None:
+        goal_metadata["external_ticket_ref"] = from_ticket
+        if objective is not None:
+            goal_metadata["external_ticket_context"] = intake_result.goal_text
     goal_metadata["resolved_operator_launch"] = {
         "data_dir": str(settings.data_dir),
         "data_dir_source": data_dir_source,
@@ -221,6 +233,9 @@ async def run_async(
             adapter_keys=resolved.default_agents,
         )
         goal_metadata["resolved_project_profile"] = resolved.model_dump(mode="json")
+        ticket_reporting = getattr(profile, "ticket_reporting", None)
+        if ticket_reporting is not None and hasattr(ticket_reporting, "model_dump"):
+            goal_metadata["ticket_reporting"] = ticket_reporting.model_dump(mode="json")
         if selected_profile_path is not None:
             goal_metadata["project_profile_path"] = str(selected_profile_path)
         if profile_source is not None:
@@ -247,6 +262,7 @@ async def run_async(
                 harness_instructions=resolved.harness_instructions,
                 success_criteria=resolved.success_criteria,
                 metadata=goal_metadata,
+                external_ticket=intake_result.ticket if intake_result is not None else None,
             ),
             policy=OperationPolicy(
                 allowed_agents=resolved.default_agents,
@@ -278,15 +294,11 @@ async def run_async(
                 OperationStatus.FAILED,
                 OperationStatus.CANCELLED,
             }
-            root_task_terminal = (
-                bool(state.tasks)
-                and state.tasks[0].status
-                in {
-                    TaskStatus.COMPLETED,
-                    TaskStatus.FAILED,
-                    TaskStatus.CANCELLED,
-                }
-            )
+            root_task_terminal = bool(state.tasks) and state.tasks[0].status in {
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            }
             if not operation_terminal and not root_task_terminal:
                 state.status = OperationStatus.FAILED
                 state.final_summary = summary
@@ -794,17 +806,14 @@ async def enqueue_command_async(
     )
     if wait_for_ack:
         operation = await service.store.load_operation(operation_id)
-        if (
-            operation is not None
-            and (
-                operation.status
-                in {
-                    OperationStatus.COMPLETED,
-                    OperationStatus.FAILED,
-                    OperationStatus.CANCELLED,
-                }
-                or operation.scheduler_state is SchedulerState.PAUSED
-            )
+        if operation is not None and (
+            operation.status
+            in {
+                OperationStatus.COMPLETED,
+                OperationStatus.FAILED,
+                OperationStatus.CANCELLED,
+            }
+            or operation.scheduler_state is SchedulerState.PAUSED
         ):
             await service.tick(operation_id)
         for _ in range(20):
@@ -818,8 +827,7 @@ async def enqueue_command_async(
                 continue
             if updated.status is CommandStatus.REJECTED:
                 typer.echo(
-                    "Error: patch rejected - "
-                    f"{updated.rejection_reason or 'unknown_rejection'}"
+                    f"Error: patch rejected - {updated.rejection_reason or 'unknown_rejection'}"
                 )
                 raise typer.Exit(1)
             typer.echo(f"accepted: {updated.command_type.value} [{updated.command_id}]")
