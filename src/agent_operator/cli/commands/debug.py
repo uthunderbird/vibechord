@@ -16,6 +16,7 @@ from agent_operator.bootstrap import (
 from agent_operator.domain.control import OperationCommand
 from agent_operator.domain.events import RunEvent
 from agent_operator.domain.operation import ExecutionState, OperationOutcome, WakeupRef
+from agent_operator.domain.traceability import TraceBriefBundle
 
 from ..app import app, debug_app
 from ..helpers.rendering import (
@@ -138,6 +139,104 @@ def _operation_outcome_payload(outcome: OperationOutcome) -> dict[str, object]:
         "status": outcome.status.value,
         "summary": outcome.summary,
         "ended_at": outcome.ended_at.isoformat() if outcome.ended_at is not None else None,
+    }
+
+
+def _trace_brief_bundle_payload(brief: TraceBriefBundle) -> dict[str, object]:
+    return {
+        "operation_brief": (
+            {
+                "operation_id": brief.operation_brief.operation_id,
+                "status": brief.operation_brief.status.value,
+                "scheduler_state": brief.operation_brief.scheduler_state.value,
+                "involvement_level": brief.operation_brief.involvement_level.value,
+                "objective_brief": brief.operation_brief.objective_brief,
+                "harness_brief": brief.operation_brief.harness_brief,
+                "focus_brief": brief.operation_brief.focus_brief,
+                "latest_outcome_brief": brief.operation_brief.latest_outcome_brief,
+                "blocker_brief": brief.operation_brief.blocker_brief,
+                "runtime_alert_brief": brief.operation_brief.runtime_alert_brief,
+                "updated_at": brief.operation_brief.updated_at.isoformat(),
+            }
+            if brief.operation_brief is not None
+            else None
+        ),
+        "iteration_briefs": [
+            {
+                "iteration": item.iteration,
+                "task_id": item.task_id,
+                "session_id": item.session_id,
+                "operator_intent_brief": item.operator_intent_brief,
+                "assignment_brief": item.assignment_brief,
+                "result_brief": item.result_brief,
+                "status_brief": item.status_brief,
+                "refs": item.refs.to_dict() if item.refs is not None else None,
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in brief.iteration_briefs
+        ],
+        "agent_turn_briefs": [
+            {
+                "operation_id": item.operation_id,
+                "iteration": item.iteration,
+                "agent_key": item.agent_key,
+                "session_id": item.session_id,
+                "background_run_id": item.background_run_id,
+                "session_display_name": item.session_display_name,
+                "assignment_brief": item.assignment_brief,
+                "expected_outcome": item.expected_outcome,
+                "result_brief": item.result_brief,
+                "turn_summary": (
+                    {
+                        "declared_goal": item.turn_summary.declared_goal,
+                        "actual_work_done": item.turn_summary.actual_work_done,
+                        "route_or_target_chosen": item.turn_summary.route_or_target_chosen,
+                        "repo_changes": list(item.turn_summary.repo_changes),
+                        "progress_class": item.turn_summary.progress_class,
+                        "blocker_keys": list(item.turn_summary.blocker_keys),
+                        "state_delta": item.turn_summary.state_delta,
+                        "verification_status": item.turn_summary.verification_status,
+                        "remaining_blockers": list(item.turn_summary.remaining_blockers),
+                        "recommended_next_step": item.turn_summary.recommended_next_step,
+                        "rationale": item.turn_summary.rationale,
+                    }
+                    if item.turn_summary is not None
+                    else None
+                ),
+                "status": item.status,
+                "artifact_refs": list(item.artifact_refs),
+                "raw_log_refs": list(item.raw_log_refs),
+                "wakeup_refs": list(item.wakeup_refs),
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in brief.agent_turn_briefs
+        ],
+        "command_briefs": [
+            {
+                "operation_id": item.operation_id,
+                "command_id": item.command_id,
+                "command_type": item.command_type,
+                "status": item.status,
+                "iteration": item.iteration,
+                "applied_at": item.applied_at.isoformat() if item.applied_at is not None else None,
+                "rejected_at": (
+                    item.rejected_at.isoformat() if item.rejected_at is not None else None
+                ),
+                "rejection_reason": item.rejection_reason,
+            }
+            for item in brief.command_briefs
+        ],
+        "evaluation_briefs": [
+            {
+                "operation_id": item.operation_id,
+                "iteration": item.iteration,
+                "goal_satisfied": item.goal_satisfied,
+                "should_continue": item.should_continue,
+                "summary": item.summary,
+                "blocker": item.blocker,
+            }
+            for item in brief.evaluation_briefs
+        ],
     }
 
 
@@ -418,7 +517,7 @@ def inspect(
             payload: dict[str, object] = {
                 "operation": operation_payload(operation),
                 "outcome": _operation_outcome_payload(outcome) if outcome is not None else None,
-                "brief": brief.model_dump(mode="json") if brief is not None else None,
+                "brief": _trace_brief_bundle_payload(brief) if brief is not None else None,
                 "report": report,
                 "commands": commands,
                 "durable_truth": PROJECTIONS.build_durable_truth_payload(

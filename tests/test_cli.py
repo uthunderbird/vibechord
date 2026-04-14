@@ -2452,6 +2452,8 @@ def test_inspect_full_shows_forensic_details(tmp_path: Path, monkeypatch) -> Non
 
 
 def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> None:
+    from agent_operator.domain.traceability import TraceBriefBundle
+
     operation_id = _seed_operation(tmp_path)
     _seed_command(tmp_path, operation_id)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -2459,9 +2461,13 @@ def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> No
     def _fail_outcome_model_dump(self, *args, **kwargs):
         raise AssertionError("debug inspect should not serialize OperationOutcome directly")
 
+    def _fail_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect should not serialize TraceBriefBundle directly")
+
     def _fail_command_model_dump(self, *args, **kwargs):
         raise AssertionError("debug inspect should not serialize OperationCommand directly")
 
+    monkeypatch.setattr(TraceBriefBundle, "model_dump", _fail_brief_model_dump)
     monkeypatch.setattr(OperationOutcome, "model_dump", _fail_outcome_model_dump)
     monkeypatch.setattr(OperationCommand, "model_dump", _fail_command_model_dump)
 
