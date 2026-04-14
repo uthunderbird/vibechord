@@ -1,8 +1,12 @@
 # ADR 0105: Repository-wide lint normalization as a separate quality wave
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Partial
 
 ## Context
 
@@ -114,16 +118,14 @@ That would normalize drift between local hygiene expectations and repo-wide qual
 - Repo-wide lint debt becomes visible and schedulable instead of ambient background noise.
 - The repository can continue requiring touched-file cleanliness without pretending that the whole
   baseline is already normalized.
-- `implemented`: the repository-wide lint normalization wave is now complete.
-- `verified`: `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` is green.
-- `verified`: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` remains green after the cleanup.
+- `partial`: the repository-wide lint normalization wave remains an active quality workstream rather
+  than a closed repository-wide gate.
 
-## Implementation Status
-
-Implemented
-
-Skim-safe current truth on 2026-04-12:
+Skim-safe current truth on 2026-04-14:
 
 - `implemented`: `ruff` is configured and enforced in pre-commit hooks
-- `implemented`: `uv run ruff check src/` reports zero errors as of 2026-04-12
-- `verified`: all checks pass — legacy import and style debt cleared
+- `implemented`: repository lint policy exists in `pyproject.toml` and `.pre-commit-config.yaml`
+- `partial`: `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` still reports live findings
+  in the current repository state, so the repo-wide always-green gate is not yet achieved
+- `partial`: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` is not currently green, so ADR 0105
+  cannot claim verified repository-wide closure from this repo state
