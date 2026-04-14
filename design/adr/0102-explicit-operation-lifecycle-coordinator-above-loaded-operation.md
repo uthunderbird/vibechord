@@ -227,8 +227,8 @@ context object.
   second shell or a new bag-of-collaborators object.
 - Current repository truth now materially matches this ADR:
   - `implemented`: `OperationLifecycleCoordinator` exists in code
-  - `implemented`: durable terminal closure (`save_operation` / `save_outcome` / history append)
-    is centralized there
+  - `implemented`: durable terminal outcome closure (`save_outcome` / history append) is
+    centralized there
   - `implemented`: most explicit top-level status transitions now route through the coordinator,
     including `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`, and `NEEDS_HUMAN` paths in drive,
     decision, command, result, and snapshot-command flows
@@ -243,7 +243,7 @@ context object.
 
 Implemented
 
-Skim-safe current truth on 2026-04-12:
+Skim-safe current truth on 2026-04-14:
 
 - `implemented`: `OperationLifecycleCoordinator` is the explicit authority for all lifecycle
   transitions — used across `service.py`, `drive/`, `commands/`, `runtime/`, `reconciliation/`
