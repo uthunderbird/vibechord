@@ -363,6 +363,7 @@ def test_run_cli_startup_exception_does_not_overwrite_completed_operation(
     assert persisted.tasks[0].status is TaskStatus.COMPLETED
     assert persisted.status is OperationStatus.COMPLETED
     assert persisted.final_summary == "Attached turn completed successfully."
+    assert lifecycle_calls == []
 
 
 def test_cli_package_exports_command_and_helper_families() -> None:
