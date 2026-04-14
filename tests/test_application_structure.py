@@ -6,6 +6,7 @@ from pathlib import Path
 APPLICATION_DIR = (
     Path(__file__).resolve().parents[1] / "src" / "agent_operator" / "application"
 )
+CLI_DIR = Path(__file__).resolve().parents[1] / "src" / "agent_operator" / "cli"
 
 
 def _python_sources(root: Path) -> list[Path]:
@@ -485,3 +486,98 @@ def test_queries_do_not_import_commands_family() -> None:
                 offenders.append(f"{path.relative_to(APPLICATION_DIR)} -> {node.module}")
 
     assert offenders == []
+
+
+def test_cli_subpackages_and_boundary_imports_match_adr_0120() -> None:
+    """ADR 0120: CLI family packages and disallowed upward imports remain explicit."""
+    for package_name in ("commands", "helpers", "rendering", "tui", "workflows"):
+        assert (CLI_DIR / package_name / "__init__.py").exists()
+
+    retired = {
+        "commands_debug.py",
+        "commands_fleet.py",
+        "commands_operation_control.py",
+        "commands_operation_detail.py",
+        "commands_policy.py",
+        "commands_project.py",
+        "commands_run.py",
+        "commands_smoke.py",
+        "helpers_logs.py",
+        "helpers_policy.py",
+        "helpers_rendering.py",
+        "helpers_resolution.py",
+        "helpers_services.py",
+        "rendering.py",
+        "rendering_fleet.py",
+        "rendering_operation.py",
+        "rendering_project.py",
+        "rendering_text.py",
+        "tui.py",
+        "tui_controller.py",
+        "tui_io.py",
+        "tui_models.py",
+        "tui_rendering.py",
+        "workflows.py",
+        "workflows_control.py",
+        "workflows_views.py",
+        "workflows_workspace.py",
+    }
+    present = {path.name for path in CLI_DIR.glob("*.py")}
+    assert retired.isdisjoint(present)
+
+    offenders: list[str] = []
+    for path in _python_sources(CLI_DIR):
+        relative = path.relative_to(CLI_DIR)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            modules: list[str] = []
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                modules = [node.module]
+            for module_name in modules:
+                if relative.parts[0] == "helpers" and (
+                    module_name == "agent_operator.cli.app"
+                    or module_name.startswith("agent_operator.cli.commands")
+                ):
+                    offenders.append(f"{relative} -> {module_name}")
+                if relative.parts[0] == "commands" and module_name == "agent_operator.cli.main":
+                    offenders.append(f"{relative} -> {module_name}")
+                if relative.parts[0] == "tui" and module_name == "agent_operator.cli.main":
+                    offenders.append(f"{relative} -> {module_name}")
+
+    assert offenders == []
+
+
+def test_cli_main_remains_a_thin_facade_over_app_and_shared_exports() -> None:
+    """ADR 0120: cli.main stays as a compatibility facade rather than a command root."""
+    module = ast.parse((CLI_DIR / "main.py").read_text(encoding="utf-8"))
+
+    assert all(
+        not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        for node in module.body
+    )
+    imported_modules = sorted(
+        f"{'.' * node.level}{node.module}"
+        for node in module.body
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    )
+    assert imported_modules.count(".workflows") == 2
+    assert "__future__" in imported_modules
+    assert "agent_operator.bootstrap" in imported_modules
+    assert ".app" in imported_modules
+    assert ".helpers.rendering" in imported_modules
+
+
+def test_cli_app_registers_commands_via_package_modules() -> None:
+    """ADR 0120: command registration flows through cli.app package imports."""
+    module = ast.parse((CLI_DIR / "app.py").read_text(encoding="utf-8"))
+
+    command_imports = [
+        f"{'.' * node.level}{node.module}"
+        for node in module.body
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+        and f"{'.' * node.level}{node.module}" == ".commands"
+    ]
+
+    assert len(command_imports) == 11

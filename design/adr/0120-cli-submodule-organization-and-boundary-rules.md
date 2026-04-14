@@ -2,9 +2,13 @@
 
 - Date: 2026-04-09
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Partial
 
 ## Context
 
@@ -38,7 +42,7 @@ The CLI package is organized into stable submodule families with explicit bounda
 
 ### 2. Commands
 
-Typer-facing command functions live in `cli/commands_*.py` modules.
+Typer-facing command functions live in `cli/commands/` modules.
 
 Rules:
 
@@ -47,20 +51,20 @@ Rules:
 - command modules do not import `cli.main`;
 - subgroup surfaces are split by user-facing responsibility rather than by internal implementation detail.
 
-Current families:
+Current families include:
 
-- `commands_run.py`
-- `commands_fleet.py`
-- `commands_operation_control.py`
-- `commands_operation_detail.py`
-- `commands_project.py`
-- `commands_policy.py`
-- `commands_debug.py`
-- `commands_smoke.py`
+- `commands/run.py`
+- `commands/fleet.py`
+- `commands/operation_control.py`
+- `commands/operation_detail.py`
+- `commands/project.py`
+- `commands/policy.py`
+- `commands/debug.py`
+- `commands/smoke.py`
 
 ### 3. Helpers
 
-Non-command shared logic lives in narrowly-scoped `cli/helpers_*.py` modules.
+Non-command shared logic lives in narrowly-scoped `cli/helpers/` modules plus `cli/options.py`.
 
 Rules:
 
@@ -68,19 +72,19 @@ Rules:
 - helpers should expose deterministic, reusable functions;
 - helper modules should be responsibility-shaped, not “misc” buckets.
 
-Current families:
+Current families include:
 
-- `helpers_services.py`
-- `helpers_resolution.py`
-- `helpers_rendering.py`
-- `helpers_logs.py`
-- `helpers_policy.py`
+- `helpers/services.py`
+- `helpers/resolution.py`
+- `helpers/rendering.py`
+- `helpers/logs.py`
+- `helpers/policy.py`
 - `options.py`
 
 ### 4. Workflows
 
 Async orchestration paths that sit between CLI commands and application/runtime services live in
-`cli/workflows*.py`.
+`cli/workflows/`.
 
 Rules:
 
@@ -102,7 +106,7 @@ Rules:
 
 ### 6. TUI
 
-Interactive TUI code is split into dedicated TUI submodules.
+Interactive TUI code is split into dedicated TUI submodules under `cli/tui/`.
 
 Rules:
 
@@ -114,19 +118,19 @@ Rules:
 
 The following imports are allowed:
 
-- `commands_* -> helpers_*`
-- `commands_* -> workflows*`
+- `commands/* -> helpers/*`
+- `commands/* -> workflows/*`
 - `app -> commands_*`
-- `workflows* -> helpers_*`
-- `workflows* -> rendering*`
-- `tui facade -> tui_* submodules`
+- `workflows/* -> helpers/*`
+- `workflows/* -> rendering/*`
+- `tui facade -> tui/* submodules`
 
 The following imports are not allowed:
 
-- `helpers_* -> commands_*`
-- `helpers_* -> app`
-- `commands_* -> main`
-- `tui_* -> main`
+- `helpers/* -> commands/*`
+- `helpers/* -> app`
+- `commands/* -> main`
+- `tui/* -> main`
 - new “misc” CLI modules that mix commands, helpers, and workflows
 
 ## Consequences
@@ -147,23 +151,33 @@ Tradeoffs:
 Changes touching the CLI should preserve these conditions:
 
 - `cli/main.py` remains a thin facade;
-- no CLI source file exceeds the repository’s current line-budget rule;
 - command registration still flows through `app.py`;
+- CLI families stay separated into explicit `commands/`, `helpers/`, `rendering/`, `tui/`, and
+  `workflows/` packages;
 - focused CLI/TUI tests continue to pass.
+
+Current repository truth on 2026-04-14 does not satisfy the historical “no CLI source file exceeds
+the current line-budget rule” condition from ADR 0119. That regression keeps this ADR at
+`Partial` implementation status even though the subpackage boundary shape itself is in place.
 
 ## Related
 
 - [ADR 0119](./0119-cli-main-module-decomposition-below-500-lines.md)
 
-## Implementation Status
+Skim-safe current truth on 2026-04-14:
 
-Implemented
-
-Skim-safe current truth on 2026-04-12:
-
-- `implemented`: CLI organized as `cli/app.py` (registration), `cli/commands/` (families),
-  `cli/rendering/` (text rendering), `cli/tui/` (TUI workbench), `cli/workflows/` (control),
-  `cli/helpers/` (utilities)
-- `implemented`: command registration flows through `app.py`; no rogue top-level command modules
-- `implemented`: all legacy flat family modules retired per ADR 0123
-- `verified`: submodule boundary rules tested in `tests/test_application_structure.py`
+- `implemented`: CLI is organized as `cli/app.py` (registration), `cli/commands/`,
+  `cli/rendering/`, `cli/tui/`, `cli/workflows/`, `cli/helpers/`, and `cli/options.py`
+- `implemented`: command registration flows through `app.py`; source-level flat family modules such
+  as `commands_*.py`, `helpers_*.py`, `rendering*.py`, `tui*.py`, and `workflows*.py` are retired
+- `implemented`: `cli/main.py` remains a thin compatibility facade and `cli.app` imports the
+  command package modules that register the CLI surface
+- `implemented`: direct disallowed upward imports covered by ADR 0120 (`helpers/* -> commands/*`,
+  `helpers/* -> app`, `commands/* -> main`, `tui/* -> main`) are structurally checked in
+  `tests/test_application_structure.py`, but not repository-verified because full `uv run pytest`
+  is currently red
+- `partial`: the package boundary shape is in place, but CLI file-size budget compliance has
+  regressed; examples above 500 lines include `cli/tui/controller.py` (1347),
+  `cli/tui/models.py` (956), `cli/tui/rendering.py` (979), `cli/workflows/control.py` (868),
+  `cli/workflows/views.py` (826), `cli/commands/operation_detail.py` (737), and
+  `cli/rendering/text.py` (630)
