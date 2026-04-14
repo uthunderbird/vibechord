@@ -6,6 +6,7 @@ from agent_operator.domain.agent import (
     AgentError,
     AgentProgress,
     AgentResult,
+    AgentSessionBusyError,
     AgentSessionHandle,
     AgentUsage,
 )
@@ -149,6 +150,7 @@ __all__ = [
     "AgentProgressState",
     "AgentResult",
     "AgentResultStatus",
+    "AgentSessionBusyError",
     "AgentSessionCommand",
     "AgentSessionCommandType",
     "AgentSessionHandle",

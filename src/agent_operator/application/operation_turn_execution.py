@@ -14,7 +14,9 @@ from agent_operator.domain import (
     AgentDescriptor,
     AgentProgress,
     AgentResult,
+    AgentSessionBusyError,
     AgentSessionHandle,
+    BackgroundRunStatus,
     FocusKind,
     FocusMode,
     FocusState,
@@ -363,6 +365,23 @@ class OperationTurnExecutionService:
             )
             record = self._loaded_operation.upsert_session_record(state, session, task)
         else:
+            if record.current_execution_id is not None:
+                active_run = self._loaded_operation.find_background_run(
+                    state,
+                    record.current_execution_id,
+                )
+                if active_run is not None and active_run.status in {
+                    BackgroundRunStatus.PENDING,
+                    BackgroundRunStatus.RUNNING,
+                }:
+                    adapter_label = adapter_key.replace("_", " ").split()[0].capitalize()
+                    busy_message = "Cannot send a follow-up while a "
+                    busy_message += f"{adapter_label} ACP turn is still running."
+                    raise AgentSessionBusyError(
+                        busy_message,
+                        session_id=record.handle.session_id,
+                        execution_id=record.current_execution_id,
+                    )
             request = AgentRunRequest(
                 goal=state.objective_state.objective,
                 instruction=decision.instruction or "",

@@ -8,6 +8,21 @@ from pydantic import BaseModel, Field
 from agent_operator.domain.enums import AgentProgressState, AgentResultStatus
 
 
+class AgentSessionBusyError(RuntimeError):
+    """Raised when a follow-up is requested while the target session is still busy."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        session_id: str | None = None,
+        execution_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.session_id = session_id
+        self.execution_id = execution_id
+
+
 class AgentCapability(BaseModel):
     name: str
     description: str = ""

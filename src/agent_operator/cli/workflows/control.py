@@ -273,28 +273,43 @@ async def run_async(
             exc_type, exc, _tb = sys.exc_info()
             if exc is not None:
                 summary = str(exc) or summary
-            state.status = OperationStatus.FAILED
-            state.final_summary = summary
-            state.objective_state.summary = summary
-            state.updated_at = datetime.now(UTC)
-            if state.tasks:
-                root_task = state.tasks[0]
-                if root_task.status not in {
+            operation_terminal = state.status in {
+                OperationStatus.COMPLETED,
+                OperationStatus.FAILED,
+                OperationStatus.CANCELLED,
+            }
+            root_task_terminal = (
+                bool(state.tasks)
+                and state.tasks[0].status
+                in {
                     TaskStatus.COMPLETED,
                     TaskStatus.FAILED,
                     TaskStatus.CANCELLED,
-                }:
-                    root_task.status = TaskStatus.FAILED
-                    root_task.updated_at = state.updated_at
-            await store.save_operation(state)
-            await store.save_outcome(
-                OperationOutcome(
-                    operation_id=operation_id,
-                    status=OperationStatus.FAILED,
-                    summary=summary,
-                    ended_at=state.updated_at,
-                )
+                }
             )
+            if not operation_terminal and not root_task_terminal:
+                state.status = OperationStatus.FAILED
+                state.final_summary = summary
+                state.objective_state.summary = summary
+                state.updated_at = datetime.now(UTC)
+                if state.tasks:
+                    root_task = state.tasks[0]
+                    if root_task.status not in {
+                        TaskStatus.COMPLETED,
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELLED,
+                    }:
+                        root_task.status = TaskStatus.FAILED
+                        root_task.updated_at = state.updated_at
+                await store.save_operation(state)
+                await store.save_outcome(
+                    OperationOutcome(
+                        operation_id=operation_id,
+                        status=OperationStatus.FAILED,
+                        summary=summary,
+                        ended_at=state.updated_at,
+                    )
+                )
         raise
     if wait and effective_mode is RunMode.RESUMABLE:
         outcome = await _wait_for_operation_outcome(

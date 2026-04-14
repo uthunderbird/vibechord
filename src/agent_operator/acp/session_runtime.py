@@ -12,6 +12,7 @@ from agent_operator.domain import (
     AdapterCommand,
     AdapterCommandType,
     AdapterFactDraft,
+    AgentSessionBusyError,
     AgentSessionCommand,
     AgentSessionCommandType,
     TechnicalFactDraft,
@@ -107,18 +108,24 @@ class AcpAgentSessionRuntime:
             if self._active_prompt_task is not None and not self._active_prompt_task.done():
                 adapter_name = getattr(self._adapter_runtime, "_adapter_key", "agent")
                 if adapter_name == "codex_acp":
-                    raise RuntimeError(
-                        "Cannot send a follow-up while a Codex ACP turn is still running."
+                    raise AgentSessionBusyError(
+                        "Cannot send a follow-up while a Codex ACP turn is still running.",
+                        session_id=self._live_session_id,
                     )
                 if adapter_name == "claude_acp":
-                    raise RuntimeError(
-                        "Cannot send a follow-up while a Claude ACP turn is still running."
+                    raise AgentSessionBusyError(
+                        "Cannot send a follow-up while a Claude ACP turn is still running.",
+                        session_id=self._live_session_id,
                     )
                 if adapter_name == "opencode_acp":
-                    raise RuntimeError(
-                        "Cannot send a follow-up while an OpenCode ACP turn is still running."
+                    raise AgentSessionBusyError(
+                        "Cannot send a follow-up while an OpenCode ACP turn is still running.",
+                        session_id=self._live_session_id,
                     )
-                raise RuntimeError("Cannot send a follow-up while the current turn is running.")
+                raise AgentSessionBusyError(
+                    "Cannot send a follow-up while the current turn is running.",
+                    session_id=self._live_session_id,
+                )
             self._start_prompt_task(self._live_session_id, command.instruction or "")
             return
         if command.command_type == AgentSessionCommandType.FORK_SESSION:

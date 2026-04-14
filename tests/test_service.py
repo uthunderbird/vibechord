@@ -11,6 +11,7 @@ from agent_operator.domain import (
     AgentProgressState,
     AgentResult,
     AgentResultStatus,
+    AgentSessionBusyError,
     AgentSessionHandle,
     BackgroundRunStatus,
     BackgroundRuntimeMode,
@@ -820,6 +821,42 @@ class CompleteTaskThenStartFreshTaskBrain:
         return result
 
 
+class StartThenContinueBusySessionBrain:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        if self.calls == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="codex_acp",
+                instruction="start background work",
+                rationale="Dispatch the first background turn.",
+            )
+        if self.calls == 2:
+            return BrainDecision(
+                action_type=BrainActionType.CONTINUE_AGENT,
+                target_agent="codex_acp",
+                instruction="send a follow-up immediately",
+                rationale="Continue on the same session.",
+            )
+        return BrainDecision(action_type=BrainActionType.STOP, rationale="done")
+
+    async def evaluate_result(self, state) -> Evaluation:
+        return Evaluation(
+            goal_satisfied=False,
+            should_continue=True,
+            summary="continue",
+        )
+
+    async def summarize_progress(self, state) -> ProgressSummary:
+        return ProgressSummary(summary="summary")
+
+    async def normalize_artifact(self, goal, result) -> AgentResult:
+        return result
+
+
 @pytest.mark.anyio
 async def test_resume_does_not_spawn_duplicate_background_turn_without_wakeup() -> None:
     store = MemoryStore()
@@ -849,6 +886,92 @@ async def test_resume_does_not_spawn_duplicate_background_turn_without_wakeup() 
     assert first.status is OperationStatus.RUNNING
     assert len(operation.background_runs) == 1
     assert brain.calls == 1
+
+
+@pytest.mark.anyio
+async def test_busy_follow_up_blocks_on_running_session_instead_of_failing() -> None:
+    class BusyFollowUpSupervisor(FakeSupervisor):
+        async def start_background_turn(
+            self,
+            operation_id: str,
+            iteration: int,
+            adapter_key: str,
+            request,
+            *,
+            existing_session: AgentSessionHandle | None = None,
+            task_id: str | None = None,
+            wakeup_delivery: str = "enqueue",
+        ) -> ExecutionState:
+            if existing_session is not None:
+                for run in self.runs.values():
+                    if (
+                        run.session_id == existing_session.session_id
+                        and run.status is BackgroundRunStatus.RUNNING
+                    ):
+                        raise AgentSessionBusyError(
+                            "Cannot send a follow-up while a Codex ACP turn is still running.",
+                            session_id=existing_session.session_id,
+                            execution_id=run.run_id,
+                        )
+            return await super().start_background_turn(
+                operation_id,
+                iteration,
+                adapter_key,
+                request,
+                existing_session=existing_session,
+                task_id=task_id,
+                wakeup_delivery=wakeup_delivery,
+            )
+
+    store = MemoryStore()
+    supervisor = BusyFollowUpSupervisor()
+    brain = StartThenContinueBusySessionBrain()
+    service = make_service(
+        brain=brain,
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"codex_acp": FakeAgent(key="codex_acp")}
+        ),
+        supervisor=supervisor,
+    )
+
+    first = await service.run(
+        OperationGoal(objective="background task"),
+        **run_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(first.operation_id)
+    assert first.status is OperationStatus.RUNNING
+    assert operation is not None
+    assert len(operation.background_runs) == 1
+    assert operation.background_runs[0].status is BackgroundRunStatus.RUNNING
+
+    resumed = await service.resume(
+        operation.operation_id,
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert resumed.status is OperationStatus.RUNNING
+    assert updated is not None
+    assert updated.status is OperationStatus.RUNNING
+    assert updated.tasks[0].status is TaskStatus.BLOCKED
+    assert updated.current_focus is not None
+    assert updated.current_focus.kind is FocusKind.SESSION
+    assert updated.current_focus.target_id == "session-1"
+    assert updated.sessions[0].status is SessionStatus.WAITING
+    assert (
+        updated.sessions[0].waiting_reason
+        == "Cannot send a follow-up while a Codex ACP turn is still running."
+    )
 
 
 @pytest.mark.anyio

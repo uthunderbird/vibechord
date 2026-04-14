@@ -10,6 +10,7 @@ from agent_operator.application.operation_turn_execution import OperationTurnExe
 from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
 from agent_operator.application.runtime.operation_runtime_context import OperationRuntimeContext
 from agent_operator.domain import (
+    AgentSessionBusyError,
     AttentionRequest,
     AttentionType,
     BrainActionType,
@@ -325,6 +326,42 @@ class DecisionExecutionService:
         *,
         supervisor_available: bool,
     ) -> bool:
+        decision = iteration.decision
+        assert decision is not None
+
+        def _mark_busy_session_block(exc: AgentSessionBusyError) -> bool:
+            session_id = exc.session_id or decision.session_id or (
+                task.linked_session_id if task is not None else None
+            )
+            if session_id is None:
+                self._lifecycle_coordinator.mark_failed(
+                    state,
+                    summary=str(exc),
+                )
+                return True
+            record = self._loaded_operation.find_session_record(state, session_id)
+            if record is not None:
+                record.status = SessionRecordStatus.WAITING
+                record.waiting_reason = str(exc)
+                record.updated_at = datetime.now(UTC)
+            if task is not None and task.status not in {
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            }:
+                task.status = TaskStatus.BLOCKED
+                task.updated_at = datetime.now(UTC)
+            state.current_focus = FocusState(
+                kind=FocusKind.SESSION,
+                target_id=session_id,
+                mode=FocusMode.BLOCKING,
+                blocking_reason=str(exc),
+                interrupt_policy=InterruptPolicy.TERMINAL_ONLY,
+                resume_policy=ResumePolicy.RETURN_IF_STILL_RELEVANT,
+            )
+            iteration.notes.append(str(exc))
+            return True
+
         if (
             self._runtime_context.should_use_background_runtime(options)
             and supervisor_available
@@ -334,20 +371,26 @@ class DecisionExecutionService:
             )
         ):
             descriptor = await self._attached_session_registry.describe(adapter_key)
-            await self._turn_execution_service.continue_background_agent_turn(
+            try:
+                await self._turn_execution_service.continue_background_agent_turn(
+                    state,
+                    iteration,
+                    task,
+                    adapter_key,
+                    descriptor,
+                )
+            except AgentSessionBusyError as exc:
+                return _mark_busy_session_block(exc)
+            return options.run_mode is not RunMode.ATTACHED
+        try:
+            session = await self._turn_execution_service.continue_agent_turn(
                 state,
                 iteration,
                 task,
                 adapter_key,
-                descriptor,
             )
-            return options.run_mode is not RunMode.ATTACHED
-        session = await self._turn_execution_service.continue_agent_turn(
-            state,
-            iteration,
-            task,
-            adapter_key,
-        )
+        except AgentSessionBusyError as exc:
+            return _mark_busy_session_block(exc)
         await self._turn_execution_service.record_attached_turn_started(
             state,
             iteration,
