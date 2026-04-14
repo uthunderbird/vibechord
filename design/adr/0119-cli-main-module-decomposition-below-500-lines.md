@@ -1,8 +1,33 @@
 # ADR 0119: CLI Main Module Decomposition Below 500 Lines
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Partial
+
+Skim-safe current truth on 2026-04-14:
+
+- `implemented`: `src/agent_operator/cli/main.py` is now a 16-line compatibility facade and
+  `src/agent_operator/cli/app.py` is a 119-line Typer assembly module
+- `implemented`: command registration, helpers, workflows, rendering, and TUI logic now live in
+  separate CLI subpackages under `src/agent_operator/cli/`
+- `partial`: ADR 0119's material-satisfaction bar is not yet met because multiple CLI source files
+  still exceed the 500-line limit
+- `partial`: the largest remaining files are
+  `src/agent_operator/cli/tui/controller.py` (1347),
+  `src/agent_operator/cli/tui/rendering.py` (979),
+  `src/agent_operator/cli/tui/models.py` (956),
+  `src/agent_operator/cli/workflows/control.py` (868),
+  `src/agent_operator/cli/workflows/views.py` (826),
+  `src/agent_operator/cli/commands/operation_detail.py` (737),
+  `src/agent_operator/cli/rendering/text.py` (630),
+  `src/agent_operator/cli/commands/debug.py` (543), and
+  `src/agent_operator/cli/workflows/converse.py` (523)
+
+This ADR is accepted but only partially implemented.
 
 ## Context
 
@@ -221,16 +246,18 @@ This ADR is materially satisfied only when all of the following are true:
 
 ### Evidence
 
-- As of 2026-04-09, all files under `src/agent_operator/cli` are below 500 lines (`wc -l` max: 464 in `tui_models.py`).
-- `main.py` now wires through `app.py` and imports no longer centralize all responsibilities.
-
-## Implementation Status
-
-Implemented
-
-Skim-safe current truth on 2026-04-12:
-
-- `implemented`: `src/agent_operator/cli/app.py` is 114 lines — well within the 500-line budget
-- `implemented`: all command families live in `cli/commands/` subpackage; `app.py` is registration-only
-- `implemented`: all files under `src/agent_operator/cli/` are within manageable size budgets
-- `verified`: line count confirmed via `wc -l`; test coverage via `tests/test_cli.py`
+- As of 2026-04-14, `wc -l` over `src/agent_operator/cli/**/*.py` shows the CLI is decomposed into
+  focused modules, but the 500-line budget is still violated by nine files:
+  `tui/controller.py` (1347),
+  `tui/rendering.py` (979),
+  `tui/models.py` (956),
+  `workflows/control.py` (868),
+  `workflows/views.py` (826),
+  `commands/operation_detail.py` (737),
+  `rendering/text.py` (630),
+  `commands/debug.py` (543), and
+  `workflows/converse.py` (523).
+- `src/agent_operator/cli/main.py` now re-exports through `app.py` and no longer centralizes the
+  former kitchen-sink responsibilities.
+- `tests/test_cli.py` still imports `agent_operator.cli.main:app` and exercises the decomposed CLI
+  surface, but ADR 0119 cannot be reported as `Verified` unless `uv run pytest` is green.
