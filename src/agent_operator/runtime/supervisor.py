@@ -172,6 +172,7 @@ class InProcessAgentRunSupervisor:
         self._session_registry = session_manager
         self._wakeup_inbox = wakeup_inbox
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._explicit_cancel_run_ids: set[str] = set()
         self._jobs_dir.mkdir(parents=True, exist_ok=True)
         self._runs_dir.mkdir(parents=True, exist_ok=True)
         self._results_dir.mkdir(parents=True, exist_ok=True)
@@ -281,6 +282,7 @@ class InProcessAgentRunSupervisor:
             return
         task = self._tasks.get(run_id)
         if task is not None:
+            self._explicit_cancel_run_ids.add(run_id)
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
@@ -353,7 +355,8 @@ class InProcessAgentRunSupervisor:
             result = await self._wait_for_terminal_result(session_handle, record)
             await self._persist_result(spec, record, result, session_handle)
         except asyncio.CancelledError:
-            if session_handle is not None and spec.existing_session is None:
+            explicit_cancel = spec.run_id in self._explicit_cancel_run_ids
+            if explicit_cancel and session_handle is not None and spec.existing_session is None:
                 with suppress(Exception):
                     await self._session_registry.cancel(session_handle)
             await self._persist_cancelled_result(spec, record, session_handle)
@@ -363,6 +366,7 @@ class InProcessAgentRunSupervisor:
             await self._persist_failure_result(spec, record, session_handle, exc)
             handshake.set()
         finally:
+            self._explicit_cancel_run_ids.discard(spec.run_id)
             self._tasks.pop(spec.run_id, None)
 
     async def _wait_for_terminal_result(

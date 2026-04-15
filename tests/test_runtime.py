@@ -334,6 +334,49 @@ class _RunningCodexFollowUpSessionManager:
         return None
 
 
+class _RunningNewSessionManager:
+    """Fake session manager for a newly started live background session."""
+
+    def __init__(self) -> None:
+        self.handle = AgentSessionHandle(adapter_key="claude_acp", session_id="claude-live-new")
+        self.cancel_calls = 0
+        self.start_calls = 0
+
+    def keys(self) -> list[str]:
+        return ["claude_acp"]
+
+    def has(self, adapter_key: str) -> bool:
+        return adapter_key == "claude_acp"
+
+    async def describe(self, adapter_key: str) -> AgentDescriptor:
+        return AgentDescriptor(key=adapter_key, display_name=adapter_key)
+
+    async def start(self, adapter_key: str, request: AgentRunRequest) -> AgentSessionHandle:
+        self.start_calls += 1
+        return self.handle
+
+    async def send(self, handle: AgentSessionHandle, message: str) -> None:
+        raise AssertionError("send should not be called for a new-session background turn")
+
+    async def poll(self, handle: AgentSessionHandle) -> AgentProgress:
+        return AgentProgress(
+            session_id=handle.session_id,
+            state=AgentProgressState.RUNNING,
+            message="still running",
+            updated_at=datetime.now(UTC),
+            partial_output="working",
+        )
+
+    async def collect(self, handle: AgentSessionHandle) -> AgentResult:
+        raise AssertionError("collect should not be called for a live new-session turn")
+
+    async def cancel(self, handle: AgentSessionHandle) -> None:
+        self.cancel_calls += 1
+
+    async def close(self, handle: AgentSessionHandle) -> None:
+        return None
+
+
 @pytest.mark.anyio
 async def test_file_store_roundtrip(tmp_path: Path) -> None:
     store = FileOperationStore(tmp_path)
@@ -807,6 +850,40 @@ async def test_inprocess_supervisor_task_cancel_does_not_cancel_live_existing_co
     result = await supervisor.collect_background_turn(run.run_id)
 
     assert manager.sent_messages == ["continue after approval"]
+    assert manager.cancel_calls == 0
+    assert final is not None
+    assert result is not None
+
+
+@pytest.mark.anyio
+async def test_inprocess_supervisor_task_cancel_does_not_cancel_live_new_session(
+    tmp_path: Path,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    manager = _RunningNewSessionManager()
+    supervisor = InProcessAgentRunSupervisor(
+        tmp_path / "background",
+        tmp_path,
+        session_manager=manager,
+        wakeup_inbox=inbox,
+    )
+
+    run = await supervisor.start_background_turn(
+        "op-1",
+        2,
+        "claude_acp",
+        AgentRunRequest(goal="hello", instruction="start a fresh live turn"),
+    )
+
+    task = supervisor._tasks[run.run_id]  # noqa: SLF001 - targeted runtime regression
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+    final = await supervisor.poll_background_turn(run.run_id)
+    result = await supervisor.collect_background_turn(run.run_id)
+
+    assert manager.start_calls == 1
     assert manager.cancel_calls == 0
     assert final is not None
     assert result is not None
