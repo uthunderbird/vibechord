@@ -13,6 +13,7 @@ from agent_operator.bootstrap import (
     build_trace_store,
     build_wakeup_inbox,
 )
+from agent_operator.domain.attention import AttentionRequest
 from agent_operator.domain.control import OperationCommand
 from agent_operator.domain.events import RunEvent
 from agent_operator.domain.operation import ExecutionState, OperationOutcome, WakeupRef
@@ -130,6 +131,33 @@ def _operation_command_payload(command: OperationCommand) -> dict[str, object]:
         "status": command.status.value,
         "rejection_reason": command.rejection_reason,
         "applied_at": command.applied_at.isoformat() if command.applied_at is not None else None,
+    }
+
+
+def _attention_request_payload(attention: AttentionRequest) -> dict[str, object]:
+    return {
+        "attention_id": attention.attention_id,
+        "operation_id": attention.operation_id,
+        "attention_type": attention.attention_type.value,
+        "target_scope": attention.target_scope.value,
+        "target_id": attention.target_id,
+        "title": attention.title,
+        "question": attention.question,
+        "context_brief": attention.context_brief,
+        "suggested_options": list(attention.suggested_options),
+        "blocking": attention.blocking,
+        "status": attention.status.value,
+        "answer_text": attention.answer_text,
+        "answer_source_command_id": attention.answer_source_command_id,
+        "created_at": attention.created_at.isoformat(),
+        "answered_at": (
+            attention.answered_at.isoformat() if attention.answered_at is not None else None
+        ),
+        "resolved_at": attention.resolved_at.isoformat()
+        if attention.resolved_at is not None
+        else None,
+        "resolution_summary": attention.resolution_summary,
+        "metadata": dict(attention.metadata),
     }
 
 
@@ -269,6 +297,23 @@ def _decision_memo_payload(memo: DecisionMemo) -> dict[str, object]:
         "expected_outcome": memo.expected_outcome,
         "refs": memo.refs.to_dict() if memo.refs is not None else None,
         "created_at": memo.created_at.isoformat(),
+    }
+
+
+def _run_event_payload(event: RunEvent) -> dict[str, object]:
+    return {
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "kind": event.kind.value,
+        "category": event.category,
+        "operation_id": event.operation_id,
+        "iteration": event.iteration,
+        "task_id": event.task_id,
+        "session_id": event.session_id,
+        "dedupe_key": event.dedupe_key,
+        "timestamp": event.timestamp.isoformat(),
+        "not_before": event.not_before.isoformat() if event.not_before is not None else None,
+        "payload": dict(event.payload),
     }
 
 
@@ -561,10 +606,10 @@ def inspect(
             if full:
                 payload["trace_records"] = [_trace_record_payload(item) for item in trace_records]
                 payload["decision_memos"] = [_decision_memo_payload(item) for item in memos]
-                payload["events"] = [item.model_dump(mode="json") for item in events]
+                payload["events"] = [_run_event_payload(item) for item in events]
                 payload["wakeups"] = build_wakeup_inbox(settings).read_all(operation_id)
                 payload["background_runs"] = [
-                    item.model_dump(mode="json")
+                    _execution_payload(item)
                     for item in await build_background_run_inspection_store(settings).list_runs(
                         operation_id
                     )
@@ -617,7 +662,7 @@ def inspect(
             typer.echo("\nAttention requests:")
             for attention in operation.attention_requests:
                 typer.echo(
-                    json.dumps(attention.model_dump(mode="json"), indent=2, ensure_ascii=False)
+                    json.dumps(_attention_request_payload(attention), indent=2, ensure_ascii=False)
                 )
         if commands:
             typer.echo("\nCommands:")

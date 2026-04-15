@@ -34,6 +34,57 @@ class OperationStatusQueryService:
     render_inspect_summary: Callable[..., str]
     render_status_summary: Callable[..., str]
 
+    def _background_run_payload(self, run) -> dict[str, object]:
+        return {
+            "execution_id": run.execution_id,
+            "run_id": run.run_id,
+            "operation_id": run.operation_id,
+            "adapter_key": run.adapter_key,
+            "session_id": run.session_id,
+            "task_id": run.task_id,
+            "iteration": run.iteration,
+            "mode": run.mode.value,
+            "launch_kind": run.launch_kind.value,
+            "observed_state": run.observed_state.value,
+            "status": run.status.value,
+            "waiting_reason": run.waiting_reason,
+            "handle_ref": (
+                {
+                    "kind": run.handle_ref.kind,
+                    "value": run.handle_ref.value,
+                    "metadata": dict(run.handle_ref.metadata),
+                }
+                if run.handle_ref is not None
+                else None
+            ),
+            "progress": (
+                {
+                    "state": run.progress.state.value,
+                    "message": run.progress.message,
+                    "updated_at": run.progress.updated_at.isoformat(),
+                    "partial_output": run.progress.partial_output,
+                    "last_event_at": (
+                        run.progress.last_event_at.isoformat()
+                        if run.progress.last_event_at is not None
+                        else None
+                    ),
+                }
+                if run.progress is not None
+                else None
+            ),
+            "result_ref": run.result_ref,
+            "error_ref": run.error_ref,
+            "pid": run.pid,
+            "started_at": run.started_at.isoformat(),
+            "last_heartbeat_at": (
+                run.last_heartbeat_at.isoformat() if run.last_heartbeat_at is not None else None
+            ),
+            "completed_at": (
+                run.completed_at.isoformat() if run.completed_at is not None else None
+            ),
+            "raw_ref": run.raw_ref,
+        }
+
     async def build_status_payload(
         self,
         operation_id: str,
@@ -54,7 +105,7 @@ class OperationStatusQueryService:
         runtime_alert = self.build_runtime_alert(
             status=operation.status,
             wakeups=wakeups,
-            background_runs=[item.model_dump(mode="json") for item in runs],
+            background_runs=[self._background_run_payload(item) for item in runs],
         )
         return operation, outcome, brief_bundle, runtime_alert
 

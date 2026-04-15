@@ -50,5 +50,7 @@ class OperationDashboardQueryService:
             report_text=report_text,
         )
         if brief is not None and brief.operation_brief is not None:
-            payload["brief"] = brief.operation_brief.model_dump(mode="json")
+            payload["brief"] = self.projection_service._operation_brief_payload(
+                brief.operation_brief
+            )
         return payload

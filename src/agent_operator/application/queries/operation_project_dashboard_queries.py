@@ -36,7 +36,7 @@ class OperationProjectDashboardQueryService:
         )
         return self.projection_service.build_project_dashboard_payload(
             profile=profile,
-            resolved=resolved.model_dump(mode="json"),
+            resolved=self.projection_service.resolved_project_run_config_payload(resolved),
             profile_path=profile_path,
             fleet=fleet_payload,
             active_policies=active_policies,

@@ -178,3 +178,41 @@ async def test_load_payload_builds_dashboard_payload() -> None:
     assert isinstance(progress, dict)
     assert progress["doing"] == "Running task-board migration"
     assert operation_brief["attention"] == ""
+
+
+@pytest.mark.anyio
+async def test_load_payload_uses_derived_brief_payload_without_operation_brief_model_dump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MemoryStore()
+    inbox = MemoryCommandInbox()
+    trace_store = MemoryTraceStore()
+    await store.save_operation(_operation())
+    await trace_store.save_operation_brief(
+        OperationBrief(
+            operation_id="op-1",
+            status=OperationStatus.RUNNING,
+            objective_brief="Ship dashboard",
+            focus_brief="Build the task board",
+        )
+    )
+    service = OperationDashboardQueryService(
+        status_service=_status_queries(store, trace_store),
+        projection_service=OperationProjectionService(),
+        command_inbox=inbox,
+        event_reader=_EventReader(),
+        trace_store=trace_store,
+        build_upstream_transcript=lambda operation: None,
+    )
+
+    def _fail_operation_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "dashboard query should not serialize OperationBrief directly"
+        )
+
+    monkeypatch.setattr(OperationBrief, "model_dump", _fail_operation_brief_model_dump)
+
+    payload = await service.load_payload("op-1")
+
+    assert payload["brief"]["objective_brief"] == "Ship dashboard"
+    assert payload["brief"]["focus_brief"] == "Build the task board"

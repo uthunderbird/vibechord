@@ -423,6 +423,17 @@ class OperationProjectionService:
             "created_at": artifact.created_at.isoformat(),
         }
 
+    def _feature_payload(self, feature) -> dict[str, object]:
+        return {
+            "feature_id": feature.feature_id,
+            "title": feature.title,
+            "acceptance_criteria": feature.acceptance_criteria,
+            "status": feature.status.value,
+            "notes": list(feature.notes),
+            "created_at": feature.created_at.isoformat(),
+            "updated_at": feature.updated_at.isoformat(),
+        }
+
     def _memory_source_ref_payload(self, source_ref) -> dict[str, object]:
         return {
             "kind": source_ref.kind,
@@ -547,6 +558,23 @@ class OperationProjectionService:
             "ticket_reporting": self._ticket_reporting_payload(profile.ticket_reporting),
         }
 
+    def resolved_project_run_config_payload(self, resolved) -> dict[str, object]:
+        return {
+            "profile_name": resolved.profile_name,
+            "cwd": str(resolved.cwd) if resolved.cwd is not None else None,
+            "history_ledger": resolved.history_ledger,
+            "objective_text": resolved.objective_text,
+            "default_agents": list(resolved.default_agents),
+            "harness_instructions": resolved.harness_instructions,
+            "success_criteria": list(resolved.success_criteria),
+            "max_iterations": resolved.max_iterations,
+            "run_mode": resolved.run_mode.value,
+            "involvement_level": resolved.involvement_level.value,
+            "session_reuse_policy": resolved.session_reuse_policy.value,
+            "message_window": resolved.message_window,
+            "overrides": list(resolved.overrides),
+        }
+
     def _agent_turn_summary_payload(self, summary) -> dict[str, object]:
         return {
             "declared_goal": summary.declared_goal,
@@ -560,6 +588,302 @@ class OperationProjectionService:
             "remaining_blockers": list(summary.remaining_blockers),
             "recommended_next_step": summary.recommended_next_step,
             "rationale": summary.rationale,
+        }
+
+    def _typed_refs_payload(self, refs) -> dict[str, object] | None:
+        if refs is None:
+            return None
+        return {
+            "operation_id": refs.operation_id,
+            "iteration": refs.iteration,
+            "task_id": refs.task_id,
+            "session_id": refs.session_id,
+            "artifact_id": refs.artifact_id,
+            "command_id": refs.command_id,
+        }
+
+    def _operation_brief_payload(self, brief) -> dict[str, object]:
+        return {
+            "operation_id": brief.operation_id,
+            "status": brief.status.value,
+            "scheduler_state": brief.scheduler_state.value,
+            "involvement_level": brief.involvement_level.value,
+            "objective_brief": brief.objective_brief,
+            "harness_brief": brief.harness_brief,
+            "focus_brief": brief.focus_brief,
+            "latest_outcome_brief": brief.latest_outcome_brief,
+            "blocker_brief": brief.blocker_brief,
+            "runtime_alert_brief": brief.runtime_alert_brief,
+            "updated_at": brief.updated_at.isoformat(),
+        }
+
+    def _iteration_brief_payload(self, brief) -> dict[str, object]:
+        return {
+            "iteration": brief.iteration,
+            "task_id": brief.task_id,
+            "session_id": brief.session_id,
+            "operator_intent_brief": brief.operator_intent_brief,
+            "assignment_brief": brief.assignment_brief,
+            "result_brief": brief.result_brief,
+            "status_brief": brief.status_brief,
+            "refs": self._typed_refs_payload(brief.refs),
+            "created_at": brief.created_at.isoformat(),
+        }
+
+    def _execution_handle_ref_payload(self, handle_ref) -> dict[str, object]:
+        return {
+            "kind": handle_ref.kind,
+            "value": handle_ref.value,
+            "metadata": dict(handle_ref.metadata),
+        }
+
+    def _background_progress_payload(self, progress) -> dict[str, object]:
+        return {
+            "state": progress.state.value,
+            "message": progress.message,
+            "updated_at": progress.updated_at.isoformat(),
+            "partial_output": progress.partial_output,
+            "last_event_at": (
+                progress.last_event_at.isoformat() if progress.last_event_at is not None else None
+            ),
+        }
+
+    def _execution_payload(self, execution) -> dict[str, object]:
+        return {
+            "execution_id": execution.execution_id,
+            "run_id": execution.run_id,
+            "operation_id": execution.operation_id,
+            "adapter_key": execution.adapter_key,
+            "session_id": execution.session_id,
+            "task_id": execution.task_id,
+            "iteration": execution.iteration,
+            "mode": execution.mode.value,
+            "launch_kind": execution.launch_kind.value,
+            "observed_state": execution.observed_state.value,
+            "status": execution.status.value,
+            "waiting_reason": execution.waiting_reason,
+            "handle_ref": (
+                self._execution_handle_ref_payload(execution.handle_ref)
+                if execution.handle_ref is not None
+                else None
+            ),
+            "progress": (
+                self._background_progress_payload(execution.progress)
+                if execution.progress is not None
+                else None
+            ),
+            "result_ref": execution.result_ref,
+            "error_ref": execution.error_ref,
+            "pid": execution.pid,
+            "started_at": execution.started_at.isoformat(),
+            "last_heartbeat_at": (
+                execution.last_heartbeat_at.isoformat()
+                if execution.last_heartbeat_at is not None
+                else None
+            ),
+            "completed_at": (
+                execution.completed_at.isoformat() if execution.completed_at is not None else None
+            ),
+            "raw_ref": execution.raw_ref,
+        }
+
+    def _wakeup_payload(self, wakeup) -> dict[str, object]:
+        return {
+            "event_id": wakeup.event_id,
+            "event_type": wakeup.event_type,
+            "task_id": wakeup.task_id,
+            "session_id": wakeup.session_id,
+            "dedupe_key": wakeup.dedupe_key,
+            "claimed_at": wakeup.claimed_at.isoformat() if wakeup.claimed_at is not None else None,
+            "acked_at": wakeup.acked_at.isoformat() if wakeup.acked_at is not None else None,
+            "created_at": wakeup.created_at.isoformat(),
+        }
+
+    def _blocking_focus_payload(self, focus) -> dict[str, object]:
+        return {
+            "kind": focus.kind.value,
+            "target_id": focus.target_id,
+            "blocking_reason": focus.blocking_reason,
+            "interrupt_policy": focus.interrupt_policy.value,
+            "resume_policy": focus.resume_policy.value,
+        }
+
+    def _feature_draft_payload(self, draft) -> dict[str, object]:
+        return {
+            "title": draft.title,
+            "acceptance_criteria": draft.acceptance_criteria,
+            "notes": list(draft.notes),
+        }
+
+    def _feature_patch_payload(self, patch) -> dict[str, object]:
+        return {
+            "feature_id": patch.feature_id,
+            "title": patch.title,
+            "acceptance_criteria": patch.acceptance_criteria,
+            "status": patch.status.value if patch.status is not None else None,
+            "append_notes": list(patch.append_notes),
+        }
+
+    def _task_draft_payload(self, draft) -> dict[str, object]:
+        return {
+            "title": draft.title,
+            "goal": draft.goal,
+            "definition_of_done": draft.definition_of_done,
+            "brain_priority": draft.brain_priority,
+            "feature_id": draft.feature_id,
+            "assigned_agent": draft.assigned_agent,
+            "session_policy": draft.session_policy.value,
+            "dependencies": list(draft.dependencies),
+            "notes": list(draft.notes),
+        }
+
+    def _task_patch_payload(self, patch) -> dict[str, object]:
+        return {
+            "task_id": patch.task_id,
+            "title": patch.title,
+            "goal": patch.goal,
+            "definition_of_done": patch.definition_of_done,
+            "status": patch.status.value if patch.status is not None else None,
+            "brain_priority": patch.brain_priority,
+            "assigned_agent": patch.assigned_agent,
+            "linked_session_id": patch.linked_session_id,
+            "session_policy": (
+                patch.session_policy.value if patch.session_policy is not None else None
+            ),
+            "append_notes": list(patch.append_notes),
+            "add_memory_refs": list(patch.add_memory_refs),
+            "add_artifact_refs": list(patch.add_artifact_refs),
+            "add_dependencies": list(patch.add_dependencies),
+            "remove_dependencies": list(patch.remove_dependencies),
+            "dependency_removal_reason": patch.dependency_removal_reason,
+        }
+
+    def _brain_decision_payload(self, decision) -> dict[str, object]:
+        return {
+            "action_type": decision.action_type.value,
+            "target_agent": decision.target_agent,
+            "session_id": decision.session_id,
+            "session_name": decision.session_name,
+            "one_shot": decision.one_shot,
+            "workfront_key": decision.workfront_key,
+            "instruction": decision.instruction,
+            "rationale": decision.rationale,
+            "confidence": decision.confidence,
+            "assumptions": list(decision.assumptions),
+            "expected_outcome": decision.expected_outcome,
+            "focus_task_id": decision.focus_task_id,
+            "new_features": [self._feature_draft_payload(item) for item in decision.new_features],
+            "feature_updates": [
+                self._feature_patch_payload(item) for item in decision.feature_updates
+            ],
+            "new_tasks": [self._task_draft_payload(item) for item in decision.new_tasks],
+            "task_updates": [self._task_patch_payload(item) for item in decision.task_updates],
+            "blocking_focus": (
+                self._blocking_focus_payload(decision.blocking_focus)
+                if decision.blocking_focus is not None
+                else None
+            ),
+            "metadata": dict(decision.metadata),
+        }
+
+    def _agent_session_handle_payload(self, handle) -> dict[str, object]:
+        return {
+            "adapter_key": handle.adapter_key,
+            "session_id": handle.session_id,
+            "session_name": handle.session_name,
+            "display_name": handle.display_name,
+            "one_shot": handle.one_shot,
+            "metadata": dict(handle.metadata),
+        }
+
+    def _agent_artifact_payload(self, artifact) -> dict[str, object]:
+        return {
+            "name": artifact.name,
+            "kind": artifact.kind,
+            "uri": artifact.uri,
+            "content": artifact.content,
+            "metadata": dict(artifact.metadata),
+        }
+
+    def _agent_error_payload(self, error) -> dict[str, object]:
+        return {
+            "code": error.code,
+            "message": error.message,
+            "retryable": error.retryable,
+            "raw": dict(error.raw) if error.raw is not None else None,
+        }
+
+    def _agent_usage_payload(self, usage) -> dict[str, object]:
+        return {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "context_window_size": usage.context_window_size,
+            "context_tokens_used": usage.context_tokens_used,
+            "cost_amount": usage.cost_amount,
+            "cost_currency": usage.cost_currency,
+            "metadata": dict(usage.metadata),
+        }
+
+    def _agent_result_payload(self, result) -> dict[str, object]:
+        return {
+            "session_id": result.session_id,
+            "status": result.status.value,
+            "output_text": result.output_text,
+            "artifacts": [self._agent_artifact_payload(item) for item in result.artifacts],
+            "error": self._agent_error_payload(result.error) if result.error is not None else None,
+            "completed_at": (
+                result.completed_at.isoformat() if result.completed_at is not None else None
+            ),
+            "structured_output": (
+                dict(result.structured_output) if result.structured_output is not None else None
+            ),
+            "usage": self._agent_usage_payload(result.usage) if result.usage is not None else None,
+            "transcript": result.transcript,
+            "raw": dict(result.raw) if result.raw is not None else None,
+        }
+
+    def _run_event_payload(self, event: RunEvent) -> dict[str, object]:
+        return {
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "kind": event.kind.value,
+            "category": event.category,
+            "operation_id": event.operation_id,
+            "iteration": event.iteration,
+            "task_id": event.task_id,
+            "session_id": event.session_id,
+            "dedupe_key": event.dedupe_key,
+            "timestamp": event.timestamp.isoformat(),
+            "not_before": event.not_before.isoformat() if event.not_before is not None else None,
+            "payload": dict(event.payload),
+        }
+
+    def _iteration_payload(self, iteration) -> dict[str, object]:
+        return {
+            "index": iteration.index,
+            "decision": (
+                self._brain_decision_payload(iteration.decision)
+                if iteration.decision is not None
+                else None
+            ),
+            "task_id": iteration.task_id,
+            "session": (
+                self._agent_session_handle_payload(iteration.session)
+                if iteration.session is not None
+                else None
+            ),
+            "result": (
+                self._agent_result_payload(iteration.result)
+                if iteration.result is not None
+                else None
+            ),
+            "turn_summary": (
+                self._agent_turn_summary_payload(iteration.turn_summary)
+                if iteration.turn_summary is not None
+                else None
+            ),
+            "notes": list(iteration.notes),
         }
 
     def _agent_turn_brief_payload(self, turn: AgentTurnBrief) -> dict[str, object]:
@@ -620,32 +944,32 @@ class OperationProjectionService:
                 else None
             ),
             "status": operation.status.value,
-            "iterations": [item.model_dump(mode="json") for item in operation.iterations],
-            "features": [item.model_dump(mode="json") for item in operation.features],
+            "iterations": [self._iteration_payload(item) for item in operation.iterations],
+            "features": [self._feature_payload(item) for item in operation.features],
             "tasks": [self._task_payload(item) for item in operation.tasks],
             "sessions": [self.session_payload(item) for item in operation.sessions],
-            "executions": [item.model_dump(mode="json") for item in operation.executions],
+            "executions": [self._execution_payload(item) for item in operation.executions],
             "artifacts": [self._artifact_payload(item) for item in operation.artifacts],
             "memory_entries": [
                 self._memory_entry_payload(item) for item in operation.memory_entries
             ],
             "operation_brief": (
-                operation.operation_brief.model_dump(mode="json")
+                self._operation_brief_payload(operation.operation_brief)
                 if operation.operation_brief is not None
                 else None
             ),
             "iteration_briefs": [
-                item.model_dump(mode="json") for item in operation.iteration_briefs
+                self._iteration_brief_payload(item) for item in operation.iteration_briefs
             ],
             "agent_turn_briefs": [
-                item.model_dump(mode="json") for item in operation.agent_turn_briefs
+                self._agent_turn_brief_payload(item) for item in operation.agent_turn_briefs
             ],
             "current_focus": (
                 self._focus_payload(operation.current_focus)
                 if operation.current_focus is not None
                 else None
             ),
-            "pending_wakeups": [item.model_dump(mode="json") for item in operation.pending_wakeups],
+            "pending_wakeups": [self._wakeup_payload(item) for item in operation.pending_wakeups],
             "attention_requests": [
                 self._attention_payload(item) for item in operation.attention_requests
             ],
@@ -1880,7 +2204,7 @@ class OperationProjectionService:
             command_type = payload.get("command_type") or "command"
             return f"command queued: {command_type}"
         return self._shorten_text(
-            json.dumps(event.model_dump(mode="json"), ensure_ascii=False), limit=120
+            json.dumps(self._run_event_payload(event), ensure_ascii=False), limit=120
         )
 
     def _format_dashboard_command(self, command: OperationCommand) -> str:

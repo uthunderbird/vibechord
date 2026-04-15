@@ -10,23 +10,39 @@ from agent_operator.application import OperationProjectionService
 from agent_operator.cli.rendering.operation import render_dashboard
 from agent_operator.domain import (
     AgentArtifact,
+    AgentError,
+    AgentResult,
     AgentResultStatus,
     AgentSessionHandle,
     AgentTurnBrief,
     AgentTurnSummary,
+    AgentUsage,
     ArtifactRecord,
     AttentionRequest,
     AttentionStatus,
     AttentionType,
+    BackgroundProgressSnapshot,
+    BlockingFocus,
+    BrainActionType,
+    BrainDecision,
     CommandTargetScope,
+    ExecutionHandleRef,
+    ExecutionState,
     ExternalTicketLink,
+    FeatureDraft,
+    FeaturePatch,
+    FeatureState,
     FocusKind,
     FocusMode,
     FocusState,
     InvolvementLevel,
+    IterationBrief,
+    IterationState,
     MemoryEntry,
     MemoryFreshness,
     MemoryScope,
+    MemorySourceRef,
+    OperationBrief,
     OperationGoal,
     OperationPolicy,
     OperationState,
@@ -45,9 +61,14 @@ from agent_operator.domain import (
     SchedulerState,
     SessionRecord,
     SessionRecordStatus,
+    SessionStatus,
+    TaskDraft,
+    TaskPatch,
     TaskState,
     TaskStatus,
     TraceBriefBundle,
+    TypedRefs,
+    WakeupRef,
 )
 from agent_operator.runtime import AgendaBucket, AgendaItem, AgendaSnapshot, build_agenda_item
 
@@ -369,6 +390,43 @@ def test_build_session_view_payload_includes_selected_event_details() -> None:
     ]
 
 
+def test_build_dashboard_payload_uses_derived_event_fallback_without_run_event_model_dump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation_with_task_session()
+    event = RunEvent(
+        event_type="custom.event",
+        kind=RunEventKind.TRACE,
+        category="domain",
+        operation_id="op-1",
+        iteration=2,
+        task_id="task-1",
+        session_id="session-1",
+        payload={"summary": "Custom dashboard event."},
+        raw={"source": "test"},
+    )
+
+    def _fail_run_event_model_dump(self, *args, **kwargs):
+        raise AssertionError("dashboard payload should not serialize RunEvent directly")
+
+    monkeypatch.setattr(RunEvent, "model_dump", _fail_run_event_model_dump)
+
+    payload = OperationProjectionService().build_dashboard_payload(
+        operation,
+        brief=None,
+        outcome=None,
+        runtime_alert=None,
+        commands=[],
+        events=[event],
+        decision_memos=[],
+        upstream_transcript=None,
+        report_text=None,
+    )
+
+    assert payload["recent_events"]
+    assert "custom.event" in payload["recent_events"][0]
+
+
 def test_build_fleet_workbench_payload_normalizes_rows_and_header() -> None:
     items = [
         AgendaItem(
@@ -652,6 +710,382 @@ def test_operation_payload_uses_explicit_truth_serializers_for_targeted_objects(
     assert payload["policy_coverage"]["status"] == "covered"
     assert payload["operator_messages"][0]["message_id"] == "msg-1"
     assert payload["current_focus"]["target_id"] == "session-1"
+
+
+def test_operation_payload_uses_explicit_truth_serializers_for_remaining_read_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation_with_task_session()
+    operation.features = [
+        FeatureState(
+            feature_id="feature-1",
+            title="Dashboard",
+            acceptance_criteria="Projection payload is fully derived.",
+        )
+    ]
+    operation.executions = [
+        ExecutionState(
+            execution_id="exec-1",
+            operation_id="op-1",
+            adapter_key="codex_acp",
+            session_id="session-1",
+            task_id="task-1",
+        )
+    ]
+    operation.operation_brief = OperationBrief(
+        operation_id="op-1",
+        status=OperationStatus.RUNNING,
+        objective_brief="Ship dashboard",
+    )
+    operation.iteration_briefs = [
+        IterationBrief(
+            iteration=1,
+            task_id="task-1",
+            session_id="session-1",
+            operator_intent_brief="Inspect the current payload path.",
+            assignment_brief="Check operation_payload direct serializations.",
+            status_brief="running",
+        )
+    ]
+    operation.agent_turn_briefs = [
+        AgentTurnBrief(
+            operation_id="op-1",
+            iteration=1,
+            agent_key="codex_acp",
+            session_id="session-1",
+            assignment_brief="Inspect the payload path.",
+            result_brief="Found remaining direct model dumps.",
+            status="completed",
+        )
+    ]
+    operation.pending_wakeups = [
+        WakeupRef(
+            event_id="evt-1",
+            event_type="agent.completed",
+            task_id="task-1",
+            session_id="session-1",
+        )
+    ]
+
+    def _fail_feature_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize FeatureState directly")
+
+    def _fail_execution_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize ExecutionState directly")
+
+    def _fail_operation_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize OperationBrief directly")
+
+    def _fail_iteration_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize IterationBrief directly")
+
+    def _fail_agent_turn_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AgentTurnBrief directly")
+
+    def _fail_wakeup_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize WakeupRef directly")
+
+    monkeypatch.setattr(FeatureState, "model_dump", _fail_feature_model_dump)
+    monkeypatch.setattr(ExecutionState, "model_dump", _fail_execution_model_dump)
+    monkeypatch.setattr(OperationBrief, "model_dump", _fail_operation_brief_model_dump)
+    monkeypatch.setattr(IterationBrief, "model_dump", _fail_iteration_brief_model_dump)
+    monkeypatch.setattr(AgentTurnBrief, "model_dump", _fail_agent_turn_brief_model_dump)
+    monkeypatch.setattr(WakeupRef, "model_dump", _fail_wakeup_model_dump)
+
+    payload = OperationProjectionService().operation_payload(operation)
+
+    assert payload["features"][0]["feature_id"] == "feature-1"
+    assert payload["executions"][0]["execution_id"] == "exec-1"
+    assert payload["operation_brief"]["objective_brief"] == "Ship dashboard"
+    assert payload["iteration_briefs"][0]["assignment_brief"] == (
+        "Check operation_payload direct serializations."
+    )
+    assert payload["agent_turn_briefs"][0]["result_brief"] == "Found remaining direct model dumps."
+    assert payload["pending_wakeups"][0]["event_id"] == "evt-1"
+
+
+def test_operation_payload_uses_derived_iteration_subpayloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation_with_task_session()
+    operation.iterations = [
+        IterationState(
+            index=1,
+            decision=BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="codex_acp",
+                rationale="Need implementation progress.",
+            ),
+            task_id="task-1",
+            session=AgentSessionHandle(
+                adapter_key="codex_acp",
+                session_id="session-1",
+                session_name="dash",
+            ),
+            result=AgentResult(
+                session_id="session-1",
+                status=AgentResultStatus.SUCCESS,
+                output_text="Implemented the projection change.",
+                artifacts=[
+                    AgentArtifact(
+                        name="projection-note.md",
+                        kind="note",
+                        content="Captured the derived serializer update.",
+                    )
+                ],
+            ),
+            turn_summary=AgentTurnSummary(
+                declared_goal="Remove direct iteration serialization.",
+                actual_work_done="Switched to explicit derived payloads.",
+                state_delta="Iteration payload no longer uses model_dump directly.",
+                verification_status="Targeted tests passed.",
+                recommended_next_step="Run the full test suite.",
+            ),
+            notes=["Keep the projection change local."],
+        )
+    ]
+
+    def _fail_decision_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize BrainDecision directly")
+
+    def _fail_session_handle_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AgentSessionHandle directly")
+
+    def _fail_result_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AgentResult directly")
+
+    def _fail_iteration_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize IterationState directly")
+
+    monkeypatch.setattr(IterationState, "model_dump", _fail_iteration_model_dump)
+    monkeypatch.setattr(BrainDecision, "model_dump", _fail_decision_model_dump)
+    monkeypatch.setattr(AgentSessionHandle, "model_dump", _fail_session_handle_model_dump)
+    monkeypatch.setattr(AgentResult, "model_dump", _fail_result_model_dump)
+
+    payload = OperationProjectionService().operation_payload(operation)
+
+    iteration_payload = payload["iterations"][0]
+    assert iteration_payload["decision"]["action_type"] == "start_agent"
+    assert iteration_payload["session"]["session_id"] == "session-1"
+    assert iteration_payload["result"]["status"] == "success"
+    assert iteration_payload["turn_summary"]["actual_work_done"] == (
+        "Switched to explicit derived payloads."
+    )
+
+
+def test_operation_payload_uses_explicit_serializers_for_remaining_nested_read_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation_with_task_session()
+    operation.memory_entries[0].source_refs = [
+        MemorySourceRef(kind="artifact", ref_id="artifact-1")
+    ]
+    operation.executions = [
+        ExecutionState(
+            execution_id="exec-1",
+            operation_id="op-1",
+            adapter_key="codex_acp",
+            session_id="session-1",
+            task_id="task-1",
+            handle_ref=ExecutionHandleRef(
+                kind="pid",
+                value="1234",
+                metadata={"source": "runtime"},
+            ),
+            progress=BackgroundProgressSnapshot(
+                state=SessionStatus.RUNNING,
+                message="Streaming",
+                updated_at=datetime.now(UTC),
+                partial_output="halfway there",
+            ),
+        )
+    ]
+    operation.iteration_briefs = [
+        IterationBrief(
+            iteration=1,
+            task_id="task-1",
+            session_id="session-1",
+            operator_intent_brief="Inspect nested serializer coverage.",
+            assignment_brief="Exercise the remaining payload helpers.",
+            status_brief="running",
+            refs=TypedRefs(
+                operation_id="op-1",
+                iteration=1,
+                task_id="task-1",
+                session_id="session-1",
+                artifact_id="artifact-1",
+            ),
+        )
+    ]
+    operation.iterations = [
+        IterationState(
+            index=1,
+            decision=BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="codex_acp",
+                instruction="Keep serializers explicit.",
+                rationale="Need full nested coverage for the remaining payload helpers.",
+                new_features=[
+                    FeatureDraft(
+                        title="Derived payload",
+                        acceptance_criteria="No direct nested serialization remains.",
+                        notes=["capture coverage"],
+                    )
+                ],
+                feature_updates=[
+                    FeaturePatch(
+                        feature_id="feature-1",
+                        title="Derived payload update",
+                        append_notes=["nested serializer path"],
+                    )
+                ],
+                new_tasks=[
+                    TaskDraft(
+                        title="Add regression",
+                        goal="Cover nested payload models",
+                        definition_of_done="Regression fails on model_dump fallback",
+                        notes=["keep bounded"],
+                    )
+                ],
+                task_updates=[
+                    TaskPatch(
+                        task_id="task-1",
+                        append_notes=["serializer regression added"],
+                    )
+                ],
+                blocking_focus=BlockingFocus(
+                    kind=FocusKind.SESSION,
+                    target_id="session-1",
+                    blocking_reason="Need explicit nested serializer coverage.",
+                ),
+            ),
+            session=AgentSessionHandle(
+                adapter_key="codex_acp",
+                session_id="session-1",
+            ),
+            result=AgentResult(
+                session_id="session-1",
+                status=AgentResultStatus.SUCCESS,
+                artifacts=[
+                    AgentArtifact(
+                        name="note.md",
+                        kind="note",
+                        metadata={"source": "test"},
+                    )
+                ],
+                error=AgentError(
+                    code="none",
+                    message="no error",
+                    raw={"detail": "synthetic"},
+                ),
+                usage=AgentUsage(
+                    input_tokens=10,
+                    output_tokens=20,
+                    total_tokens=30,
+                    metadata={"model": "gpt-5.4"},
+                ),
+            ),
+            turn_summary=AgentTurnSummary(
+                declared_goal="Keep nested serializers explicit.",
+                actual_work_done="Covered the remaining nested payload helpers.",
+                state_delta="Operation payload stays derived end-to-end.",
+                verification_status="Targeted regression exercised.",
+                recommended_next_step="Run the full suite.",
+            ),
+        )
+    ]
+    operation.agent_turn_briefs = [
+        AgentTurnBrief(
+            operation_id="op-1",
+            iteration=1,
+            agent_key="codex_acp",
+            session_id="session-1",
+            assignment_brief="Verify the nested serializer path.",
+            turn_summary=AgentTurnSummary(
+                declared_goal="Summarize nested serializer work.",
+                actual_work_done="Used explicit helper payloads.",
+                state_delta="No nested model_dump fallback remains.",
+                verification_status="Regression added.",
+                recommended_next_step="Run projection tests.",
+            ),
+            status="completed",
+        )
+    ]
+
+    def _fail_memory_source_ref_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize MemorySourceRef directly")
+
+    def _fail_typed_refs_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize TypedRefs directly")
+
+    def _fail_execution_handle_ref_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize ExecutionHandleRef directly")
+
+    def _fail_background_progress_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "operation_payload should not serialize BackgroundProgressSnapshot directly"
+        )
+
+    def _fail_feature_draft_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize FeatureDraft directly")
+
+    def _fail_feature_patch_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize FeaturePatch directly")
+
+    def _fail_task_draft_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize TaskDraft directly")
+
+    def _fail_task_patch_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize TaskPatch directly")
+
+    def _fail_blocking_focus_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize BlockingFocus directly")
+
+    def _fail_agent_artifact_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AgentArtifact directly")
+
+    def _fail_agent_error_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AgentError directly")
+
+    def _fail_agent_usage_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AgentUsage directly")
+
+    def _fail_agent_turn_summary_model_dump(self, *args, **kwargs):
+        raise AssertionError("operation_payload should not serialize AgentTurnSummary directly")
+
+    monkeypatch.setattr(MemorySourceRef, "model_dump", _fail_memory_source_ref_model_dump)
+    monkeypatch.setattr(TypedRefs, "model_dump", _fail_typed_refs_model_dump)
+    monkeypatch.setattr(ExecutionHandleRef, "model_dump", _fail_execution_handle_ref_model_dump)
+    monkeypatch.setattr(
+        BackgroundProgressSnapshot,
+        "model_dump",
+        _fail_background_progress_model_dump,
+    )
+    monkeypatch.setattr(FeatureDraft, "model_dump", _fail_feature_draft_model_dump)
+    monkeypatch.setattr(FeaturePatch, "model_dump", _fail_feature_patch_model_dump)
+    monkeypatch.setattr(TaskDraft, "model_dump", _fail_task_draft_model_dump)
+    monkeypatch.setattr(TaskPatch, "model_dump", _fail_task_patch_model_dump)
+    monkeypatch.setattr(BlockingFocus, "model_dump", _fail_blocking_focus_model_dump)
+    monkeypatch.setattr(AgentArtifact, "model_dump", _fail_agent_artifact_model_dump)
+    monkeypatch.setattr(AgentError, "model_dump", _fail_agent_error_model_dump)
+    monkeypatch.setattr(AgentUsage, "model_dump", _fail_agent_usage_model_dump)
+    monkeypatch.setattr(AgentTurnSummary, "model_dump", _fail_agent_turn_summary_model_dump)
+
+    payload = OperationProjectionService().operation_payload(operation)
+
+    assert payload["memory_entries"][0]["source_refs"][0]["ref_id"] == "artifact-1"
+    assert payload["executions"][0]["handle_ref"]["kind"] == "pid"
+    assert payload["executions"][0]["progress"]["message"] == "Streaming"
+    assert payload["iteration_briefs"][0]["refs"]["artifact_id"] == "artifact-1"
+    assert payload["iterations"][0]["decision"]["new_features"][0]["title"] == "Derived payload"
+    assert payload["iterations"][0]["decision"]["task_updates"][0]["task_id"] == "task-1"
+    assert payload["iterations"][0]["decision"]["blocking_focus"]["target_id"] == "session-1"
+    assert payload["iterations"][0]["result"]["artifacts"][0]["name"] == "note.md"
+    assert payload["iterations"][0]["result"]["error"]["code"] == "none"
+    assert payload["iterations"][0]["result"]["usage"]["total_tokens"] == 30
+    assert payload["agent_turn_briefs"][0]["turn_summary"]["actual_work_done"] == (
+        "Used explicit helper payloads."
+    )
 
 
 def test_build_durable_truth_payload_uses_explicit_truth_serializers(

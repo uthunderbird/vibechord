@@ -10,6 +10,8 @@ from agent_operator.application.queries.operation_status_queries import (
 )
 from agent_operator.domain import (
     AgentSessionHandle,
+    BackgroundProgressSnapshot,
+    ExecutionState,
     InvolvementLevel,
     OperationGoal,
     OperationOutcome,
@@ -83,18 +85,19 @@ async def test_build_status_payload_keeps_stored_session_truth_unmodified() -> N
     operation = _operation()
     original_session_updated_at = operation.sessions[0].updated_at
     original_waiting_reason = operation.sessions[0].waiting_reason
-    runtime_progress = SimpleNamespace(
+    runtime_progress = BackgroundProgressSnapshot(
+        state=operation.sessions[0].status,
         updated_at=datetime(2026, 4, 14, 12, 5, tzinfo=UTC),
         last_event_at=datetime(2026, 4, 14, 12, 6, tzinfo=UTC),
         message="Agent session completed.",
     )
-    background_run = SimpleNamespace(
-        run_id="run-1",
+    background_run = ExecutionState(
+        execution_id="run-1",
+        operation_id=operation.operation_id,
+        adapter_key="codex_acp",
+        session_id="session-1",
+        task_id="task-1",
         progress=runtime_progress,
-        model_dump=lambda mode="json": {
-            "run_id": "run-1",
-            "status": "running",
-        },
     )
     service = OperationStatusQueryService(
         store=_Store(operation),
@@ -124,3 +127,81 @@ async def test_build_status_payload_keeps_stored_session_truth_unmodified() -> N
     assert runtime_alert is None
     assert operation.sessions[0].updated_at == original_session_updated_at
     assert operation.sessions[0].waiting_reason == original_waiting_reason
+
+
+@pytest.mark.anyio
+async def test_build_status_payload_uses_derived_background_run_payloads_without_model_dump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = _operation()
+    captured_background_runs: list[dict[str, object]] = []
+    background_run = ExecutionState(
+        execution_id="run-1",
+        operation_id=operation.operation_id,
+        adapter_key="codex_acp",
+        session_id="session-1",
+        task_id="task-1",
+        waiting_reason="Waiting for status update.",
+    )
+
+    def _fail_execution_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "build_status_payload should not serialize ExecutionState directly"
+        )
+
+    monkeypatch.setattr(ExecutionState, "model_dump", _fail_execution_model_dump)
+
+    service = OperationStatusQueryService(
+        store=_Store(operation),
+        projection_service=SimpleNamespace(
+            build_durable_truth_payload=lambda operation, include_inactive_memory=True: {},
+            build_live_snapshot=lambda operation, brief, runtime_alert=None: {
+                "status": operation.status.value,
+                "runtime_alert": runtime_alert,
+            },
+        ),
+        trace_store=_TraceStore(),
+        background_inspection_store=_BackgroundInspectionStore([background_run]),
+        wakeup_inspection_store=_WakeupInspectionStore(),
+        build_runtime_alert=lambda **kwargs: captured_background_runs.extend(
+            kwargs["background_runs"]
+        )
+        or "runtime-alert",
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=lambda operation, brief, runtime_alert=None, action_hint=None: "",
+    )
+
+    loaded_operation, outcome, brief_bundle, runtime_alert = await service.build_status_payload(
+        operation.operation_id
+    )
+
+    assert loaded_operation is operation
+    assert outcome is None
+    assert brief_bundle is None
+    assert runtime_alert == "runtime-alert"
+    assert captured_background_runs == [
+        {
+            "execution_id": "run-1",
+            "run_id": "run-1",
+            "operation_id": operation.operation_id,
+            "adapter_key": "codex_acp",
+            "session_id": "session-1",
+            "task_id": "task-1",
+            "iteration": None,
+            "mode": "background",
+            "launch_kind": "new",
+            "observed_state": "starting",
+            "status": "pending",
+            "waiting_reason": "Waiting for status update.",
+            "handle_ref": None,
+            "progress": None,
+            "result_ref": None,
+            "error_ref": None,
+            "pid": None,
+            "started_at": background_run.started_at.isoformat(),
+            "last_heartbeat_at": None,
+            "completed_at": None,
+            "raw_ref": None,
+        }
+    ]

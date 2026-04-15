@@ -2451,6 +2451,38 @@ def test_inspect_full_shows_forensic_details(tmp_path: Path, monkeypatch) -> Non
     assert "operation.cycle_finished" in result.stdout
 
 
+def test_inspect_full_derives_attention_request_payloads(tmp_path: Path, monkeypatch) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+    persisted = anyio.run(store.load_operation, operation_id)
+    assert persisted is not None
+    persisted.attention_requests = [
+        AttentionRequest(
+            attention_id="att-inspect",
+            operation_id=operation_id,
+            attention_type=AttentionType.POLICY_GAP,
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+            title="Need policy clarification",
+            question="Should this path stay read-only?",
+            status=AttentionStatus.OPEN,
+        )
+    ]
+    anyio.run(store.save_operation, persisted)
+
+    def _fail_attention_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect should not serialize AttentionRequest directly")
+
+    monkeypatch.setattr(AttentionRequest, "model_dump", _fail_attention_model_dump)
+
+    result = runner.invoke(app, ["inspect", operation_id, "--full"])
+
+    assert result.exit_code == 0
+    assert '"attention_id": "att-inspect"' in result.stdout
+    assert '"attention_type": "policy_gap"' in result.stdout
+
+
 def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> None:
     from agent_operator.domain.traceability import TraceBriefBundle
 
@@ -2485,16 +2517,26 @@ def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> No
 
 
 def test_inspect_full_json_includes_forensic_arrays(tmp_path: Path, monkeypatch) -> None:
+    from agent_operator.domain.operation import ExecutionState
+
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_execution_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect should not serialize ExecutionState directly")
 
     def _fail_decision_memo_model_dump(self, *args, **kwargs):
         raise AssertionError("debug inspect should not serialize DecisionMemo directly")
 
+    def _fail_run_event_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect should not serialize RunEvent directly")
+
     def _fail_trace_record_model_dump(self, *args, **kwargs):
         raise AssertionError("debug inspect should not serialize TraceRecord directly")
 
+    monkeypatch.setattr(ExecutionState, "model_dump", _fail_execution_model_dump)
     monkeypatch.setattr(DecisionMemo, "model_dump", _fail_decision_memo_model_dump)
+    monkeypatch.setattr(RunEvent, "model_dump", _fail_run_event_model_dump)
     monkeypatch.setattr(TraceRecord, "model_dump", _fail_trace_record_model_dump)
 
     result = runner.invoke(app, ["inspect", operation_id, "--json", "--full"])

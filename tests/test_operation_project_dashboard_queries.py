@@ -160,3 +160,47 @@ async def test_load_payload_builds_project_dashboard() -> None:
     assert payload["project"] == "operator"
     assert payload["policy_summary"]["active_count"] == 1
     assert payload["fleet"]["total_operations"] == 1
+
+
+@pytest.mark.anyio
+async def test_load_payload_uses_derived_resolved_config_payload_without_model_dump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _StoreWithSummaries()
+    await store.save_operation(_operation())
+    agenda_queries = OperationAgendaQueryService(store=store, status_service=_status_queries(store))
+    service = OperationProjectDashboardQueryService(
+        agenda_queries=agenda_queries,
+        projection_service=OperationProjectionService(),
+        policy_store=_PolicyStore(),
+    )
+    resolved = ResolvedProjectRunConfig(
+        profile_name="operator",
+        cwd=Path("."),
+        objective_text="Ship dashboard",
+        default_agents=["codex_acp"],
+        harness_instructions="Keep delivery thin.",
+        success_criteria=["dashboard works"],
+        max_iterations=8,
+        run_mode=RunMode.ATTACHED,
+        involvement_level=InvolvementLevel.COLLABORATIVE,
+    )
+
+    def _fail_resolved_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "project dashboard query should not serialize ResolvedProjectRunConfig directly"
+        )
+
+    monkeypatch.setattr(ResolvedProjectRunConfig, "model_dump", _fail_resolved_model_dump)
+
+    payload = await service.load_payload(
+        profile=ProjectProfile(name="operator"),
+        resolved=resolved,
+        profile_path=Path("/tmp/operator-profile.yaml"),
+    )
+
+    assert payload["resolved"]["profile_name"] == "operator"
+    assert payload["resolved"]["cwd"] == "."
+    assert payload["resolved"]["run_mode"] == "attached"
+    assert payload["resolved"]["involvement_level"] == "collaborative"
+    assert payload["resolved"]["success_criteria"] == ["dashboard works"]
