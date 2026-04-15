@@ -214,10 +214,13 @@ async def _iter_list_payloads() -> list[tuple[dict[str, object], str]]:
                     payload["runtime_alert"] = runtime_alert
                 rows.append((payload, str(payload["project"] or ""), summary.updated_at))
                 continue
-            payload = summary.model_dump(mode="json")
+            operation = await store.load_operation(summary.operation_id)
+            if operation is None:
+                continue
+            payload = PROJECTIONS._agenda_item_payload(
+                build_agenda_item(operation, summary, runtime_alert=runtime_alert)
+            )
             payload["project"] = discovered_project_name
-            if runtime_alert is not None:
-                payload["runtime_alert"] = runtime_alert
             rows.append((payload, str(discovered_project_name or ""), summary.updated_at))
     rows.sort(key=lambda item: (-item[2].timestamp(), str(item[0].get("operation_id") or "")))
     return [(payload, project_name) for payload, project_name, _ in rows]
