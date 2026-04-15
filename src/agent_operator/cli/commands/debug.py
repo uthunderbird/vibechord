@@ -673,19 +673,23 @@ def inspect(
             typer.echo(json.dumps(operation_payload(operation), indent=2, ensure_ascii=False))
             typer.echo("\nTrace:")
             for record in trace_records:
-                typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+                typer.echo(
+                    json.dumps(_trace_record_payload(record), indent=2, ensure_ascii=False)
+                )
             typer.echo("\nDecision memos:")
             for memo in memos:
-                typer.echo(json.dumps(memo.model_dump(mode="json"), indent=2, ensure_ascii=False))
+                typer.echo(
+                    json.dumps(_decision_memo_payload(memo), indent=2, ensure_ascii=False)
+                )
             typer.echo("\nEvents:")
             for event in events:
-                typer.echo(json.dumps(event.model_dump(mode="json"), indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(_run_event_payload(event), indent=2, ensure_ascii=False))
             typer.echo("\nWakeups:")
             for wakeup in build_wakeup_inbox(settings).read_all(operation_id):
                 typer.echo(json.dumps(wakeup, indent=2, ensure_ascii=False))
             typer.echo("\nBackground runs:")
             for run in [
-                item.model_dump(mode="json")
+                _execution_payload(item)
                 for item in await build_background_run_inspection_store(settings).list_runs(
                     operation_id
                 )

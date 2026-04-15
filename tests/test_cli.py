@@ -2501,6 +2501,40 @@ def test_inspect_full_derives_attention_request_payloads(tmp_path: Path, monkeyp
     assert '"attention_type": "policy_gap"' in result.stdout
 
 
+def test_inspect_full_derives_forensic_payloads_without_serializing_truth_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_operator.domain.operation import ExecutionState
+
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_execution_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect --full should not serialize ExecutionState directly")
+
+    def _fail_decision_memo_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect --full should not serialize DecisionMemo directly")
+
+    def _fail_run_event_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect --full should not serialize RunEvent directly")
+
+    def _fail_trace_record_model_dump(self, *args, **kwargs):
+        raise AssertionError("debug inspect --full should not serialize TraceRecord directly")
+
+    monkeypatch.setattr(ExecutionState, "model_dump", _fail_execution_model_dump)
+    monkeypatch.setattr(DecisionMemo, "model_dump", _fail_decision_memo_model_dump)
+    monkeypatch.setattr(RunEvent, "model_dump", _fail_run_event_model_dump)
+    monkeypatch.setattr(TraceRecord, "model_dump", _fail_trace_record_model_dump)
+
+    result = runner.invoke(app, ["inspect", operation_id, "--full"])
+
+    assert result.exit_code == 0
+    assert "Trace:" in result.stdout
+    assert "Decision memos:" in result.stdout
+    assert "Events:" in result.stdout
+    assert "Background runs:" in result.stdout
+
+
 def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> None:
     from agent_operator.domain.traceability import TraceBriefBundle
 
