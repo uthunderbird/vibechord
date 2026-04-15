@@ -4,11 +4,11 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Verified
 
 ## Context
 
@@ -22,7 +22,8 @@ The ADR-relevant MCP slice currently passes:
 
 - `uv run pytest tests/test_mcp_server.py`
 
-The full repository gate currently fails on an unrelated regression outside the MCP surface:
+The repository-wide verification gate was previously blocked by an unrelated regression outside the
+MCP surface:
 
 - `uv run pytest`
 - failing test:
@@ -35,15 +36,18 @@ Observed failure during the verification wave for ADR 0146:
 
 ## Decision
 
-Do not promote ADR 0146 to `Verified` until the repository-wide verification gate is green again.
+Do not promote ADR 0146 to `Verified` unless both the ADR-relevant MCP slice and the repository-wide
+verification gate are green.
 
 Track the blocker as explicit design debt so ADR closure reporting remains truthful and does not
 infer global verification from MCP-slice success alone.
 
-## Consequences
+## Resolution
 
-- ADR 0146 remains `Accepted` and `Implemented` until the failing service-path regression is fixed
-  and `uv run pytest` passes again.
+- The previously failing service-path regression is no longer reproducing in the current repository
+  state.
+- ADR 0146 is now eligible to move from `Implemented` to `Verified` because both verification gates
+  pass.
 - MCP-specific evidence remains valid, but it is insufficient for repository-wide verified closure
   under current verification policy.
 
@@ -52,8 +56,7 @@ infer global verification from MCP-slice success alone.
 Recorded from local verification on 2026-04-15:
 
 - `uv run pytest tests/test_mcp_server.py` -> passed
-- `uv run pytest` -> failed at
-  `tests/test_service.py::test_busy_follow_up_for_claude_in_turn_continuation_keeps_waiting_on_live_turn[asyncio]`
+- `uv run pytest` -> passed (`738 passed, 11 skipped`)
 
 ## Related
 
