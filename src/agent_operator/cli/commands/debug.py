@@ -772,9 +772,11 @@ def trace(
         memos = await trace_store.load_decision_memos(operation_id)
         events = event_sink.read_events(operation_id)
         wakeups = inbox.read_all(operation_id)
-        commands = [item.model_dump(mode="json") for item in await command_inbox.list(operation_id)]
+        commands = [
+            _operation_command_payload(item) for item in await command_inbox.list(operation_id)
+        ]
         background_runs = [
-            item.model_dump(mode="json") for item in await supervisor.list_runs(operation_id)
+            _execution_payload(item) for item in await supervisor.list_runs(operation_id)
         ]
         if not trace_records and not memos and not events:
             raise typer.BadParameter(f"Trace for {operation_id!r} was not found.")
@@ -789,15 +791,15 @@ def trace(
         if json_mode:
             payload = {
                 "operation_id": operation_id,
-                "trace_records": [item.model_dump(mode="json") for item in trace_records],
-                "decision_memos": [item.model_dump(mode="json") for item in memos],
-                "events": [item.model_dump(mode="json") for item in events],
+                "trace_records": [_trace_record_payload(item) for item in trace_records],
+                "decision_memos": [_decision_memo_payload(item) for item in memos],
+                "events": [_run_event_payload(item) for item in events],
                 "wakeups": wakeups,
                 "background_runs": background_runs,
                 "raw_log_refs": raw_log_refs,
                 "commands": commands,
                 "attention_requests": [
-                    item.model_dump(mode="json") for item in operation.attention_requests
+                    _attention_request_payload(item) for item in operation.attention_requests
                 ]
                 if operation is not None
                 else [],
@@ -806,13 +808,13 @@ def trace(
             return
         typer.echo("Trace:")
         for record in trace_records:
-            typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(_trace_record_payload(record), indent=2, ensure_ascii=False))
         typer.echo("\nDecision memos:")
         for memo in memos:
-            typer.echo(json.dumps(memo.model_dump(mode="json"), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(_decision_memo_payload(memo), indent=2, ensure_ascii=False))
         typer.echo("\nEvents:")
         for event in events:
-            typer.echo(json.dumps(event.model_dump(mode="json"), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(_run_event_payload(event), indent=2, ensure_ascii=False))
         typer.echo("\nWakeups:")
         for wakeup in wakeups:
             typer.echo(json.dumps(wakeup, indent=2, ensure_ascii=False))
@@ -827,7 +829,9 @@ def trace(
             typer.echo("\nAttention requests:")
             for attention in operation.attention_requests:
                 typer.echo(
-                    json.dumps(attention.model_dump(mode="json"), indent=2, ensure_ascii=False)
+                    json.dumps(
+                        _attention_request_payload(attention), indent=2, ensure_ascii=False
+                    )
                 )
         if raw_log_refs:
             typer.echo("\nRaw log refs:")

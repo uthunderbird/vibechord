@@ -3002,6 +3002,51 @@ def test_trace_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
     assert '"commands"' in result.stdout
 
 
+def test_trace_json_derives_forensic_payloads_without_serializing_truth_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_operator.domain.operation import ExecutionState
+
+    operation_id = _seed_operation(tmp_path)
+    _seed_command(tmp_path, operation_id)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_execution_model_dump(self, *args, **kwargs):
+        raise AssertionError("trace json should not serialize ExecutionState directly")
+
+    def _fail_decision_memo_model_dump(self, *args, **kwargs):
+        raise AssertionError("trace json should not serialize DecisionMemo directly")
+
+    def _fail_run_event_model_dump(self, *args, **kwargs):
+        raise AssertionError("trace json should not serialize RunEvent directly")
+
+    def _fail_trace_record_model_dump(self, *args, **kwargs):
+        raise AssertionError("trace json should not serialize TraceRecord directly")
+
+    def _fail_attention_model_dump(self, *args, **kwargs):
+        raise AssertionError("trace json should not serialize AttentionRequest directly")
+
+    def _fail_command_model_dump(self, *args, **kwargs):
+        raise AssertionError("trace json should not serialize OperationCommand directly")
+
+    monkeypatch.setattr(ExecutionState, "model_dump", _fail_execution_model_dump)
+    monkeypatch.setattr(DecisionMemo, "model_dump", _fail_decision_memo_model_dump)
+    monkeypatch.setattr(RunEvent, "model_dump", _fail_run_event_model_dump)
+    monkeypatch.setattr(TraceRecord, "model_dump", _fail_trace_record_model_dump)
+    monkeypatch.setattr(AttentionRequest, "model_dump", _fail_attention_model_dump)
+    monkeypatch.setattr(OperationCommand, "model_dump", _fail_command_model_dump)
+
+    result = runner.invoke(app, ["trace", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"trace_records"' in result.stdout
+    assert '"decision_memos"' in result.stdout
+    assert '"events"' in result.stdout
+    assert '"background_runs"' in result.stdout
+    assert '"attention_requests"' in result.stdout
+    assert '"commands"' in result.stdout
+
+
 def test_log_prints_condensed_human_readable_codex_events(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
