@@ -4,11 +4,41 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Verified
+
+Skim-safe status on 2026-04-15:
+
+- `implemented`: the status/query path already derives runtime overlays from wakeup/background-run
+  inspection while keeping durable session truth separate
+- `implemented`: the runtime reconciliation path already retires redundant wakeup debt after
+  equivalent terminal truth is folded
+- `verified`: targeted regression coverage exists for both the representative query-side and
+  reconciliation-side failure modes this ADR scoped
+- `verified`: the full `uv run pytest` suite is green at current repository truth
+
+Implementation grounding on 2026-04-15:
+
+- `implemented`: `OperationStatusQueryService.build_status_payload()` derives runtime alert inputs
+  from explicit background-run payloads instead of mutating durable operation/session truth
+- `implemented`: `OperationStatusQueryService.build_live_snapshot()` suppresses stale
+  `waiting_reason` output when a runtime overlay is present, so runtime diagnostics do not
+  masquerade as canonical session truth
+- `implemented`: `OperationRuntimeReconciliationService.reconcile_background_wakeups()` clears
+  claimed wakeup debt once wakeups are acknowledged or released
+- `implemented`: `OperationRuntimeReconciliationService.reconcile_terminal_background_run_from_supervisor()`
+  folds terminal agent truth and emits explicit reconciliation evidence rather than leaving
+  terminal background-run debt as a competing authority
+- `verified`: query-side regression coverage exists in
+  `tests/test_operation_status_queries.py` and
+  `tests/test_operation_status_query_immutability.py`
+- `verified`: reconciliation-side regression coverage exists in
+  `tests/test_operation_runtime_reconciliation_service.py`
+- `verified`: CLI/status inspection coverage for the previously divergent unreconciled-terminal
+  incident exists in `tests/test_cli.py`
 
 ## Context
 
@@ -192,11 +222,20 @@ Expected implementation sites will likely include:
 - `src/agent_operator/application/runtime/operation_runtime_reconciliation.py`
 - `src/agent_operator/domain/operation.py`
 
+## Closure Evidence Matrix
+
+| ADR line / closure claim | Repository evidence | Verification |
+| --- | --- | --- |
+| Query/status surfaces prefer canonical semantic truth plus explicit runtime overlays over stored mutable runtime-summary fields | `src/agent_operator/application/queries/operation_status_queries.py:build_status_payload`; `src/agent_operator/application/queries/operation_status_queries.py:build_live_snapshot` | `tests/test_operation_status_queries.py::test_build_live_snapshot_omits_stale_waiting_reason_when_runtime_alert_present`; `tests/test_operation_status_query_immutability.py::test_build_status_payload_keeps_stored_session_truth_unmodified`; `tests/test_operation_status_query_immutability.py::test_build_status_payload_uses_derived_background_run_payloads_without_model_dump` |
+| At least one reconciliation path collapses redundant runtime debt after equivalent terminal truth is already folded | `src/agent_operator/application/runtime/operation_runtime_reconciliation.py:reconcile_background_wakeups`; `src/agent_operator/application/runtime/operation_runtime_reconciliation.py:reconcile_terminal_background_run_from_supervisor` | `tests/test_operation_runtime_reconciliation_service.py::test_duplicate_terminal_wakeups_do_not_refold_same_background_run`; `tests/test_operation_runtime_reconciliation_service.py::test_resume_reconciles_completed_background_run_without_wakeup`; `tests/test_operation_runtime_reconciliation_service.py::test_resume_releases_unhandled_wakeup_for_retry` |
+| Durable terminal truth wins over stale runtime-summary state on a representative query surface | `src/agent_operator/application/queries/operation_status_queries.py:build_live_snapshot` only emits `waiting_reason` when `runtime_alert` is absent | `tests/test_operation_status_queries.py::test_build_live_snapshot_omits_stale_waiting_reason_when_runtime_alert_present` |
+| Status/inspect behavior is checked against a previously divergent real incident | CLI inspect/list surfaces now render unreconciled terminal background completion as a runtime overlay instead of blended truth | `tests/test_cli.py::test_inspect_surfaces_runtime_alert_for_unreconciled_background_completion`; `tests/test_cli.py::test_list_surfaces_runtime_alert_for_unreconciled_background_completion`; `tests/test_cli.py::test_list_and_agenda_json_derive_runtime_alert_inputs_without_serializing_execution_models` |
+| Final repository truth is verified against current code and tests | changed ADR plus existing implementation/tests under `src/agent_operator/...` and `tests/...` | `uv run pytest` |
+
 ## Related
 
 - [ADR 0172](./0172-derived-live-status-over-stored-session-summary.md)
 - [ADR 0173](./0173-immutable-truth-and-query-boundaries.md)
-- [ADR 0179](./0179-wakeup-reconciliation-single-retirement-authority.md)
 - [src/agent_operator/application/queries/operation_status_queries.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/queries/operation_status_queries.py)
 - [src/agent_operator/application/runtime/operation_runtime_reconciliation.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/runtime/operation_runtime_reconciliation.py)
 - [src/agent_operator/domain/operation.py](/Users/thunderbird/Projects/operator/src/agent_operator/domain/operation.py)
