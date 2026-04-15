@@ -626,6 +626,9 @@ class OperationProjectionService:
             "updated_at": brief.updated_at.isoformat(),
         }
 
+    def operation_brief_payload(self, brief) -> dict[str, object]:
+        return self._operation_brief_payload(brief)
+
     def _iteration_brief_payload(self, brief) -> dict[str, object]:
         return {
             "iteration": brief.iteration,
@@ -638,6 +641,9 @@ class OperationProjectionService:
             "refs": self._typed_refs_payload(brief.refs),
             "created_at": brief.created_at.isoformat(),
         }
+
+    def iteration_brief_payload(self, brief) -> dict[str, object]:
+        return self._iteration_brief_payload(brief)
 
     def _execution_handle_ref_payload(self, handle_ref) -> dict[str, object]:
         return {
@@ -916,6 +922,32 @@ class OperationProjectionService:
             "raw_log_refs": list(turn.raw_log_refs),
             "wakeup_refs": list(turn.wakeup_refs),
             "created_at": turn.created_at.isoformat(),
+        }
+
+    def agent_turn_brief_payload(self, turn: AgentTurnBrief) -> dict[str, object]:
+        return self._agent_turn_brief_payload(turn)
+
+    def brief_bundle_payload(self, brief: TraceBriefBundle) -> dict[str, object]:
+        return {
+            "operation_brief": (
+                self._operation_brief_payload(brief.operation_brief)
+                if brief.operation_brief is not None
+                else None
+            ),
+            "iteration_briefs": [
+                self._iteration_brief_payload(item) for item in brief.iteration_briefs
+            ],
+            "agent_turn_briefs": [
+                self._agent_turn_brief_payload(item) for item in brief.agent_turn_briefs
+            ],
+        }
+
+    def outcome_payload(self, outcome: OperationOutcome) -> dict[str, object]:
+        return {
+            "operation_id": outcome.operation_id,
+            "status": outcome.status.value,
+            "summary": outcome.summary,
+            "ended_at": outcome.ended_at.isoformat() if outcome.ended_at is not None else None,
         }
 
     def operation_payload(self, operation: OperationState) -> dict[str, object]:

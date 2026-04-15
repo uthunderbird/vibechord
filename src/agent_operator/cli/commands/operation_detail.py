@@ -483,8 +483,8 @@ def report(
         if json_mode:
             payload = {
                 "operation_id": resolved_operation_id,
-                "brief": brief.model_dump(mode="json") if brief is not None else None,
-                "outcome": outcome.model_dump(mode="json") if outcome is not None else None,
+                "brief": PROJECTIONS.brief_bundle_payload(brief) if brief is not None else None,
+                "outcome": PROJECTIONS.outcome_payload(outcome) if outcome is not None else None,
                 "report": report_text,
                 "durable_truth": PROJECTIONS.build_durable_truth_payload(
                     operation, include_inactive_memory=True

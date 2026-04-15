@@ -38,9 +38,15 @@ Implementation grounding on 2026-04-14:
 - `implemented`: operation-detail JSON read surfaces for attention, tasks, memory, artifacts, and
   session snapshots now derive payloads through `OperationProjectionService` instead of serializing
   mutable `AttentionRequest`, `TaskState`, `MemoryEntry`, and `ArtifactRecord` models directly
+- `implemented`: `operation_detail.py report --json` now derives `brief` and `outcome` payloads
+  through projection/query helpers instead of serializing `TraceBriefBundle` and
+  `OperationOutcome` directly
 - `verified`: CLI regression coverage now asserts those operation-detail JSON surfaces do not call
   `model_dump()` on mutable truth models, and full `uv run pytest` passed at current repository
   truth (`733 passed, 11 skipped`)
+- `verified`: CLI regression coverage now asserts `report --json` does not call `model_dump()` on
+  `TraceBriefBundle` or `OperationOutcome`, and full `uv run pytest` passed at current repository
+  truth (`734 passed, 11 skipped`)
 - `planned`: immutable boundaries are not yet enforced repository-wide across all query DTOs,
   projection helpers, and forensic/read surfaces
 
@@ -174,11 +180,12 @@ Current tranche closure on 2026-04-14:
 - `partial`: operation-detail JSON read commands for attention, tasks, memory, artifacts, and
   session snapshots now derive payloads through projection helpers instead of serializing mutable
   truth models directly
+- `partial`: `report --json` now derives `brief` and `outcome` payloads through projection helpers
+  instead of serializing mutable read/truth models directly
 - `partial`: a regression test now asserts that status-query assembly leaves stored session truth
   untouched even when runtime background progress exists
 - `remaining`: other forensic/read JSON surfaces still serialize mutable truth models directly,
-  including `report --json` (`TraceBriefBundle` / `OperationOutcome`) and multiple
-  `cli/workflows/views.py` JSON payload assembly paths
+  including multiple `cli/workflows/views.py` JSON payload assembly paths
 - `remaining`: immutable query/read DTO boundaries are still not enforced repository-wide across
   all delivery commands and projection helpers
 

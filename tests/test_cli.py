@@ -2591,6 +2591,32 @@ def test_report_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
     assert '"artifacts"' in result.stdout
 
 
+def test_report_json_derives_payload_without_serializing_brief_or_outcome_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_operator.domain.traceability import TraceBriefBundle
+
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_outcome_model_dump(self, *args, **kwargs):
+        raise AssertionError("report json should not serialize OperationOutcome directly")
+
+    def _fail_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError("report json should not serialize TraceBriefBundle directly")
+
+    monkeypatch.setattr(TraceBriefBundle, "model_dump", _fail_brief_model_dump)
+    monkeypatch.setattr(OperationOutcome, "model_dump", _fail_outcome_model_dump)
+
+    result = runner.invoke(app, ["report", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"brief"' in result.stdout
+    assert '"outcome"' in result.stdout
+    assert '"report"' in result.stdout
+    assert '"durable_truth"' in result.stdout
+
+
 def test_report_ticket_retries_pm_reporting(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
     store = FileOperationStore(tmp_path / "runs")
