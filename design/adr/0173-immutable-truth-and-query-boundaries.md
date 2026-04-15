@@ -6,21 +6,22 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 Skim-safe status on 2026-04-15:
 
 - `implemented`: status/query, operation-detail, dashboard, project-dashboard, and the `list`
   JSON fallback path now derive read payloads through explicit projection helpers instead of
   serializing mutable truth models directly
-- `verified`: targeted regression coverage exists for the main status-query and operation-detail
-  tranche, and the full repository test gate currently passes (`734 passed, 11 skipped`)
-- `remaining`: forensic/debug read surfaces still serialize mutable truth models directly in
-  `src/agent_operator/cli/commands/debug.py`, so immutable query/read boundaries are not yet
-  enforced repository-wide
-- `canonical remaining work`: keep this ADR at `Implementation Status: Partial` until the
-  remaining forensic/debug read paths are converted to derived payload builders and covered by
-  regression tests
+- `implemented`: the former forensic/debug remaining gap has now been closed; `debug inspect`,
+  `trace`, `wakeups`, `sessions`, converse read payloads, and the fleet/view background-run
+  payload paths all derive explicit read payloads instead of serializing mutable truth models
+  directly
+- `verified`: targeted regression coverage now covers the original status-query tranche plus the
+  former forensic/debug/debug-read gap, and the full repository test gate passes at current
+  repository truth (`738 passed, 11 skipped`)
+- `current repository truth`: this ADR's intended read/query boundary is satisfied for the
+  repository surfaces it scoped and tracked canonically
 
 Implementation grounding on 2026-04-15:
 
@@ -58,17 +59,24 @@ Implementation grounding on 2026-04-15:
 - `implemented`: `cli/workflows/views.py list --json` fallback rows now derive payloads from
   `build_agenda_item(...)` plus `OperationProjectionService._agenda_item_payload(...)` instead of
   serializing `OperationSummary` directly
+- `implemented`: `debug inspect --full`, `debug inspect --json --full`, and `trace --json` now
+  derive forensic payloads explicitly instead of serializing `ExecutionState`, `DecisionMemo`,
+  `RunEvent`, `TraceRecord`, `AttentionRequest`, `OperationCommand`, `TraceBriefBundle`, or
+  `OperationOutcome` directly
+- `implemented`: `debug wakeups --json`, `sessions --json`, converse read payloads, and fleet/view
+  background-run payload assembly now derive explicit payloads instead of serializing
+  `WakeupRef`, `RunEvent`, `ExecutionState`, `OperationCommand`, or `OperationSummary` directly
 - `verified`: CLI regression coverage now asserts those operation-detail JSON surfaces do not call
-  `model_dump()` on mutable truth models, and full `uv run pytest` passed at current repository
-  truth (`733 passed, 11 skipped`)
+  `model_dump()` on mutable truth models
 - `verified`: CLI regression coverage now asserts `report --json` does not call `model_dump()` on
-  `TraceBriefBundle` or `OperationOutcome`, and full `uv run pytest` passed at current repository
-  truth (`734 passed, 11 skipped`)
+  `TraceBriefBundle` or `OperationOutcome`
 - `verified`: CLI regression coverage now asserts `list --json` does not call
-  `OperationSummary.model_dump()`, and full `uv run pytest` passed at current repository truth
-  (`734 passed, 11 skipped`)
-- `planned`: immutable boundaries are not yet enforced repository-wide across all query DTOs,
-  projection helpers, and forensic/read surfaces
+  `OperationSummary.model_dump()`
+- `verified`: CLI regression coverage now asserts the former forensic/debug remaining surfaces do
+  not call `model_dump()` on the mutable truth models they previously serialized directly
+- `verified`: full `uv run pytest` passes at current repository truth (`738 passed, 11 skipped`)
+- `planned`: a later ADR may expand immutable DTO enforcement beyond the read/query surfaces this
+  ADR scoped, but no open remaining implementation gap is tracked under ADR 0173 itself
 
 ## Context
 
@@ -204,11 +212,10 @@ Current tranche closure on 2026-04-14:
   instead of serializing mutable read/truth models directly
 - `partial`: a regression test now asserts that status-query assembly leaves stored session truth
   untouched even when runtime background progress exists
-- `remaining`: other forensic/read JSON surfaces still serialize mutable truth models directly,
-  especially under `src/agent_operator/cli/commands/debug.py` (`inspect --full`, `trace`,
-  attention payloads, command payloads, and background-run/event/memo record dumps)
-- `remaining`: immutable query/read DTO boundaries are still not enforced repository-wide across
-  all delivery commands and projection helpers
+- `completed on 2026-04-15`: the remaining forensic/debug read surfaces were converted to derived
+  payload builders under `src/agent_operator/cli/commands/debug.py`, `src/agent_operator/cli/workflows/views.py`,
+  and the related converse/view paths, with regression coverage added for each bounded slice
+- `closure`: ADR 0173 no longer carries a canonical remaining implementation gap
 
 ## Related
 
@@ -223,4 +230,5 @@ Current tranche closure on 2026-04-14:
 | Operation-detail JSON read surfaces derive tasks, memory, artifacts, attention, brief, and outcome payloads | `src/agent_operator/cli/commands/operation_detail.py`; `src/agent_operator/application/queries/operation_projections.py` | `tests/test_cli.py::test_tasks_command_json_derives_tasks_without_serializing_task_models`; `tests/test_cli.py::test_memory_command_json_derives_entries_without_serializing_memory_models`; `tests/test_cli.py::test_artifacts_command_json_derives_artifacts_without_serializing_models`; `tests/test_cli.py::test_report_json_derives_payload_without_serializing_brief_or_outcome_models`; `tests/test_cli.py::test_inspect_json_emits_aggregate_payload` |
 | Dashboard/project-dashboard and fleet projection paths use derived payload builders instead of direct model serialization | `src/agent_operator/application/queries/operation_dashboard_queries.py`; `src/agent_operator/application/queries/operation_project_dashboard_queries.py`; `src/agent_operator/application/queries/operation_projections.py` | `tests/test_operation_dashboard_queries.py::test_load_payload_uses_derived_brief_payload_without_operation_brief_model_dump`; `tests/test_operation_project_dashboard_queries.py::test_load_payload_uses_derived_resolved_config_payload_without_model_dump`; `tests/test_operation_projections.py::test_build_fleet_payload_uses_explicit_agenda_item_serializer` |
 | `list --json` fallback rows now derive agenda payloads instead of serializing `OperationSummary` directly | `src/agent_operator/cli/workflows/views.py:_iter_list_payloads` | `tests/test_cli.py::test_list_json_emits_machine_readable_objects` |
-| Full closure is not yet truthful because forensic/debug read surfaces still serialize mutable truth models directly | `src/agent_operator/cli/commands/debug.py` still contains direct `model_dump()` paths for trace records, decision memos, run events, attention requests, command inbox records, and background runs | direct code audit on 2026-04-15; full `uv run pytest` passing does not remove this remaining implementation gap |
+| Forensic/debug read surfaces now derive trace, inspect, wakeup, session, command, attention, and background-run payloads explicitly instead of serializing mutable truth models directly | `src/agent_operator/cli/commands/debug.py:_trace_record_payload`; `src/agent_operator/cli/commands/debug.py:_decision_memo_payload`; `src/agent_operator/cli/commands/debug.py:_run_event_payload`; `src/agent_operator/cli/commands/debug.py:_attention_request_payload`; `src/agent_operator/cli/commands/debug.py:_operation_command_payload`; `src/agent_operator/cli/commands/debug.py:_execution_payload`; `src/agent_operator/cli/commands/debug.py:inspect`; `src/agent_operator/cli/commands/debug.py:trace`; `src/agent_operator/cli/commands/debug.py:wakeups`; `src/agent_operator/cli/commands/debug.py:sessions` | `tests/test_cli.py::test_inspect_full_derives_forensic_payloads_without_serializing_truth_models`; `tests/test_cli.py::test_inspect_full_json_includes_forensic_arrays`; `tests/test_cli.py::test_trace_json_derives_forensic_payloads_without_serializing_truth_models`; `tests/test_cli.py::test_debug_wakeups_json_derives_claimed_wakeups_without_serializing_wakeup_refs`; `tests/test_cli.py::test_debug_wakeups_json_derives_pending_wakeups_without_serializing_run_events`; `tests/test_cli.py::test_sessions_json_derives_live_progress_without_overlaying_session_models`; `tests/test_cli.py::test_attention_command_json_derives_requests_without_serializing_models` |
+| Converse/view background-run and command read payloads also stay on derived payload builders | `src/agent_operator/cli/workflows/views.py:_iter_list_payloads`; `src/agent_operator/cli/workflows/views.py:_load_multi_project_agenda_snapshot` | `tests/test_cli.py::test_list_and_agenda_json_derive_runtime_alert_inputs_without_serializing_execution_models` |
