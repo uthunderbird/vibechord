@@ -1846,6 +1846,11 @@ def test_list_json_emits_machine_readable_objects(tmp_path: Path, monkeypatch) -
     _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
+    def _fail_operation_brief_model_dump(self, *args, **kwargs):
+        raise AssertionError("list json should not serialize OperationBrief directly")
+
+    monkeypatch.setattr(OperationBrief, "model_dump", _fail_operation_brief_model_dump)
+
     result = runner.invoke(app, ["list", "--json"])
 
     assert result.exit_code == 0

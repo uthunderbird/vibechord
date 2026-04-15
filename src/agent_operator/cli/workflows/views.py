@@ -53,6 +53,7 @@ from ..helpers.logs import (
     resolve_log_target,
 )
 from ..helpers.rendering import (
+    PROJECTIONS,
     build_runtime_alert,
     cli_projection_payload,
     render_fleet_dashboard,
@@ -205,7 +206,7 @@ async def _iter_list_payloads() -> list[tuple[dict[str, object], str]]:
             )
             brief_bundle = await trace_store.load_brief_bundle(summary.operation_id)
             if brief_bundle is not None and brief_bundle.operation_brief is not None:
-                payload = brief_bundle.operation_brief.model_dump(mode="json")
+                payload = PROJECTIONS.operation_brief_payload(brief_bundle.operation_brief)
                 payload["project"] = (
                     payload.get("project_profile_name") or discovered_project_name
                 )
