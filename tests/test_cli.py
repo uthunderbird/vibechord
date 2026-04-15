@@ -2784,6 +2784,24 @@ def test_tasks_command_json_emits_tasks_payload(tmp_path: Path, monkeypatch) -> 
     assert '"task_id": "task-1"' in result.stdout
 
 
+def test_tasks_command_json_derives_tasks_without_serializing_task_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_task_model_dump(self, *args, **kwargs):
+        raise AssertionError("tasks command should not serialize TaskState directly")
+
+    monkeypatch.setattr(TaskState, "model_dump", _fail_task_model_dump)
+
+    result = runner.invoke(app, ["tasks", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"tasks"' in result.stdout
+    assert '"task_id": "task-1"' in result.stdout
+
+
 def test_memory_command_defaults_to_current_entries(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -2807,6 +2825,24 @@ def test_memory_command_json_emits_memory_payload(tmp_path: Path, monkeypatch) -
     assert '"memory_id": "memory-1"' in result.stdout
 
 
+def test_memory_command_json_derives_entries_without_serializing_memory_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_memory_model_dump(self, *args, **kwargs):
+        raise AssertionError("memory command should not serialize MemoryEntry directly")
+
+    monkeypatch.setattr(MemoryEntry, "model_dump", _fail_memory_model_dump)
+
+    result = runner.invoke(app, ["memory", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"memory_entries"' in result.stdout
+    assert '"memory_id": "memory-1"' in result.stdout
+
+
 def test_artifacts_command_prints_human_readable_artifacts(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -2822,6 +2858,24 @@ def test_artifacts_command_prints_human_readable_artifacts(tmp_path: Path, monke
 def test_artifacts_command_json_emits_artifact_payload(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["artifacts", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"artifacts"' in result.stdout
+    assert '"artifact_id": "artifact-1"' in result.stdout
+
+
+def test_artifacts_command_json_derives_artifacts_without_serializing_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_artifact_model_dump(self, *args, **kwargs):
+        raise AssertionError("artifacts command should not serialize ArtifactRecord directly")
+
+    monkeypatch.setattr(ArtifactRecord, "model_dump", _fail_artifact_model_dump)
 
     result = runner.invoke(app, ["artifacts", operation_id, "--json"])
 
@@ -3089,6 +3143,24 @@ def test_session_command_json_emits_machine_readable_payload(tmp_path: Path, mon
     assert '"session_brief": {' in result.stdout
     assert '"timeline_events":' in result.stdout
     assert '"transcript_hint": {' in result.stdout
+
+
+def test_session_command_json_derives_task_payload_without_serializing_task_model(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_task_model_dump(self, *args, **kwargs):
+        raise AssertionError("session command should not serialize TaskState directly")
+
+    monkeypatch.setattr(TaskState, "model_dump", _fail_task_model_dump)
+
+    result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--json"])
+
+    assert result.exit_code == 0
+    assert '"task": {' in result.stdout
+    assert '"task_id": "task-1"' in result.stdout
 
 
 def test_session_command_follow_once_prints_single_live_snapshot(
@@ -3998,6 +4070,24 @@ def test_attention_command_shows_novel_strategic_fork_type(tmp_path: Path, monke
 def test_attention_command_json_emits_attention_payload(tmp_path: Path, monkeypatch) -> None:
     operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["attention", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert f'"attention_id": "{attention_id}"' in result.stdout
+    assert '"attention_requests"' in result.stdout
+
+
+def test_attention_command_json_derives_requests_without_serializing_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_attention_model_dump(self, *args, **kwargs):
+        raise AssertionError("attention command should not serialize AttentionRequest directly")
+
+    monkeypatch.setattr(AttentionRequest, "model_dump", _fail_attention_model_dump)
 
     result = runner.invoke(app, ["attention", operation_id, "--json"])
 

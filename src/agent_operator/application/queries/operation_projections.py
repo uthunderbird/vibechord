@@ -411,6 +411,9 @@ class OperationProjectionService:
             "updated_at": task.updated_at.isoformat(),
         }
 
+    def task_payload(self, task: TaskState) -> dict[str, object]:
+        return self._task_payload(task)
+
     def _artifact_payload(self, artifact) -> dict[str, object]:
         return {
             "artifact_id": artifact.artifact_id,
@@ -422,6 +425,9 @@ class OperationProjectionService:
             "raw_ref": artifact.raw_ref,
             "created_at": artifact.created_at.isoformat(),
         }
+
+    def artifact_payload(self, artifact) -> dict[str, object]:
+        return self._artifact_payload(artifact)
 
     def _feature_payload(self, feature) -> dict[str, object]:
         return {
@@ -452,6 +458,9 @@ class OperationProjectionService:
             "created_at": entry.created_at.isoformat(),
             "updated_at": entry.updated_at.isoformat(),
         }
+
+    def memory_entry_payload(self, entry: MemoryEntry) -> dict[str, object]:
+        return self._memory_entry_payload(entry)
 
     def _operator_message_payload(self, message) -> dict[str, object]:
         return {
@@ -2301,6 +2310,9 @@ class OperationProjectionService:
             resolution_summary=attention.resolution_summary,
             metadata=dict(attention.metadata),
         ).to_payload()
+
+    def attention_payload(self, attention: AttentionRequest) -> dict[str, object]:
+        return self._attention_payload(attention)
 
     def _policy_coverage_payload(self, coverage) -> dict[str, object]:
         return PolicyCoverageReadPayload(

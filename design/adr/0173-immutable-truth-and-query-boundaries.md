@@ -35,6 +35,12 @@ Implementation grounding on 2026-04-14:
   `tests/test_operation_status_query_immutability.py`
 - `verified`: CLI regression coverage now asserts that debug-session inspection derives live
   progress fields without routing through the mutation-style overlay helper
+- `implemented`: operation-detail JSON read surfaces for attention, tasks, memory, artifacts, and
+  session snapshots now derive payloads through `OperationProjectionService` instead of serializing
+  mutable `AttentionRequest`, `TaskState`, `MemoryEntry`, and `ArtifactRecord` models directly
+- `verified`: CLI regression coverage now asserts those operation-detail JSON surfaces do not call
+  `model_dump()` on mutable truth models, and full `uv run pytest` passed at current repository
+  truth (`733 passed, 11 skipped`)
 - `planned`: immutable boundaries are not yet enforced repository-wide across all query DTOs,
   projection helpers, and forensic/read surfaces
 
@@ -165,10 +171,16 @@ Current tranche closure on 2026-04-14:
   serializes mutable truth models wholesale during read assembly
 - `partial`: the operation-context projection used by dashboard/debug reads no longer serializes
   focus, attention, or policy truth models directly during read assembly
+- `partial`: operation-detail JSON read commands for attention, tasks, memory, artifacts, and
+  session snapshots now derive payloads through projection helpers instead of serializing mutable
+  truth models directly
 - `partial`: a regression test now asserts that status-query assembly leaves stored session truth
   untouched even when runtime background progress exists
-- `remaining`: other read surfaces still derive output by mutating copied truth models, especially
-  broader projection/dashboard assembly paths that still operate directly on mutable truth objects
+- `remaining`: other forensic/read JSON surfaces still serialize mutable truth models directly,
+  including `report --json` (`TraceBriefBundle` / `OperationOutcome`) and multiple
+  `cli/workflows/views.py` JSON payload assembly paths
+- `remaining`: immutable query/read DTO boundaries are still not enforced repository-wide across
+  all delivery commands and projection helpers
 
 ## Related
 

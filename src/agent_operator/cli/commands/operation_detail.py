@@ -132,7 +132,7 @@ async def _load_session_snapshot(
     transcript_hint = session_view.get("transcript_hint", {})
     session_snapshot = {
         "operation_id": operation_id,
-        "task": task_record.model_dump(mode="json"),
+        "task": PROJECTIONS.task_payload(task_record),
         "session_id": session_payload_data.get("session_id") or task_record.linked_session_id,
         "session": session_payload_data,
         "session_brief": session_brief,
@@ -245,7 +245,7 @@ def attention(
         operation = await store.load_operation(resolved_operation_id)
         if operation is None:
             raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
-        payload = [item.model_dump(mode="json") for item in operation.attention_requests]
+        payload = [PROJECTIONS.attention_payload(item) for item in operation.attention_requests]
         if json_mode:
             typer.echo(
                 json.dumps(
@@ -294,7 +294,7 @@ def tasks(
         operation = await store.load_operation(resolved_operation_id)
         if operation is None:
             raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
-        payload = [task.model_dump(mode="json") for task in operation.tasks]
+        payload = [PROJECTIONS.task_payload(task) for task in operation.tasks]
         if json_mode:
             typer.echo(
                 json.dumps(
@@ -353,7 +353,7 @@ def memory(
         if operation is None:
             raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
         entries = memory_payload(operation, include_inactive=include_all)
-        payload = [entry.model_dump(mode="json") for entry in entries]
+        payload = [PROJECTIONS.memory_entry_payload(entry) for entry in entries]
         if json_mode:
             typer.echo(
                 json.dumps(
@@ -398,7 +398,7 @@ def artifacts(
         operation = await store.load_operation(resolved_operation_id)
         if operation is None:
             raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
-        payload = [artifact.model_dump(mode="json") for artifact in operation.artifacts]
+        payload = [PROJECTIONS.artifact_payload(artifact) for artifact in operation.artifacts]
         if json_mode:
             typer.echo(
                 json.dumps(
