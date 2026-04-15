@@ -11,6 +11,7 @@ from agent_operator.domain import (
     AttentionType,
     CommandTargetScope,
     ExecutionObservedState,
+    ExecutionProfileOverride,
     ExecutionState,
     ExternalTicketLink,
     FocusState,
@@ -147,6 +148,13 @@ class DefaultOperationProjector:
             ]
         elif event.event_type == "operation.involvement_level.updated":
             checkpoint.involvement_level = InvolvementLevel(event.payload["involvement_level"])
+        elif event.event_type == "operation.execution_profile.updated":
+            adapter_key = self._payload_optional_string(event.payload, "adapter_key")
+            if adapter_key:
+                checkpoint.execution_profile_overrides[adapter_key] = self._payload_model(
+                    event.payload,
+                    ExecutionProfileOverride,
+                )
         return checkpoint
 
     def _apply_task_slice(

@@ -402,18 +402,32 @@ async def enqueue_command_async(
     clear_success_criteria: bool = False,
     allowed_agents: list[str] | None = None,
     max_iterations: int | None = None,
+    model: str | None = None,
+    effort: str | None = None,
     wait_for_ack: bool = False,
 ) -> None:
     service = delivery_commands_service()
     try:
-        payload = service.build_command_payload(
-            command_type,
-            text,
-            success_criteria,
-            clear_success_criteria,
-            allowed_agents,
-            max_iterations,
-        )
+        if model is None and effort is None:
+            payload = service.build_command_payload(
+                command_type,
+                text,
+                success_criteria,
+                clear_success_criteria,
+                allowed_agents,
+                max_iterations,
+            )
+        else:
+            payload = service.build_command_payload(
+                command_type=command_type,
+                text=text,
+                success_criteria=success_criteria,
+                clear_success_criteria=clear_success_criteria,
+                allowed_agents=allowed_agents,
+                max_iterations=max_iterations,
+                model=model,
+                effort=effort,
+            )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
     command, outcome, note = await service.enqueue_command(

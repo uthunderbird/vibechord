@@ -400,7 +400,13 @@ def _build_test_session_runtime_factory(
         metadata=_coerce_metadata(adapter),
     )
 
-    def factory(*, working_directory: Path, log_path: Path) -> AgentSessionRuntime:
+    def factory(
+        *,
+        working_directory: Path,
+        log_path: Path,
+        session_metadata: dict[str, str] | None = None,
+    ) -> AgentSessionRuntime:
+        del session_metadata
         return TestAgentSessionRuntime(
             adapter=adapter,
             descriptor=descriptor,

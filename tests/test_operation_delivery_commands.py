@@ -254,3 +254,21 @@ async def test_daemon_sweep_resumes_ready_operations() -> None:
     assert resumed == 1
     assert seen_operations == ["op-1"]
     assert seen_outcomes == ["op-1"]
+
+
+def test_build_command_payload_for_set_execution_profile() -> None:
+    service = _service(MemoryStore(), MemoryCommandInbox())
+
+    payload = service.build_command_payload(
+        OperationCommandType.SET_EXECUTION_PROFILE,
+        None,
+        allowed_agents=["codex_acp"],
+        model="gpt-5.4-mini",
+        effort="medium",
+    )
+
+    assert payload == {
+        "adapter_key": "codex_acp",
+        "model": "gpt-5.4-mini",
+        "effort": "medium",
+    }

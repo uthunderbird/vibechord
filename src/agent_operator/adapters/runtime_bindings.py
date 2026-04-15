@@ -27,7 +27,13 @@ class AdapterRuntimeFactory(Protocol):
 class AgentSessionRuntimeFactory(Protocol):
     """Build one session runtime for a concrete working directory and log path."""
 
-    def __call__(self, *, working_directory: Path, log_path: Path) -> AgentSessionRuntime: ...
+    def __call__(
+        self,
+        *,
+        working_directory: Path,
+        log_path: Path,
+        session_metadata: dict[str, str] | None = None,
+    ) -> AgentSessionRuntime: ...
 
 
 @dataclass(slots=True)
@@ -109,7 +115,7 @@ def build_agent_runtime_bindings(
             ),
             build_session_runtime=_build_session_runtime_factory(
                 adapter_key="claude_acp",
-                adapter=claude_adapter,
+                settings=settings,
             ),
         ),
         "codex_acp": AgentRuntimeBinding(
@@ -121,7 +127,7 @@ def build_agent_runtime_bindings(
             ),
             build_session_runtime=_build_session_runtime_factory(
                 adapter_key="codex_acp",
-                adapter=codex_adapter,
+                settings=settings,
             ),
         ),
         "opencode_acp": AgentRuntimeBinding(
@@ -133,7 +139,7 @@ def build_agent_runtime_bindings(
             ),
             build_session_runtime=_build_session_runtime_factory(
                 adapter_key="opencode_acp",
-                adapter=opencode_adapter,
+                settings=settings,
             ),
         ),
     }
@@ -158,9 +164,20 @@ def _build_adapter_runtime_factory(
 def _build_session_runtime_factory(
     *,
     adapter_key: str,
-    adapter: object,
+    settings: OperatorSettings,
 ) -> AgentSessionRuntimeFactory:
-    def factory(*, working_directory: Path, log_path: Path) -> AgentSessionRuntime:
+    def factory(
+        *,
+        working_directory: Path,
+        log_path: Path,
+        session_metadata: dict[str, str] | None = None,
+    ) -> AgentSessionRuntime:
+        adapter = _build_adapter_for_session(
+            adapter_key=adapter_key,
+            settings=settings,
+            working_directory=working_directory,
+            session_metadata=session_metadata or {},
+        )
         adapter_runtime = _build_adapter_runtime_factory(
             adapter_key=adapter_key,
             adapter=adapter,
@@ -179,6 +196,56 @@ def _build_session_runtime_factory(
         )
 
     return factory
+
+
+def _build_adapter_for_session(
+    *,
+    adapter_key: str,
+    settings: OperatorSettings,
+    working_directory: Path,
+    session_metadata: dict[str, str],
+) -> object:
+    model_override = session_metadata.get("execution_profile_model")
+    effort_override = session_metadata.get("execution_profile_effort")
+    reasoning_effort_override = session_metadata.get("execution_profile_reasoning_effort")
+    if adapter_key == "claude_acp":
+        return ClaudeAcpAgentAdapter(
+            command=settings.claude_acp.command,
+            model=model_override if model_override is not None else settings.claude_acp.model,
+            effort=effort_override if effort_override is not None else settings.claude_acp.effort,
+            permission_mode=settings.claude_acp.permission_mode,
+            timeout_seconds=settings.claude_acp.timeout_seconds,
+            mcp_servers=settings.claude_acp.mcp_servers,
+            substrate_backend=settings.claude_acp.substrate_backend,
+            stdio_limit_bytes=settings.claude_acp.stdio_limit_bytes,
+            working_directory=working_directory,
+        )
+    if adapter_key == "codex_acp":
+        return CodexAcpAgentAdapter(
+            command=settings.codex_acp.command,
+            model=model_override if model_override is not None else settings.codex_acp.model,
+            reasoning_effort=(
+                reasoning_effort_override
+                if reasoning_effort_override is not None
+                else settings.codex_acp.reasoning_effort
+            ),
+            approval_policy=settings.codex_acp.approval_policy,
+            sandbox_mode=settings.codex_acp.sandbox_mode,
+            timeout_seconds=settings.codex_acp.timeout_seconds,
+            mcp_servers=settings.codex_acp.mcp_servers,
+            substrate_backend=settings.codex_acp.substrate_backend,
+            stdio_limit_bytes=settings.codex_acp.stdio_limit_bytes,
+            working_directory=working_directory,
+        )
+    return OpencodeAcpAgentAdapter(
+        command=settings.opencode_acp.command,
+        model=model_override if model_override is not None else settings.opencode_acp.model,
+        timeout_seconds=settings.opencode_acp.timeout_seconds,
+        mcp_servers=settings.opencode_acp.mcp_servers,
+        substrate_backend=settings.opencode_acp.substrate_backend,
+        stdio_limit_bytes=settings.opencode_acp.stdio_limit_bytes,
+        working_directory=working_directory,
+    )
 
 
 def _supports_session_fork(adapter: object) -> bool:

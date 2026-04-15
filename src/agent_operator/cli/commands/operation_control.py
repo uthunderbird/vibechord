@@ -15,7 +15,9 @@ from ..helpers.resolution import resolve_operation_id
 from ..options import (
     COMMAND_ALLOWED_AGENT_OPTION,
     COMMAND_CLEAR_SUCCESS_CRITERIA_OPTION,
+    COMMAND_EFFORT_OPTION,
     COMMAND_MAX_ITERATIONS_OPTION,
+    COMMAND_MODEL_OPTION,
     COMMAND_SUCCESS_CRITERION_OPTION,
     COMMAND_TYPE_OPTION,
     INVOLVEMENT_LEVEL_OPTION,
@@ -96,6 +98,8 @@ def command(
     success_criterion: list[str] | None = COMMAND_SUCCESS_CRITERION_OPTION,
     clear_success_criteria: bool = COMMAND_CLEAR_SUCCESS_CRITERIA_OPTION,
     allowed_agent: list[str] | None = COMMAND_ALLOWED_AGENT_OPTION,
+    model: str | None = COMMAND_MODEL_OPTION,
+    effort: str | None = COMMAND_EFFORT_OPTION,
     max_iterations: int | None = COMMAND_MAX_ITERATIONS_OPTION,
 ) -> None:
     anyio.run(
@@ -111,6 +115,8 @@ def command(
         clear_success_criteria,
         allowed_agent,
         max_iterations,
+        model,
+        effort,
     )
 
 
@@ -122,6 +128,8 @@ def debug_command(
     success_criterion: list[str] | None = COMMAND_SUCCESS_CRITERION_OPTION,
     clear_success_criteria: bool = COMMAND_CLEAR_SUCCESS_CRITERIA_OPTION,
     allowed_agent: list[str] | None = COMMAND_ALLOWED_AGENT_OPTION,
+    model: str | None = COMMAND_MODEL_OPTION,
+    effort: str | None = COMMAND_EFFORT_OPTION,
     max_iterations: int | None = COMMAND_MAX_ITERATIONS_OPTION,
 ) -> None:
     command(
@@ -131,6 +139,8 @@ def debug_command(
         success_criterion,
         clear_success_criteria,
         allowed_agent,
+        model,
+        effort,
         max_iterations,
     )
 
@@ -139,6 +149,34 @@ def debug_command(
 def involvement(operation_id: str, level: InvolvementLevel = INVOLVEMENT_LEVEL_OPTION) -> None:
     anyio.run(
         enqueue_command_async, operation_id, OperationCommandType.SET_INVOLVEMENT_LEVEL, level.value
+    )
+
+
+@app.command("set-execution-profile")
+def set_execution_profile(
+    operation_ref: str,
+    agent: str = typer.Option(..., "--agent", help="Allowed adapter key to update."),
+    model: str = typer.Option(..., "--model", help="Model identifier to use for future turns."),
+    effort: str | None = typer.Option(
+        None, "--effort", help="Effort level for the selected adapter."
+    ),
+) -> None:
+    anyio.run(
+        enqueue_command_async,
+        resolve_operation_id(operation_ref),
+        OperationCommandType.SET_EXECUTION_PROFILE,
+        None,
+        False,
+        CommandTargetScope.OPERATION,
+        None,
+        None,
+        None,
+        False,
+        [agent],
+        None,
+        model,
+        effort,
+        True,
     )
 
 
@@ -208,6 +246,8 @@ def patch_objective(operation_ref: str, text: str) -> None:
         False,
         None,
         None,
+        None,
+        None,
         True,
     )
 
@@ -225,6 +265,8 @@ def patch_harness(operation_ref: str, text: str) -> None:
         None,
         None,
         False,
+        None,
+        None,
         None,
         None,
         True,
@@ -248,6 +290,8 @@ def patch_criteria(
         None,
         criteria,
         clear,
+        None,
+        None,
         None,
         None,
         True,

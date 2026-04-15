@@ -17,11 +17,18 @@ class ProjectProfileMcpServer(BaseModel):
     cwd: Path | None = None
 
 
+class ProjectProfileAllowedModel(BaseModel):
+    model: str
+    effort: str | None = None
+    reasoning_effort: str | None = None
+
+
 class ProjectProfileAdapterSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     timeout_seconds: float | None = Field(default=None, ge=0)
     mcp_servers: list[ProjectProfileMcpServer] = Field(default_factory=list)
+    allowed_models: list[ProjectProfileAllowedModel] = Field(default_factory=list)
 
 
 class TicketReportingConfig(BaseModel):

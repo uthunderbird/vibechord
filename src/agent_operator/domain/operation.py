@@ -95,6 +95,36 @@ class RuntimeHints(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ExecutionProfileOverride(BaseModel):
+    adapter_key: str
+    model: str
+    effort: str | None = None
+    reasoning_effort: str | None = None
+
+    @property
+    def effort_field_name(self) -> str | None:
+        if self.reasoning_effort is not None:
+            return "reasoning_effort"
+        if self.effort is not None:
+            return "effort"
+        return None
+
+    @property
+    def effort_value(self) -> str | None:
+        if self.reasoning_effort is not None:
+            return self.reasoning_effort
+        if self.effort is not None:
+            return self.effort
+        return None
+
+
+class ExecutionProfileStamp(BaseModel):
+    adapter_key: str
+    model: str
+    effort_field_name: str | None = None
+    effort_value: str | None = None
+
+
 class RunOptions(BaseModel):
     emit_reasoning: bool = True
     emit_events: bool = True
@@ -208,6 +238,7 @@ class SessionState(BaseModel):
     recovery_count: int = 0
     recovery_attempted_at: datetime | None = None
     last_recovered_at: datetime | None = None
+    execution_profile_stamp: ExecutionProfileStamp | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -496,6 +527,7 @@ class OperationState(BaseModel):
     policy: OperationPolicy = Field(default_factory=OperationPolicy)
     execution_budget: ExecutionBudget = Field(default_factory=ExecutionBudget)
     runtime_hints: RuntimeHints = Field(default_factory=RuntimeHints)
+    execution_profile_overrides: dict[str, ExecutionProfileOverride] = Field(default_factory=dict)
     objective: ObjectiveState | None = None
     status: OperationStatus = OperationStatus.RUNNING
     iterations: list[IterationState] = Field(default_factory=list)

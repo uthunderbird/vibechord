@@ -109,6 +109,16 @@ COMMAND_ALLOWED_AGENT_OPTION = typer.Option(
     "--agent",
     help="Allowed adapter key for set_allowed_agents. Repeat to replace the full list.",
 )
+COMMAND_MODEL_OPTION = typer.Option(
+    None,
+    "--model",
+    help="Model identifier for set_execution_profile.",
+)
+COMMAND_EFFORT_OPTION = typer.Option(
+    None,
+    "--effort",
+    help="Effort level for set_execution_profile.",
+)
 COMMAND_MAX_ITERATIONS_OPTION = typer.Option(
     None,
     "--max-iterations",

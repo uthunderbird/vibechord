@@ -27,6 +27,8 @@ from agent_operator.domain import (
     BrainDecision,
     CommandTargetScope,
     ExecutionHandleRef,
+    ExecutionProfileOverride,
+    ExecutionProfileStamp,
     ExecutionState,
     ExternalTicketLink,
     FeatureDraft,
@@ -84,6 +86,15 @@ def _operation() -> OperationState:
                 "project_profile_name": "operator",
                 "policy_scope": "profile:operator",
                 "resolved_project_profile": {"profile_name": "operator"},
+                "effective_adapter_settings": {
+                    "codex_acp": {"model": "gpt-5.4", "reasoning_effort": "low"}
+                },
+                "allowed_execution_profiles": {
+                    "codex_acp": [
+                        {"model": "gpt-5.4", "reasoning_effort": "low"},
+                        {"model": "gpt-5.4-mini", "reasoning_effort": "medium"},
+                    ]
+                },
             },
         ),
         policy=OperationPolicy(
@@ -108,6 +119,12 @@ def _operation() -> OperationState:
                 ),
                 status=SessionRecordStatus.RUNNING,
                 waiting_reason="Working",
+                execution_profile_stamp=ExecutionProfileStamp(
+                    adapter_key="codex_acp",
+                    model="gpt-5.4",
+                    effort_field_name="reasoning_effort",
+                    effort_value="low",
+                ),
             )
         ],
         memory_entries=[
@@ -221,9 +238,39 @@ def test_build_operation_context_payload_preserves_context() -> None:
     assert payload["operation_id"] == "op-1"
     assert payload["run_mode"] == "attached"
     assert payload["allowed_agents"] == ["codex_acp"]
+    assert payload["execution_profiles"]["codex_acp"]["default"]["model"] == "gpt-5.4"
+    assert payload["execution_profiles"]["codex_acp"]["effective"]["effort_value"] == "low"
     assert payload["project_context"]["profile_name"] == "operator"
     assert payload["available_agent_descriptors"] == [{"key": "codex_acp"}]
     assert payload["open_attention"][0]["attention_id"] == "att-1"
+
+
+def test_build_operation_context_payload_includes_execution_profile_overlay() -> None:
+    operation = _operation()
+    operation.execution_profile_overrides["codex_acp"] = ExecutionProfileOverride(
+        adapter_key="codex_acp",
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+    )
+
+    payload = OperationProjectionService().build_operation_context_payload(operation)
+
+    codex = payload["execution_profiles"]["codex_acp"]
+    assert codex["default"]["model"] == "gpt-5.4"
+    assert codex["overlay"]["model"] == "gpt-5.4-mini"
+    assert codex["effective"]["reasoning_effort"] == "medium"
+    assert codex["allowed_models"][1]["model"] == "gpt-5.4-mini"
+
+
+def test_session_payload_includes_execution_profile_stamp() -> None:
+    payload = OperationProjectionService().session_payload(_operation().sessions[0])
+
+    assert payload["execution_profile_stamp"] == {
+        "adapter_key": "codex_acp",
+        "model": "gpt-5.4",
+        "effort_field_name": "reasoning_effort",
+        "effort_value": "low",
+    }
 
 
 def test_build_operation_context_payload_is_derived_without_truth_model_dump_patchup(

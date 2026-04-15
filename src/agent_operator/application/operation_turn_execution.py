@@ -163,7 +163,10 @@ class OperationTurnExecutionService:
                     handle,
                 )
             ),
-            background_request_metadata=lambda: self._background_request_metadata(state),
+            background_request_metadata=lambda: self._background_request_metadata(
+                state,
+                adapter_key,
+            ),
             decorate_session_handle=self._loaded_operation.decorate_session_handle,
             upsert_session_record=lambda session_handle, active_task: (
                 self._loaded_operation.upsert_session_record(
@@ -209,7 +212,10 @@ class OperationTurnExecutionService:
                     handle,
                 )
             ),
-            background_request_metadata=lambda: self._background_request_metadata(state),
+            background_request_metadata=lambda: self._background_request_metadata(
+                state,
+                adapter_key,
+            ),
             decorate_session_handle=self._loaded_operation.decorate_session_handle,
             upsert_session_record=lambda session_handle, active_task: (
                 self._loaded_operation.upsert_session_record(
@@ -241,7 +247,7 @@ class OperationTurnExecutionService:
             one_shot=decision.one_shot,
             session_reuse_policy=self._loaded_operation.resolved_session_reuse_policy(state),
             working_directory=self._loaded_operation.resolve_working_directory(state, task),
-            metadata=self._background_request_metadata(state),
+            metadata=self._background_request_metadata(state, adapter_key),
         )
         run = await self._operation_runtime.dispatch_background_turn(
             operation_id=state.operation_id,
@@ -348,7 +354,7 @@ class OperationTurnExecutionService:
                     task,
                     record.handle,
                 ),
-                metadata=self._background_request_metadata(state),
+                metadata=self._background_request_metadata(state, adapter_key),
             )
             run = await self._operation_runtime.dispatch_background_turn(
                 operation_id=state.operation_id,
@@ -393,7 +399,7 @@ class OperationTurnExecutionService:
                     task,
                     record.handle,
                 ),
-                metadata=self._background_request_metadata(state),
+                metadata=self._background_request_metadata(state, adapter_key),
             )
             run = await self._operation_runtime.dispatch_background_turn(
                 operation_id=state.operation_id,
@@ -461,8 +467,12 @@ class OperationTurnExecutionService:
             session_id=session.session_id,
         )
 
-    def background_request_metadata(self, state: OperationState) -> dict[str, str]:
-        return self._background_request_metadata(state)
+    def background_request_metadata(
+        self,
+        state: OperationState,
+        adapter_key: str,
+    ) -> dict[str, str]:
+        return self._background_request_metadata(state, adapter_key)
 
     async def _record_agent_turn_brief(
         self,
@@ -489,10 +499,20 @@ class OperationTurnExecutionService:
             wakeup_event_id=wakeup_event_id,
         )
 
-    def _background_request_metadata(self, state: OperationState) -> dict[str, str]:
+    def _background_request_metadata(
+        self,
+        state: OperationState,
+        adapter_key: str,
+    ) -> dict[str, str]:
         metadata: dict[str, str] = {}
         for key in ("project_profile_name", "project_profile_path"):
             value = state.goal.metadata.get(key)
             if isinstance(value, str) and value:
                 metadata[key] = value
+        metadata.update(
+            self._loaded_operation.execution_profile_request_metadata(
+                state,
+                adapter_key,
+            )
+        )
         return metadata

@@ -220,6 +220,8 @@ class OperationDeliveryCommandService:
         clear_success_criteria: bool = False,
         allowed_agents: list[str] | None = None,
         max_iterations: int | None = None,
+        model: str | None = None,
+        effort: str | None = None,
     ) -> dict[str, object]:
         if command_type in {
             OperationCommandType.PATCH_OBJECTIVE,
@@ -262,6 +264,27 @@ class OperationDeliveryCommandService:
             if not allowed_agents_payload:
                 raise RuntimeError("--agent cannot be empty.")
             return {"allowed_agents": allowed_agents_payload}
+        if command_type is OperationCommandType.SET_EXECUTION_PROFILE:
+            if text is not None:
+                raise RuntimeError("--text is not supported for this command type.")
+            if success_criteria or clear_success_criteria:
+                raise RuntimeError(
+                    "--success-criterion and --clear-success-criteria "
+                    "are not supported for this command type."
+                )
+            if max_iterations is not None:
+                raise RuntimeError("--max-iterations is not supported for this command type.")
+            if allowed_agents is None or len(allowed_agents) != 1:
+                raise RuntimeError("--agent is required exactly once for this command type.")
+            adapter_key = allowed_agents[0].strip()
+            if not adapter_key:
+                raise RuntimeError("--agent cannot be empty.")
+            if model is None or not model.strip():
+                raise RuntimeError("--model is required for this command type.")
+            payload: dict[str, object] = {"adapter_key": adapter_key, "model": model.strip()}
+            if effort is not None and effort.strip():
+                payload["effort"] = effort.strip()
+            return payload
         if command_type is OperationCommandType.SET_INVOLVEMENT_LEVEL:
             if text is None or not text.strip():
                 raise RuntimeError("--text is required for this command type.")

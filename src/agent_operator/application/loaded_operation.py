@@ -8,6 +8,8 @@ from agent_operator.domain import (
     AgentSessionHandle,
     ArtifactRecord,
     BackgroundRunHandle,
+    ExecutionProfileOverride,
+    ExecutionProfileStamp,
     FocusKind,
     MemoryFreshness,
     MemoryScope,
@@ -84,6 +86,85 @@ class LoadedOperation:
         if isinstance(objective_working_directory, str) and objective_working_directory:
             return Path(objective_working_directory)
         return Path.cwd()
+
+    def execution_profile_override(
+        self,
+        state: OperationState,
+        adapter_key: str,
+    ) -> ExecutionProfileOverride | None:
+        return state.execution_profile_overrides.get(adapter_key)
+
+    def effective_execution_profile_stamp(
+        self,
+        state: OperationState,
+        adapter_key: str,
+    ) -> ExecutionProfileStamp | None:
+        override = self.execution_profile_override(state, adapter_key)
+        if override is not None:
+            return ExecutionProfileStamp(
+                adapter_key=adapter_key,
+                model=override.model,
+                effort_field_name=override.effort_field_name,
+                effort_value=override.effort_value,
+            )
+        raw_snapshot = state.goal.metadata.get("effective_adapter_settings")
+        if not isinstance(raw_snapshot, dict):
+            return None
+        raw_adapter = raw_snapshot.get(adapter_key)
+        if not isinstance(raw_adapter, dict):
+            return None
+        model = raw_adapter.get("model")
+        if not isinstance(model, str) or not model.strip():
+            return None
+        if adapter_key == "codex_acp":
+            raw_effort = raw_adapter.get("reasoning_effort")
+            effort_value = (
+                raw_effort if isinstance(raw_effort, str) and raw_effort.strip() else None
+            )
+            return ExecutionProfileStamp(
+                adapter_key=adapter_key,
+                model=model.strip(),
+                effort_field_name="reasoning_effort",
+                effort_value=effort_value,
+            )
+        raw_effort = raw_adapter.get("effort")
+        effort_value = raw_effort if isinstance(raw_effort, str) and raw_effort.strip() else None
+        return ExecutionProfileStamp(
+            adapter_key=adapter_key,
+            model=model.strip(),
+            effort_field_name="effort" if adapter_key == "claude_acp" else None,
+            effort_value=effort_value,
+        )
+
+    def execution_profile_request_metadata(
+        self,
+        state: OperationState,
+        adapter_key: str,
+    ) -> dict[str, str]:
+        stamp = self.effective_execution_profile_stamp(state, adapter_key)
+        if stamp is None:
+            return {}
+        metadata = {
+            "execution_profile_model": stamp.model,
+            "execution_profile_adapter_key": adapter_key,
+        }
+        if stamp.effort_field_name is not None and stamp.effort_value is not None:
+            metadata[f"execution_profile_{stamp.effort_field_name}"] = stamp.effort_value
+        return metadata
+
+    def session_matches_execution_profile(
+        self,
+        state: OperationState,
+        session: SessionRecord,
+        adapter_key: str,
+    ) -> bool:
+        expected = self.effective_execution_profile_stamp(state, adapter_key)
+        if expected is None:
+            return True
+        current = session.execution_profile_stamp
+        if current is None:
+            return False
+        return current == expected
 
     def apply_task_mutations(
         self,
@@ -199,6 +280,7 @@ class LoadedOperation:
         task: TaskState | None,
     ) -> SessionRecord:
         record = self.ensure_session_record(state, session)
+        record.execution_profile_stamp = self._execution_profile_stamp_from_handle(session)
         if task is not None and task.task_id not in record.bound_task_ids:
             record.bound_task_ids.append(task.task_id)
         record.updated_at = datetime.now(UTC)
@@ -224,10 +306,40 @@ class LoadedOperation:
         for record in state.sessions:
             if record.session_id == session.session_id:
                 record.handle = session
+                record.execution_profile_stamp = self._execution_profile_stamp_from_handle(session)
                 return record
-        record = SessionRecord(handle=session)
+        record = SessionRecord(
+            handle=session,
+            execution_profile_stamp=self._execution_profile_stamp_from_handle(session),
+        )
         state.sessions.append(record)
         return record
+
+    def _execution_profile_stamp_from_handle(
+        self,
+        handle: AgentSessionHandle,
+    ) -> ExecutionProfileStamp | None:
+        raw_model = handle.metadata.get("execution_profile_model")
+        if not isinstance(raw_model, str) or not raw_model.strip():
+            return None
+        model = raw_model.strip()
+        raw_reasoning_effort = handle.metadata.get("execution_profile_reasoning_effort")
+        if isinstance(raw_reasoning_effort, str) and raw_reasoning_effort.strip():
+            return ExecutionProfileStamp(
+                adapter_key=handle.adapter_key,
+                model=model,
+                effort_field_name="reasoning_effort",
+                effort_value=raw_reasoning_effort.strip(),
+            )
+        raw_effort = handle.metadata.get("execution_profile_effort")
+        if isinstance(raw_effort, str) and raw_effort.strip():
+            return ExecutionProfileStamp(
+                adapter_key=handle.adapter_key,
+                model=model,
+                effort_field_name="effort",
+                effort_value=raw_effort.strip(),
+            )
+        return ExecutionProfileStamp(adapter_key=handle.adapter_key, model=model)
 
     def upsert_background_run(
         self,
@@ -343,6 +455,7 @@ class LoadedOperation:
                 and record.adapter_key == adapter_key
                 and record.status is SessionRecordStatus.IDLE
                 and not record.handle.one_shot
+                and self.session_matches_execution_profile(state, record, adapter_key)
             ):
                 return record
         idle_matches = [
@@ -351,6 +464,7 @@ class LoadedOperation:
             if record.adapter_key == adapter_key
             and record.status is SessionRecordStatus.IDLE
             and not record.handle.one_shot
+            and self.session_matches_execution_profile(state, record, adapter_key)
         ]
         if not idle_matches:
             return None

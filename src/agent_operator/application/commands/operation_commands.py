@@ -674,6 +674,7 @@ class OperationCommandService:
             OperationCommandType.PATCH_SUCCESS_CRITERIA,
             OperationCommandType.INJECT_OPERATOR_MESSAGE,
             OperationCommandType.SET_ALLOWED_AGENTS,
+            OperationCommandType.SET_EXECUTION_PROFILE,
         }:
             state.pending_replan_command_ids.append(command.command_id)
         await self.mark_command_applied(
@@ -1146,9 +1147,15 @@ class OperationCommandService:
             OperationCommandType.PATCH_OBJECTIVE,
             OperationCommandType.PATCH_HARNESS,
             OperationCommandType.SET_ALLOWED_AGENTS,
+            OperationCommandType.SET_EXECUTION_PROFILE,
             OperationCommandType.PATCH_SUCCESS_CRITERIA,
         ):
             if await self.reject_if_replan_conflict(state, command, trace_iteration, command_type):
+                return False
+        if command.command_type is OperationCommandType.SET_EXECUTION_PROFILE:
+            rejection_reason = self._validate_execution_profile_command(state, command)
+            if rejection_reason is not None:
+                await self.reject_command(state, command, trace_iteration, rejection_reason)
                 return False
         if self._event_sourced_command_service is not None:
             return await self.apply_event_sourced_operation_command(state, command, trace_iteration)
@@ -1159,3 +1166,61 @@ class OperationCommandService:
             f"Unsupported command type: {command.command_type.value}.",
         )
         return False
+
+    def _validate_execution_profile_command(
+        self,
+        state: OperationState,
+        command: OperationCommand,
+    ) -> str | None:
+        payload = command.payload
+        adapter_key = payload.get("adapter_key")
+        if not isinstance(adapter_key, str) or not adapter_key.strip():
+            return "SET_EXECUTION_PROFILE requires non-empty payload.adapter_key."
+        adapter_key = adapter_key.strip()
+        unknown_keys = set(payload) - {"adapter_key", "model", "effort"}
+        if unknown_keys:
+            return (
+                "SET_EXECUTION_PROFILE does not support payload fields: "
+                + ", ".join(sorted(str(item) for item in unknown_keys))
+                + "."
+            )
+        if adapter_key not in state.policy.allowed_agents:
+            return f"Adapter {adapter_key!r} is not currently allowed for this operation."
+        raw_model = payload.get("model")
+        if not isinstance(raw_model, str) or not raw_model.strip():
+            return "SET_EXECUTION_PROFILE requires non-empty payload.model."
+        model = raw_model.strip()
+        effort = payload.get("effort")
+        if effort is not None and (not isinstance(effort, str) or not effort.strip()):
+            return "payload.effort must be a non-empty string when provided."
+        allowed_map = state.goal.metadata.get("allowed_execution_profiles")
+        if not isinstance(allowed_map, dict):
+            return f"Adapter {adapter_key!r} has no allowed execution profiles."
+        raw_profiles = allowed_map.get(adapter_key)
+        if not isinstance(raw_profiles, list) or not raw_profiles:
+            return f"Adapter {adapter_key!r} has no allowed execution profiles."
+        if adapter_key == "codex_acp":
+            for entry in raw_profiles:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("model") != model:
+                    continue
+                reasoning_effort = entry.get("reasoning_effort")
+                if effort is None and reasoning_effort in {None, ""}:
+                    return None
+                if isinstance(reasoning_effort, str) and reasoning_effort == effort:
+                    return None
+            return "Requested codex_acp execution profile is not allowlisted."
+        if adapter_key == "claude_acp":
+            for entry in raw_profiles:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("model") != model:
+                    continue
+                allowed_effort = entry.get("effort")
+                if effort is None and allowed_effort in {None, ""}:
+                    return None
+                if isinstance(allowed_effort, str) and allowed_effort == effort:
+                    return None
+            return "Requested claude_acp execution profile is not allowlisted."
+        return f"Adapter {adapter_key!r} does not support dynamic execution profiles."

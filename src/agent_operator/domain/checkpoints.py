@@ -8,6 +8,7 @@ from agent_operator.domain.attention import AttentionRequest
 from agent_operator.domain.control import OperatorMessage
 from agent_operator.domain.enums import InvolvementLevel, OperationStatus, SchedulerState
 from agent_operator.domain.operation import (
+    ExecutionProfileOverride,
     ExecutionState,
     ExternalTicketLink,
     FocusState,
@@ -57,6 +58,7 @@ class OperationCheckpoint(BaseModel):
     policy_coverage: PolicyCoverage = Field(default_factory=PolicyCoverage)
     allowed_agents: list[str] = Field(default_factory=list)
     involvement_level: InvolvementLevel = InvolvementLevel.AUTO
+    execution_profile_overrides: dict[str, ExecutionProfileOverride] = Field(default_factory=dict)
     processed_command_ids: list[str] = Field(default_factory=list)
     current_focus: FocusState | None = None
     external_ticket: ExternalTicketLink | None = None

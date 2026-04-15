@@ -243,7 +243,10 @@ async def test_attached_session_runtime_registry_synthesizes_start_poll_collect_
                 agent_key="fake",
                 descriptor=AgentDescriptor(key="fake", display_name="Fake"),
                 build_adapter_runtime=lambda *, working_directory, log_path: None,
-                build_session_runtime=lambda *, working_directory, log_path: runtime,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
             )
         }
     )
@@ -279,7 +282,10 @@ async def test_attached_session_runtime_registry_cancel_disposes_runtime_and_kee
                 agent_key="fake",
                 descriptor=AgentDescriptor(key="fake", display_name="Fake"),
                 build_adapter_runtime=lambda *, working_directory, log_path: None,
-                build_session_runtime=lambda *, working_directory, log_path: runtime,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
             )
         }
     )
@@ -316,7 +322,10 @@ async def test_attached_session_runtime_registry_cancel_preserves_waiting_input_
                 agent_key="fake",
                 descriptor=AgentDescriptor(key="fake", display_name="Fake"),
                 build_adapter_runtime=lambda *, working_directory, log_path: None,
-                build_session_runtime=lambda *, working_directory, log_path: runtime,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
             )
         }
     )
@@ -362,7 +371,8 @@ async def test_attached_session_runtime_registry_rehydrates_runtime_from_handle_
 ) -> None:
     runtimes: list[ReattachableSessionRuntime] = []
 
-    def build_runtime(*, working_directory, log_path):
+    def build_runtime(*, working_directory, log_path, session_metadata=None):
+        del working_directory, log_path, session_metadata
         runtime = ReattachableSessionRuntime(label=f"runtime-{len(runtimes) + 1}")
         runtimes.append(runtime)
         return runtime
@@ -411,7 +421,10 @@ async def test_attached_session_runtime_registry_collect_retires_completed_one_s
                 agent_key="fake",
                 descriptor=AgentDescriptor(key="fake", display_name="Fake"),
                 build_adapter_runtime=lambda *, working_directory, log_path: None,
-                build_session_runtime=lambda *, working_directory, log_path: runtime,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
             )
         }
     )
@@ -450,7 +463,10 @@ async def test_attached_session_runtime_registry_collect_retires_failed_session(
                 agent_key="fake",
                 descriptor=AgentDescriptor(key="fake", display_name="Fake"),
                 build_adapter_runtime=lambda *, working_directory, log_path: None,
-                build_session_runtime=lambda *, working_directory, log_path: runtime,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
             )
         }
     )
@@ -497,7 +513,10 @@ async def test_attached_session_runtime_registry_preserves_retryable_provider_ca
                 agent_key="fake",
                 descriptor=AgentDescriptor(key="fake", display_name="Fake"),
                 build_adapter_runtime=lambda *, working_directory, log_path: None,
-                build_session_runtime=lambda *, working_directory, log_path: runtime,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
             )
         }
     )

@@ -61,6 +61,10 @@ class OperationStateViewService:
             ),
             execution_budget=ExecutionBudget(),
             runtime_hints=RuntimeHints(),
+            execution_profile_overrides={
+                key: value.model_copy(deep=True)
+                for key, value in checkpoint.execution_profile_overrides.items()
+            },
             objective=(
                 checkpoint.objective.model_copy(deep=True)
                 if checkpoint.objective is not None

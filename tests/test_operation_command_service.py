@@ -107,6 +107,22 @@ class _CountingMemoryStore(MemoryStore):
         await super().save_operation(state)
 
 
+class _StartCodexThenStopBrain(StartThenStopBrain):
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        if self.calls == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="codex_acp",
+                instruction="do the task",
+                rationale="Use Codex for the task.",
+            )
+        return BrainDecision(
+            action_type=BrainActionType.STOP,
+            rationale="The task is complete.",
+        )
+
+
 @pytest.mark.anyio
 async def test_answer_attention_request_resolves_after_replan() -> None:
     store = MemoryStore()
@@ -2453,6 +2469,112 @@ async def test_set_allowed_agents_command_rejects_empty_payload() -> None:
 
     assert outcome.status is OperationStatus.COMPLETED
     assert updated is not None
+    assert inbox.commands[command.command_id].status is CommandStatus.REJECTED
+
+
+@pytest.mark.anyio
+async def test_set_execution_profile_command_updates_operation_override() -> None:
+    store = MemoryStore()
+    inbox = MemoryCommandInbox()
+    service = make_service(
+        brain=_StartCodexThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"codex_acp": FakeAgent(key="codex_acp")}
+        ),
+        command_inbox=inbox,
+    )
+    operation = OperationState(
+        goal=OperationGoal(
+            objective="continue work",
+            metadata={
+                "allowed_execution_profiles": {
+                    "codex_acp": [
+                        {"model": "gpt-5.4", "reasoning_effort": "low"},
+                        {"model": "gpt-5.4-mini", "reasoning_effort": "medium"},
+                    ]
+                }
+            },
+        ),
+        **state_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+    )
+    await store.save_operation(operation)
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.SET_EXECUTION_PROFILE,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id=operation.operation_id,
+        payload={
+            "adapter_key": "codex_acp",
+            "model": "gpt-5.4-mini",
+            "effort": "medium",
+        },
+    )
+    await inbox.enqueue(command)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=2),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert updated is not None
+    assert updated.execution_profile_overrides["codex_acp"].model == "gpt-5.4-mini"
+    assert updated.execution_profile_overrides["codex_acp"].reasoning_effort == "medium"
+    assert inbox.commands[command.command_id].status is CommandStatus.APPLIED
+
+
+@pytest.mark.anyio
+async def test_set_execution_profile_command_rejects_unallowlisted_profile() -> None:
+    store = MemoryStore()
+    inbox = MemoryCommandInbox()
+    service = make_service(
+        brain=_StartCodexThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"codex_acp": FakeAgent(key="codex_acp")}
+        ),
+        command_inbox=inbox,
+    )
+    operation = OperationState(
+        goal=OperationGoal(
+            objective="continue work",
+            metadata={
+                "allowed_execution_profiles": {
+                    "codex_acp": [{"model": "gpt-5.4", "reasoning_effort": "low"}]
+                }
+            },
+        ),
+        **state_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+    )
+    await store.save_operation(operation)
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.SET_EXECUTION_PROFILE,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id=operation.operation_id,
+        payload={
+            "adapter_key": "codex_acp",
+            "model": "gpt-5.4-mini",
+            "effort": "medium",
+        },
+    )
+    await inbox.enqueue(command)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=2),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert updated is not None
+    assert updated.execution_profile_overrides == {}
     assert inbox.commands[command.command_id].status is CommandStatus.REJECTED
 
 

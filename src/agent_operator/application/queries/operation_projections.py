@@ -365,7 +365,127 @@ class OperationProjectionService:
             ),
             created_at=session.created_at.isoformat(),
             updated_at=session.updated_at.isoformat(),
-        ).to_payload()
+        ).to_payload() | {
+            "execution_profile_stamp": self._execution_profile_stamp_payload(
+                session.execution_profile_stamp
+            )
+        }
+
+    def _execution_profile_stamp_payload(self, stamp) -> dict[str, object] | None:
+        if stamp is None:
+            return None
+        return {
+            "adapter_key": stamp.adapter_key,
+            "model": stamp.model,
+            "effort_field_name": stamp.effort_field_name,
+            "effort_value": stamp.effort_value,
+        }
+
+    def _execution_profile_override_payload(self, override) -> dict[str, object]:
+        payload = {
+            "adapter_key": override.adapter_key,
+            "model": override.model,
+            "effort_field_name": override.effort_field_name,
+            "effort_value": override.effort_value,
+        }
+        if override.effort is not None:
+            payload["effort"] = override.effort
+        if override.reasoning_effort is not None:
+            payload["reasoning_effort"] = override.reasoning_effort
+        return payload
+
+    def _default_execution_profile_payload(
+        self,
+        operation: OperationState,
+        adapter_key: str,
+    ) -> dict[str, object] | None:
+        raw_snapshot = operation.goal.metadata.get("effective_adapter_settings")
+        if not isinstance(raw_snapshot, dict):
+            return None
+        raw_adapter = raw_snapshot.get(adapter_key)
+        if not isinstance(raw_adapter, dict):
+            return None
+        model = raw_adapter.get("model")
+        if not isinstance(model, str) or not model.strip():
+            return None
+        payload: dict[str, object] = {
+            "adapter_key": adapter_key,
+            "model": model.strip(),
+        }
+        if adapter_key == "codex_acp":
+            raw_effort = raw_adapter.get("reasoning_effort")
+            payload["effort_field_name"] = "reasoning_effort"
+            payload["effort_value"] = (
+                raw_effort.strip()
+                if isinstance(raw_effort, str) and raw_effort.strip()
+                else None
+            )
+            if payload["effort_value"] is not None:
+                payload["reasoning_effort"] = payload["effort_value"]
+            return payload
+        raw_effort = raw_adapter.get("effort")
+        if adapter_key == "claude_acp":
+            payload["effort_field_name"] = "effort"
+            payload["effort_value"] = (
+                raw_effort.strip()
+                if isinstance(raw_effort, str) and raw_effort.strip()
+                else None
+            )
+            if payload["effort_value"] is not None:
+                payload["effort"] = payload["effort_value"]
+            return payload
+        if isinstance(raw_effort, str) and raw_effort.strip():
+            payload["effort"] = raw_effort.strip()
+        return payload
+
+    def _allowed_execution_profiles_payload(
+        self,
+        operation: OperationState,
+        adapter_key: str,
+    ) -> list[dict[str, object]]:
+        raw_map = operation.goal.metadata.get("allowed_execution_profiles")
+        if not isinstance(raw_map, dict):
+            return []
+        raw_profiles = raw_map.get(adapter_key)
+        if not isinstance(raw_profiles, list):
+            return []
+        return [item for item in raw_profiles if isinstance(item, dict)]
+
+    def _execution_profile_view_payload(
+        self,
+        operation: OperationState,
+        adapter_key: str,
+    ) -> dict[str, object]:
+        override = operation.execution_profile_overrides.get(adapter_key)
+        default_payload = self._default_execution_profile_payload(operation, adapter_key)
+        overlay_payload = (
+            self._execution_profile_override_payload(override) if override is not None else None
+        )
+        return {
+            "adapter_key": adapter_key,
+            "default": default_payload,
+            "overlay": overlay_payload,
+            "effective": overlay_payload if overlay_payload is not None else default_payload,
+            "allowed_models": self._allowed_execution_profiles_payload(operation, adapter_key),
+        }
+
+    def _execution_profiles_payload(self, operation: OperationState) -> dict[str, object]:
+        adapter_keys = set(operation.policy.allowed_agents)
+        adapter_keys.update(operation.execution_profile_overrides)
+        raw_snapshot = operation.goal.metadata.get("effective_adapter_settings")
+        if isinstance(raw_snapshot, dict):
+            adapter_keys.update(
+                key for key in raw_snapshot if isinstance(key, str) and key.strip()
+            )
+        raw_allowed = operation.goal.metadata.get("allowed_execution_profiles")
+        if isinstance(raw_allowed, dict):
+            adapter_keys.update(
+                key for key in raw_allowed if isinstance(key, str) and key.strip()
+            )
+        return {
+            adapter_key: self._execution_profile_view_payload(operation, adapter_key)
+            for adapter_key in sorted(adapter_keys)
+        }
 
     def _external_ticket_payload(self, ticket) -> dict[str, object]:
         return {
@@ -516,6 +636,14 @@ class OperationProjectionService:
             "timeout_seconds": settings.timeout_seconds,
             "mcp_servers": [
                 self._project_profile_mcp_server_payload(item) for item in settings.mcp_servers
+            ],
+            "allowed_models": [
+                {
+                    "model": item.model,
+                    "effort": item.effort,
+                    "reasoning_effort": item.reasoning_effort,
+                }
+                for item in settings.allowed_models
             ],
         }
         extra = getattr(settings, "__pydantic_extra__", None)
@@ -970,6 +1098,7 @@ class OperationProjectionService:
                 "allowed_agents": list(operation.policy.allowed_agents),
                 "involvement_level": operation.policy.involvement_level.value,
             },
+            "execution_profiles": self._execution_profiles_payload(operation),
             "execution_budget": {
                 "max_iterations": operation.execution_budget.max_iterations,
                 "timeout_seconds": operation.execution_budget.timeout_seconds,
@@ -1110,6 +1239,7 @@ class OperationProjectionService:
             "harness_instructions": operation.objective_state.harness_instructions,
             "success_criteria": list(operation.objective_state.success_criteria),
             "allowed_agents": list(operation.policy.allowed_agents),
+            "execution_profiles": self._execution_profiles_payload(operation),
             "available_agent_descriptors": self.available_agent_descriptors_payload(operation),
             "max_iterations": operation.execution_budget.max_iterations,
             "involvement_level": operation.involvement_level.value,

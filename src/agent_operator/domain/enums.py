@@ -196,6 +196,7 @@ class OperationCommandType(StrEnum):
     STOP_AGENT_TURN = "stop_agent_turn"
     SET_INVOLVEMENT_LEVEL = "set_involvement_level"
     SET_ALLOWED_AGENTS = "set_allowed_agents"
+    SET_EXECUTION_PROFILE = "set_execution_profile"
     PATCH_OBJECTIVE = "patch_objective"
     PATCH_HARNESS = "patch_harness"
     PATCH_SUCCESS_CRITERIA = "patch_success_criteria"

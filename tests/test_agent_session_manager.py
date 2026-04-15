@@ -11,16 +11,16 @@ from agent_operator.acp.adapter_runtime import AcpAdapterRuntime
 from agent_operator.acp.session_runtime import AcpAgentSessionRuntime
 from agent_operator.application.agent_session_manager import AttachedSessionManager
 from agent_operator.application.attached_session_registry import AttachedRuntimeBinding
-from agent_operator.dtos.requests import AgentRunRequest
 from agent_operator.domain import (
     AgentCapability,
     AgentDescriptor,
+    AgentResultStatus,
     AgentSessionCommand,
     AgentSessionCommandType,
-    AgentResultStatus,
     AgentSessionHandle,
     TechnicalFactDraft,
 )
+from agent_operator.dtos.requests import AgentRunRequest
 from agent_operator.testing.operator_service_support import FakeAgent
 from agent_operator.testing.runtime_bindings import build_test_runtime_bindings
 
@@ -73,7 +73,13 @@ def _fork_binding() -> AttachedRuntimeBinding:
         supports_fork=True,
     )
 
-    def build_runtime(*, working_directory: Path, log_path: Path) -> AcpAgentSessionRuntime:
+    def build_runtime(
+        *,
+        working_directory: Path,
+        log_path: Path,
+        session_metadata: dict[str, str] | None = None,
+    ) -> AcpAgentSessionRuntime:
+        del session_metadata
         connection = _ForkCapableAcpConnection()
         adapter_runtime = AcpAdapterRuntime(
             adapter_key="codex_acp",
@@ -96,8 +102,13 @@ def _fork_binding() -> AttachedRuntimeBinding:
             *,
             working_directory: Path,
             log_path: Path,
+            session_metadata: dict[str, str] | None = None,
         ) -> AcpAgentSessionRuntime:
-            return build_runtime(working_directory=working_directory, log_path=log_path)
+            return build_runtime(
+                working_directory=working_directory,
+                log_path=log_path,
+                session_metadata=session_metadata,
+            )
 
     return _Binding(agent_key="codex_acp", descriptor=descriptor)
 
@@ -293,7 +304,13 @@ async def test_agent_session_manager_reattaches_after_successful_turn_runtime_ex
         descriptor: AgentDescriptor
 
         @staticmethod
-        def build_session_runtime(*, working_directory: Path, log_path: Path):
+        def build_session_runtime(
+            *,
+            working_directory: Path,
+            log_path: Path,
+            session_metadata: dict[str, str] | None = None,
+        ):
+            del log_path, session_metadata
             runtime_id = len(built_runtime_ids) + 1
             built_runtime_ids.append(runtime_id)
             return _ReattachAfterTerminalRuntime(

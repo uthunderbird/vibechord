@@ -166,6 +166,7 @@ class _AttachedSessionRuntimeOwner:
         runtime = self._binding.build_session_runtime(
             working_directory=self._spec.working_directory,
             log_path=self._spec.log_path,
+            session_metadata=dict(self._spec.metadata),
         )
         await runtime.__aenter__()
         return _LiveAttachedSession(

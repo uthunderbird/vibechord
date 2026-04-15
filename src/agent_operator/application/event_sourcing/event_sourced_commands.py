@@ -7,6 +7,7 @@ from agent_operator.application.event_sourcing.event_sourced_replay import Event
 from agent_operator.domain import (
     AttentionRequest,
     CommandTargetScope,
+    ExecutionProfileOverride,
     InvolvementLevel,
     OperationCheckpoint,
     OperationCommand,
@@ -373,6 +374,41 @@ class EventSourcedCommandApplicationService:
                 OperationDomainEventDraft(
                     event_type="operation.allowed_agents.updated",
                     payload={"allowed_agents": allowed_agents},
+                ),
+            ], None
+
+        if command.command_type is OperationCommandType.SET_EXECUTION_PROFILE:
+            adapter_key = str(command.payload.get("adapter_key", "")).strip()
+            model = str(command.payload.get("model", "")).strip()
+            effort = command.payload.get("effort")
+            if not adapter_key:
+                reason = "SET_EXECUTION_PROFILE requires non-empty payload.adapter_key."
+                return [self._rejected_event(command, reason)], reason
+            if not model:
+                reason = "SET_EXECUTION_PROFILE requires non-empty payload.model."
+                return [self._rejected_event(command, reason)], reason
+            if effort is not None and (not isinstance(effort, str) or not effort.strip()):
+                reason = "SET_EXECUTION_PROFILE payload.effort must be a non-empty string."
+                return [self._rejected_event(command, reason)], reason
+            payload = ExecutionProfileOverride(
+                adapter_key=adapter_key,
+                model=model,
+                reasoning_effort=(
+                    effort.strip()
+                    if adapter_key == "codex_acp" and isinstance(effort, str)
+                    else None
+                ),
+                effort=(
+                    effort.strip()
+                    if adapter_key == "claude_acp" and isinstance(effort, str)
+                    else None
+                ),
+            ).model_dump(mode="json")
+            return [
+                accepted,
+                OperationDomainEventDraft(
+                    event_type="operation.execution_profile.updated",
+                    payload=payload,
                 ),
             ], None
 

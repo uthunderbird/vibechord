@@ -101,6 +101,14 @@ def _build_run_goal_metadata(
             adapter_keys=resolved.default_agents,
         )
         goal_metadata["resolved_project_profile"] = resolved.model_dump(mode="json")
+        goal_metadata["allowed_execution_profiles"] = {
+            adapter_key: [
+                entry.model_dump(mode="json")
+                for entry in overrides.allowed_models
+            ]
+            for adapter_key, overrides in profile.adapter_settings.items()
+            if getattr(overrides, "allowed_models", None)
+        }
         ticket_reporting = getattr(profile, "ticket_reporting", None)
         if ticket_reporting is not None and hasattr(ticket_reporting, "model_dump"):
             goal_metadata["ticket_reporting"] = ticket_reporting.model_dump(mode="json")
