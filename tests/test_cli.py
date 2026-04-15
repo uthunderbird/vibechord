@@ -2608,13 +2608,31 @@ def test_report_json_derives_payload_without_serializing_brief_or_outcome_models
     monkeypatch.setattr(TraceBriefBundle, "model_dump", _fail_brief_model_dump)
     monkeypatch.setattr(OperationOutcome, "model_dump", _fail_outcome_model_dump)
 
+    class _FakeDashboardQueries:
+        async def load_payload(self, operation_id: str) -> dict[str, object]:
+            assert operation_id == "op-cli-1"
+            return {
+                "brief": {"operation_brief": {"objective_brief": "from dashboard"}},
+                "outcome": {"summary": "from dashboard"},
+                "report": "dashboard report body",
+                "durable_truth": {"tasks": [{"task_id": "task-from-dashboard"}]},
+            }
+
+    monkeypatch.setattr(
+        commands_operation_detail,
+        "build_operation_dashboard_query_service",
+        lambda settings, *, operation_id, codex_home: _FakeDashboardQueries(),
+    )
+
     result = runner.invoke(app, ["report", operation_id, "--json"])
 
     assert result.exit_code == 0
-    assert '"brief"' in result.stdout
-    assert '"outcome"' in result.stdout
-    assert '"report"' in result.stdout
-    assert '"durable_truth"' in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == "op-cli-1"
+    assert payload["brief"] == {"operation_brief": {"objective_brief": "from dashboard"}}
+    assert payload["outcome"] == {"summary": "from dashboard"}
+    assert payload["report"] == "dashboard report body"
+    assert payload["durable_truth"] == {"tasks": [{"task_id": "task-from-dashboard"}]}
 
 
 def test_report_ticket_retries_pm_reporting(tmp_path: Path, monkeypatch) -> None:

@@ -478,20 +478,39 @@ def report(
                 f"Report for {resolved_operation_id!r} was not found."
             ) from exc
         report_text = await trace_store.load_report(resolved_operation_id)
-        if operation is None or report_text is None:
-            raise typer.BadParameter(f"Report for {resolved_operation_id!r} was not found.")
         if json_mode:
+            dashboard_queries = build_operation_dashboard_query_service(
+                settings,
+                operation_id=resolved_operation_id,
+                codex_home=Path.home() / ".codex",
+            )
+            try:
+                dashboard_payload = await dashboard_queries.load_payload(resolved_operation_id)
+            except RuntimeError as exc:
+                raise typer.BadParameter(
+                    f"Report for {resolved_operation_id!r} was not found."
+                ) from exc
             payload = {
                 "operation_id": resolved_operation_id,
-                "brief": PROJECTIONS.brief_bundle_payload(brief) if brief is not None else None,
-                "outcome": PROJECTIONS.outcome_payload(outcome) if outcome is not None else None,
-                "report": report_text,
-                "durable_truth": PROJECTIONS.build_durable_truth_payload(
-                    operation, include_inactive_memory=True
+                "brief": dashboard_payload.get("brief")
+                or dashboard_payload.get("operation_brief")
+                or (PROJECTIONS.brief_bundle_payload(brief) if brief is not None else None),
+                "outcome": dashboard_payload.get("outcome")
+                or (PROJECTIONS.outcome_payload(outcome) if outcome is not None else None),
+                "report": dashboard_payload.get("report")
+                or dashboard_payload.get("report_text")
+                or report_text,
+                "durable_truth": dashboard_payload.get("durable_truth")
+                or (
+                    PROJECTIONS.build_durable_truth_payload(operation, include_inactive_memory=True)
+                    if operation is not None
+                    else None
                 ),
             }
             typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
             return
+        if operation is None or report_text is None:
+            raise typer.BadParameter(f"Report for {resolved_operation_id!r} was not found.")
         typer.echo(report_text)
 
     anyio.run(_report)
