@@ -154,7 +154,7 @@ async def _load_multi_project_agenda_snapshot(
         for summary in await store.list_operations():
             wakeups = inbox.read_all(summary.operation_id)
             background_runs = [
-                item.model_dump(mode="json")
+                PROJECTIONS._execution_payload(item)
                 for item in await supervisor.list_runs(summary.operation_id)
             ]
             runtime_alert = build_runtime_alert(
@@ -196,7 +196,7 @@ async def _iter_list_payloads() -> list[tuple[dict[str, object], str]]:
         for summary in await store.list_operations():
             wakeups = inbox.read_all(summary.operation_id)
             background_runs = [
-                item.model_dump(mode="json")
+                PROJECTIONS._execution_payload(item)
                 for item in await supervisor.list_runs(summary.operation_id)
             ]
             runtime_alert = build_runtime_alert(

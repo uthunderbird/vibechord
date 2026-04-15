@@ -3027,6 +3027,34 @@ def test_list_surfaces_runtime_alert_for_unreconciled_background_completion(
     assert "pending reconciliation" in result.stdout
 
 
+def test_list_and_agenda_json_derive_runtime_alert_inputs_without_serializing_execution_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_operator.domain.operation import ExecutionState
+
+    _seed_running_operation_with_terminal_background_run(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    def _fail_execution_model_dump(self, *args, **kwargs):
+        raise AssertionError("list/agenda json should not serialize ExecutionState directly")
+
+    monkeypatch.setattr(ExecutionState, "model_dump", _fail_execution_model_dump)
+
+    list_result = runner.invoke(app, ["list", "--json"])
+
+    assert list_result.exit_code == 0
+    list_payload = json.loads(list_result.stdout)
+    assert list_payload["operation_id"] == "op-cli-running"
+    assert "pending reconciliation" in str(list_payload["runtime_alert"])
+
+    agenda_result = runner.invoke(app, ["agenda", "--json"])
+
+    assert agenda_result.exit_code == 0
+    agenda_payload = json.loads(agenda_result.stdout)
+    assert agenda_payload["total_operations"] == 1
+    assert "pending reconciliation" in str(agenda_payload["needs_attention"][0]["runtime_alert"])
+
+
 def test_trace_json_emits_payload(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     _seed_command(tmp_path, operation_id)
