@@ -48,6 +48,7 @@ from agent_operator.domain import (
     OperationPolicy,
     OperationState,
     OperationStatus,
+    OperationSummary,
     PolicyApplicability,
     PolicyCategory,
     PolicyEntry,
@@ -1843,20 +1844,32 @@ def test_list_default_is_human_readable_brief(tmp_path: Path, monkeypatch) -> No
 
 
 def test_list_json_emits_machine_readable_objects(tmp_path: Path, monkeypatch) -> None:
-    _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
 
-    def _fail_operation_brief_model_dump(self, *args, **kwargs):
-        raise AssertionError("list json should not serialize OperationBrief directly")
+    anyio.run(
+        store.save_operation,
+        OperationState(
+            operation_id="op-list-fallback",
+            goal=OperationGoal(objective="Fallback list objective"),
+            **state_settings(),
+            status=OperationStatus.COMPLETED,
+            final_summary="Fallback list completed.",
+        ),
+    )
 
-    monkeypatch.setattr(OperationBrief, "model_dump", _fail_operation_brief_model_dump)
+    def _fail_operation_summary_model_dump(self, *args, **kwargs):
+        raise AssertionError("list json should not serialize OperationSummary directly")
+
+    monkeypatch.setattr(OperationSummary, "model_dump", _fail_operation_summary_model_dump)
 
     result = runner.invoke(app, ["list", "--json"])
 
     assert result.exit_code == 0
-    assert '"operation_id"' in result.stdout
-    assert '"status"' in result.stdout
-    assert '"objective_brief"' in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == "op-list-fallback"
+    assert payload["status"] == "completed"
+    assert payload["objective_brief"] == "Fallback list objective"
 
 
 def test_history_default_reads_committed_ledger(tmp_path: Path, monkeypatch) -> None:
