@@ -6,6 +6,9 @@ from agent_operator.domain import (
     AgentTurnSummary,
     BrainActionType,
     BrainDecision,
+    FocusKind,
+    FocusMode,
+    FocusState,
     IterationState,
     OperationGoal,
     OperationState,
@@ -407,6 +410,49 @@ def test_build_converse_operation_prompt_distinguishes_brief_and_full_context() 
     assert "Recent event log:" in full_prompt
     assert "Tasks:" in full_prompt
     assert "operator answer <operation-id> <attention-id> --text" in full_prompt
+
+
+def test_build_converse_operation_prompt_uses_derived_focus_and_iteration_payloads(
+    monkeypatch,
+) -> None:
+    state = OperationState(
+        operation_id="op-converse-1",
+        goal=OperationGoal(objective="Inspect the repository"),
+        **state_settings(),
+    )
+    state.current_focus = FocusState(
+        kind=FocusKind.SESSION,
+        target_id="session-1",
+        mode=FocusMode.ADVISORY,
+    )
+    state.iterations = [
+        IterationState(
+            index=1,
+            task_id="task-1",
+            notes=["Look at the current session state."],
+        )
+    ]
+
+    def _fail_focus_model_dump(self, *args, **kwargs):
+        raise AssertionError("converse prompt should not serialize FocusState directly")
+
+    def _fail_iteration_model_dump(self, *args, **kwargs):
+        raise AssertionError("converse prompt should not serialize IterationState directly")
+
+    monkeypatch.setattr(FocusState, "model_dump", _fail_focus_model_dump)
+    monkeypatch.setattr(IterationState, "model_dump", _fail_iteration_model_dump)
+
+    prompt = build_converse_operation_prompt(
+        state,
+        user_message="What is blocked?",
+        conversation_history=[],
+        context_level="brief",
+        recent_events=None,
+    )
+
+    assert '"target_id": "session-1"' in prompt
+    assert '"index": 1' in prompt
+    assert '"task_id": "task-1"' in prompt
 
 
 def test_build_converse_fleet_prompt_surfaces_active_operation_context() -> None:

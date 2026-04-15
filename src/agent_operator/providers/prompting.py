@@ -195,7 +195,18 @@ def _serialize_memory_entries(state: OperationState) -> list[dict[str, object]]:
 
 
 def _serialize_focus(state: OperationState) -> dict[str, object] | None:
-    return state.current_focus.model_dump(mode="json") if state.current_focus is not None else None
+    focus = state.current_focus
+    if focus is None:
+        return None
+    return {
+        "kind": focus.kind.value,
+        "target_id": focus.target_id,
+        "mode": focus.mode.value,
+        "blocking_reason": focus.blocking_reason,
+        "interrupt_policy": focus.interrupt_policy.value,
+        "resume_policy": focus.resume_policy.value,
+        "created_at": focus.created_at.isoformat(),
+    }
 
 
 def _serialize_operator_messages(state: OperationState, limit: int = 5) -> list[dict[str, object]]:
@@ -539,7 +550,7 @@ def build_converse_operation_prompt(
 ) -> str:
     iteration_limit = 20 if context_level == "full" else 5
     recent_iterations_json = json.dumps(
-        [item.model_dump(mode="json") for item in state.iterations[-iteration_limit:]],
+        _serialize_recent_iterations(state, limit=iteration_limit),
         ensure_ascii=True,
     )
     context_sections = [

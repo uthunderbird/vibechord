@@ -485,19 +485,121 @@ def _serialize_focus(state: OperationState) -> dict[str, object] | None:
     focus = state.current_focus
     if focus is None:
         return None
-    return focus.model_dump(mode="json")
+    return {
+        "kind": focus.kind.value,
+        "target_id": focus.target_id,
+        "mode": focus.mode.value,
+        "blocking_reason": focus.blocking_reason,
+        "interrupt_policy": focus.interrupt_policy.value,
+        "resume_policy": focus.resume_policy.value,
+        "created_at": focus.created_at.isoformat(),
+    }
 
 
 def _serialize_tasks(state: OperationState) -> list[dict[str, object]]:
-    return [task.model_dump(mode="json") for task in state.tasks]
+    return [
+        {
+            "task_id": task.task_id,
+            "task_short_id": task.task_short_id,
+            "title": task.title,
+            "goal": task.goal,
+            "definition_of_done": task.definition_of_done,
+            "status": task.status.value,
+            "brain_priority": task.brain_priority,
+            "effective_priority": task.effective_priority,
+            "feature_id": task.feature_id,
+            "dependencies": list(task.dependencies),
+            "assigned_agent": task.assigned_agent,
+            "linked_session_id": task.linked_session_id,
+            "session_policy": task.session_policy.value,
+            "memory_refs": list(task.memory_refs),
+            "artifact_refs": list(task.artifact_refs),
+            "attempt_count": task.attempt_count,
+            "notes": list(task.notes),
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
+        }
+        for task in state.tasks
+    ]
 
 
 def _serialize_sessions(state: OperationState) -> list[dict[str, object]]:
-    return [session.model_dump(mode="json") for session in state.sessions]
+    return [
+        {
+            "session_id": session.session_id,
+            "adapter_key": session.adapter_key,
+            "status": session.status.value,
+            "session_name": session.handle.session_name,
+            "display_name": session.handle.display_name,
+            "one_shot": session.handle.one_shot,
+            "current_execution_id": session.current_execution_id,
+            "last_terminal_execution_id": session.last_terminal_execution_id,
+            "bound_task_ids": list(session.bound_task_ids),
+            "last_result_iteration": session.last_result_iteration,
+            "latest_iteration": session.latest_iteration,
+            "attached_turn_started_at": (
+                session.attached_turn_started_at.isoformat()
+                if session.attached_turn_started_at is not None
+                else None
+            ),
+            "last_progress_at": (
+                session.last_progress_at.isoformat()
+                if session.last_progress_at is not None
+                else None
+            ),
+            "last_event_at": (
+                session.last_event_at.isoformat() if session.last_event_at is not None else None
+            ),
+            "waiting_reason": session.waiting_reason,
+            "cooldown_until": (
+                session.cooldown_until.isoformat() if session.cooldown_until is not None else None
+            ),
+            "cooldown_reason": session.cooldown_reason,
+            "last_rate_limited_at": (
+                session.last_rate_limited_at.isoformat()
+                if session.last_rate_limited_at is not None
+                else None
+            ),
+            "recovery_summary": session.recovery_summary,
+            "recovery_count": session.recovery_count,
+            "recovery_attempted_at": (
+                session.recovery_attempted_at.isoformat()
+                if session.recovery_attempted_at is not None
+                else None
+            ),
+            "last_recovered_at": (
+                session.last_recovered_at.isoformat()
+                if session.last_recovered_at is not None
+                else None
+            ),
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+        }
+        for session in state.sessions
+    ]
 
 
 def _serialize_memory_entries(state: OperationState) -> list[dict[str, object]]:
-    return [entry.model_dump(mode="json") for entry in state.memory_entries]
+    return [
+        {
+            "memory_id": entry.memory_id,
+            "scope": entry.scope.value,
+            "scope_id": entry.scope_id,
+            "summary": entry.summary,
+            "source_refs": [
+                {
+                    "kind": source_ref.kind,
+                    "ref_id": source_ref.ref_id,
+                }
+                for source_ref in entry.source_refs
+            ],
+            "freshness": entry.freshness.value,
+            "superseded_by": entry.superseded_by,
+            "created_at": entry.created_at.isoformat(),
+            "updated_at": entry.updated_at.isoformat(),
+        }
+        for entry in state.memory_entries
+    ]
 
 
 def _serialize_recent_iterations(
@@ -505,7 +607,26 @@ def _serialize_recent_iterations(
     *,
     limit: int,
 ) -> list[dict[str, object]]:
-    return [item.model_dump(mode="json") for item in state.iterations[-limit:]]
+    return [
+        {
+            "index": item.index,
+            "decision": (
+                item.decision.model_dump(mode="json") if item.decision is not None else None
+            ),
+            "task_id": item.task_id,
+            "session": (
+                item.session.model_dump(mode="json") if item.session is not None else None
+            ),
+            "result": item.result.model_dump(mode="json") if item.result is not None else None,
+            "turn_summary": (
+                item.turn_summary.model_dump(mode="json")
+                if item.turn_summary is not None
+                else None
+            ),
+            "notes": list(item.notes),
+        }
+        for item in state.iterations[-limit:]
+    ]
 
 
 def _attention_requests_json(
@@ -515,7 +636,30 @@ def _attention_requests_json(
 ) -> str:
     return json.dumps(
         [
-            item.model_dump(mode="json")
+            {
+                "attention_id": item.attention_id,
+                "operation_id": item.operation_id,
+                "attention_type": item.attention_type.value,
+                "target_scope": item.target_scope.value,
+                "target_id": item.target_id,
+                "title": item.title,
+                "question": item.question,
+                "context_brief": item.context_brief,
+                "suggested_options": list(item.suggested_options),
+                "blocking": item.blocking,
+                "status": item.status.value,
+                "answer_text": item.answer_text,
+                "answer_source_command_id": item.answer_source_command_id,
+                "created_at": item.created_at.isoformat(),
+                "answered_at": (
+                    item.answered_at.isoformat() if item.answered_at is not None else None
+                ),
+                "resolved_at": (
+                    item.resolved_at.isoformat() if item.resolved_at is not None else None
+                ),
+                "resolution_summary": item.resolution_summary,
+                "metadata": dict(item.metadata),
+            }
             for item in state.attention_requests
             if item.status.value in statuses
         ],
