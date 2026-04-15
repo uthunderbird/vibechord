@@ -19,14 +19,19 @@ from agent_operator.cli.helpers.rendering import render_watch_snapshot
 from agent_operator.cli.main import _format_live_snapshot, app
 from agent_operator.config import load_global_config
 from agent_operator.domain import (
+    AgentResult,
+    AgentResultStatus,
     AgentSessionHandle,
     AgentTurnBrief,
+    AgentTurnSummary,
     ArtifactRecord,
     AttentionRequest,
     AttentionStatus,
     AttentionType,
     BackgroundRunHandle,
     BackgroundRunStatus,
+    BrainActionType,
+    BrainDecision,
     CommandStatus,
     CommandTargetScope,
     DecisionMemo,
@@ -36,6 +41,7 @@ from agent_operator.domain import (
     FocusState,
     InvolvementLevel,
     IterationBrief,
+    IterationState,
     MemoryEntry,
     MemoryFreshness,
     MemoryScope,
@@ -3982,6 +3988,125 @@ def test_converse_command_answers_question_for_operation(tmp_path: Path, monkeyp
     assert result.exit_code == 0
     assert f"Operator › {operation_id}" in result.stdout
     assert "The operation is completed." in result.stdout
+
+
+def test_converse_command_full_context_derives_recent_events_and_iteration_payloads(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+    persisted = anyio.run(store.load_operation, operation_id)
+    assert persisted is not None
+    persisted.iterations = [
+        IterationState(
+            index=1,
+            task_id="task-1",
+            decision=BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="codex_acp",
+                instruction="Inspect the working tree.",
+                rationale="Need current repository truth.",
+            ),
+            session=AgentSessionHandle(
+                adapter_key="codex_acp",
+                session_id="session-1",
+                session_name="repo-audit",
+                display_name="Repo Audit",
+            ),
+            result=AgentResult(
+                session_id="session-1",
+                status=AgentResultStatus.SUCCESS,
+                output_text="Inspected repository state.",
+            ),
+            turn_summary=AgentTurnSummary(
+                declared_goal="Inspect the repository",
+                actual_work_done="Checked the tracked files.",
+                state_delta="No durable state changes.",
+                verification_status="Not verified.",
+                recommended_next_step="Review the changed files.",
+            ),
+            notes=["Captured the current repository state."],
+        )
+    ]
+    anyio.run(store.save_operation, persisted)
+
+    def _fail_run_event_model_dump(self, *args, **kwargs):
+        raise AssertionError("converse full-context prompt should not serialize RunEvent directly")
+
+    def _fail_decision_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "converse full-context prompt should not serialize BrainDecision directly"
+        )
+
+    def _fail_session_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "converse full-context prompt should not serialize AgentSessionHandle directly"
+        )
+
+    def _fail_result_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "converse full-context prompt should not serialize AgentResult directly"
+        )
+
+    def _fail_turn_summary_model_dump(self, *args, **kwargs):
+        raise AssertionError(
+            "converse full-context prompt should not serialize AgentTurnSummary directly"
+        )
+
+    monkeypatch.setattr(RunEvent, "model_dump", _fail_run_event_model_dump)
+    monkeypatch.setattr(BrainDecision, "model_dump", _fail_decision_model_dump)
+    monkeypatch.setattr(AgentSessionHandle, "model_dump", _fail_session_model_dump)
+    monkeypatch.setattr(AgentResult, "model_dump", _fail_result_model_dump)
+    monkeypatch.setattr(AgentTurnSummary, "model_dump", _fail_turn_summary_model_dump)
+
+    class _FakeEventSink:
+        def iter_events(self, requested_operation_id: str):
+            assert requested_operation_id == operation_id
+            return [
+                RunEvent(
+                    event_id="evt-converse-1",
+                    event_type="operation.note",
+                    kind=RunEventKind.TRACE,
+                    category="trace",
+                    operation_id=operation_id,
+                    iteration=1,
+                    task_id="task-1",
+                    session_id="session-1",
+                    payload={"summary": "Inspected the repository state."},
+                )
+            ]
+
+    class FakeBrain:
+        async def converse(self, prompt: str) -> SimpleNamespace:
+            assert "Context level: full" in prompt
+            assert '"event_id": "evt-converse-1"' in prompt
+            assert '"action_type": "start_agent"' in prompt
+            assert '"session_id": "session-1"' in prompt
+            assert '"status": "success"' in prompt
+            assert '"declared_goal": "Inspect the repository"' in prompt
+            return SimpleNamespace(
+                answer="The operation inspected the repository.",
+                proposed_command=None,
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: FakeBrain(),
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_event_sink",
+        lambda settings, requested_operation_id: _FakeEventSink(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["converse", operation_id, "--context", "full"],
+        input="What changed?\nquit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "The operation inspected the repository." in result.stdout
 
 
 def test_converse_command_executes_proposed_write_on_yes(tmp_path: Path, monkeypatch) -> None:

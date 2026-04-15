@@ -476,9 +476,171 @@ def _load_recent_events(
 ) -> list[dict[str, object]]:
     event_sink = build_event_sink(settings, operation_id)
     return [
-        event.model_dump(mode="json")
+        _serialize_run_event(event)
         for event in list(event_sink.iter_events(operation_id))[-20:]
     ]
+
+
+def _serialize_run_event(event) -> dict[str, object]:
+    return {
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "kind": event.kind.value,
+        "category": event.category,
+        "operation_id": event.operation_id,
+        "iteration": event.iteration,
+        "task_id": event.task_id,
+        "session_id": event.session_id,
+        "dedupe_key": event.dedupe_key,
+        "timestamp": event.timestamp.isoformat(),
+        "not_before": event.not_before.isoformat() if event.not_before is not None else None,
+        "payload": dict(event.payload),
+    }
+
+
+def _serialize_decision(decision) -> dict[str, object]:
+    return {
+        "action_type": decision.action_type.value,
+        "target_agent": decision.target_agent,
+        "session_id": decision.session_id,
+        "session_name": decision.session_name,
+        "one_shot": decision.one_shot,
+        "workfront_key": decision.workfront_key,
+        "instruction": decision.instruction,
+        "rationale": decision.rationale,
+        "confidence": decision.confidence,
+        "assumptions": list(decision.assumptions),
+        "expected_outcome": decision.expected_outcome,
+        "focus_task_id": decision.focus_task_id,
+        "new_features": [
+            {
+                "title": item.title,
+                "goal": item.goal,
+                "description": item.description,
+            }
+            for item in decision.new_features
+        ],
+        "feature_updates": [
+            {
+                "feature_id": item.feature_id,
+                "status": item.status.value if item.status is not None else None,
+                "summary": item.summary,
+            }
+            for item in decision.feature_updates
+        ],
+        "new_tasks": [
+            {
+                "title": item.title,
+                "goal": item.goal,
+                "definition_of_done": item.definition_of_done,
+                "assigned_agent": item.assigned_agent,
+                "brain_priority": item.brain_priority,
+                "dependencies": list(item.dependencies),
+                "notes": list(item.notes),
+            }
+            for item in decision.new_tasks
+        ],
+        "task_updates": [
+            {
+                "task_id": item.task_id,
+                "status": item.status.value if item.status is not None else None,
+                "assigned_agent": item.assigned_agent,
+                "append_notes": list(item.append_notes),
+                "artifact_refs": list(item.artifact_refs),
+                "memory_refs": list(item.memory_refs),
+            }
+            for item in decision.task_updates
+        ],
+        "blocking_focus": (
+            {
+                "kind": decision.blocking_focus.kind.value,
+                "target_id": decision.blocking_focus.target_id,
+                "blocking_reason": decision.blocking_focus.blocking_reason,
+                "interrupt_policy": decision.blocking_focus.interrupt_policy.value,
+                "resume_policy": decision.blocking_focus.resume_policy.value,
+            }
+            if decision.blocking_focus is not None
+            else None
+        ),
+        "metadata": dict(decision.metadata),
+    }
+
+
+def _serialize_session_handle(session) -> dict[str, object]:
+    return {
+        "adapter_key": session.adapter_key,
+        "session_id": session.session_id,
+        "session_name": session.session_name,
+        "display_name": session.display_name,
+        "one_shot": session.one_shot,
+        "metadata": dict(session.metadata),
+    }
+
+
+def _serialize_agent_result(result) -> dict[str, object]:
+    return {
+        "session_id": result.session_id,
+        "status": result.status.value,
+        "output_text": result.output_text,
+        "artifacts": [
+            {
+                "name": artifact.name,
+                "kind": artifact.kind,
+                "uri": artifact.uri,
+                "content": artifact.content,
+                "metadata": dict(artifact.metadata),
+            }
+            for artifact in result.artifacts
+        ],
+        "error": (
+            {
+                "code": result.error.code,
+                "message": result.error.message,
+                "retryable": result.error.retryable,
+                "raw": dict(result.error.raw) if result.error.raw is not None else None,
+            }
+            if result.error is not None
+            else None
+        ),
+        "completed_at": (
+            result.completed_at.isoformat() if result.completed_at is not None else None
+        ),
+        "structured_output": (
+            dict(result.structured_output) if result.structured_output is not None else None
+        ),
+        "usage": (
+            {
+                "input_tokens": result.usage.input_tokens,
+                "output_tokens": result.usage.output_tokens,
+                "total_tokens": result.usage.total_tokens,
+                "context_window_size": result.usage.context_window_size,
+                "context_tokens_used": result.usage.context_tokens_used,
+                "cost_amount": result.usage.cost_amount,
+                "cost_currency": result.usage.cost_currency,
+                "metadata": dict(result.usage.metadata),
+            }
+            if result.usage is not None
+            else None
+        ),
+        "transcript": result.transcript,
+        "raw": dict(result.raw) if result.raw is not None else None,
+    }
+
+
+def _serialize_turn_summary(summary) -> dict[str, object]:
+    return {
+        "declared_goal": summary.declared_goal,
+        "actual_work_done": summary.actual_work_done,
+        "route_or_target_chosen": summary.route_or_target_chosen,
+        "repo_changes": list(summary.repo_changes),
+        "progress_class": summary.progress_class,
+        "blocker_keys": list(summary.blocker_keys),
+        "state_delta": summary.state_delta,
+        "verification_status": summary.verification_status,
+        "remaining_blockers": list(summary.remaining_blockers),
+        "recommended_next_step": summary.recommended_next_step,
+        "rationale": summary.rationale,
+    }
 
 
 def _serialize_focus(state: OperationState) -> dict[str, object] | None:
@@ -610,16 +772,14 @@ def _serialize_recent_iterations(
     return [
         {
             "index": item.index,
-            "decision": (
-                item.decision.model_dump(mode="json") if item.decision is not None else None
-            ),
+            "decision": _serialize_decision(item.decision) if item.decision is not None else None,
             "task_id": item.task_id,
             "session": (
-                item.session.model_dump(mode="json") if item.session is not None else None
+                _serialize_session_handle(item.session) if item.session is not None else None
             ),
-            "result": item.result.model_dump(mode="json") if item.result is not None else None,
+            "result": _serialize_agent_result(item.result) if item.result is not None else None,
             "turn_summary": (
-                item.turn_summary.model_dump(mode="json")
+                _serialize_turn_summary(item.turn_summary)
                 if item.turn_summary is not None
                 else None
             ),
