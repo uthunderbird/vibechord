@@ -1,0 +1,77 @@
+# ADR 0177: No Separate ADR Record
+
+## Decision Status
+
+Rejected
+
+## Implementation Status
+
+N/A
+
+Skim-safe status on 2026-04-15:
+
+- `implemented`: the repository does not contain a standalone `design/adr/0177-*.md` file before
+  this bookkeeping record
+- `verified`: the repository does not contain any references to `ADR 0177` in code, tests, docs,
+  or design records
+- `current repository truth`: no repo-internal evidence identifies a separate missing
+  architectural authority that should be reconstructed under this number
+
+## Context
+
+An audit request on 2026-04-15 asked for line-by-line verification of `ADR 0177` against current
+repository code and tests.
+
+Current repository truth at the start of that audit:
+
+- there was no `design/adr/0177-*.md` file
+- there were no repository references to `ADR 0177`
+- there was no git-history evidence of a prior tracked path under `design/adr/0177*`
+- there was no repo-internal evidence identifying a displaced or superseding authority for this ADR
+  number
+
+Creating a new normative architectural decision without repository evidence for its intended topic
+would invent design history rather than clarify repository truth.
+
+## Decision
+
+Do not create a new normative architecture decision under ADR 0177.
+
+`ADR 0177` is reserved as a bookkeeping record only:
+
+- to state that no separate ADR existed at current repository truth
+- to prevent future readers from assuming a missing-but-normative decision record
+- to record that no repo-grounded displaced authority could be identified for this number
+
+Future work should cite the actual ADR or status artifact that carries the relevant authority
+rather than using `ADR 0177` as a behavioral reference.
+
+## Repository Evidence
+
+- ADR directory listing shows no prior `0177` file:
+  [design/adr](/Users/thunderbird/Projects/operator/design/adr)
+- Repository text search for `ADR 0177` / `0177` across design, docs, source, and tests produced
+  no relevant matches:
+  [design](/Users/thunderbird/Projects/operator/design),
+  [docs](/Users/thunderbird/Projects/operator/docs),
+  [src](/Users/thunderbird/Projects/operator/src),
+  [tests](/Users/thunderbird/Projects/operator/tests)
+- Git history inspection for `design/adr/*0177*` produced no prior tracked path under that number
+
+## Verification
+
+Evidence inspected during this audit:
+
+- `ls design/adr | sort | sed -n '165,185p'` -> ADR numbering gap confirmed between `0176` and
+  `0180`
+- `rg -n "ADR 0177|0177|177" design docs src tests` -> no ADR-0177 repository references
+- `git log --all --name-status -- 'design/adr/*0177*'` -> no tracked ADR-0177 history
+- `git log --all --grep='ADR 0177' --oneline` -> no commit history naming ADR 0177
+- full repository verification for this slice is `uv run pytest`
+
+## Consequences
+
+- Future requests for `ADR 0177` should not assume a hidden authoritative document exists in this
+  repository.
+- If a real intended authority is identified later from external evidence, it should be recorded
+  explicitly and linked from this bookkeeping record rather than inferred retroactively.
