@@ -203,8 +203,8 @@ def test_run_cli_startup_connect_error_marks_operation_failed(tmp_path: Path, mo
         lambda *args, **kwargs: _ResolvedRunConfig(),
     )
     monkeypatch.setattr(
-        "agent_operator.cli.workflows.control_runtime.snapshot_effective_adapter_settings",
-        lambda settings, adapter_keys: {},
+        "agent_operator.cli.workflows.control._build_run_goal_metadata",
+        lambda **kwargs: ([], {}),
     )
     monkeypatch.setattr(
         "agent_operator.cli.workflows.control.build_projected_service",
@@ -346,8 +346,8 @@ def test_run_cli_startup_exception_does_not_overwrite_completed_operation(
         lambda *args, **kwargs: _ResolvedRunConfig(),
     )
     monkeypatch.setattr(
-        "agent_operator.cli.workflows.control_runtime.snapshot_effective_adapter_settings",
-        lambda settings, adapter_keys: {},
+        "agent_operator.cli.workflows.control._build_run_goal_metadata",
+        lambda **kwargs: ([], {}),
     )
     monkeypatch.setattr(
         "agent_operator.cli.workflows.control.build_projected_service",
