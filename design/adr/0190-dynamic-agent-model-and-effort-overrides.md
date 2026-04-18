@@ -4,25 +4,22 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Implemented
 
 Skim-safe status on 2026-04-15:
 
-- `implemented`: project profiles already carry per-adapter defaults through `adapter_settings`
-- `implemented`: runtime control already supports bounded operation-local policy mutation such as
-  `set_allowed_agents`
-- `planned`: add bounded runtime mutation for model/effort within one already allowed adapter via
-  explicit adapter-key targeting
-- `planned`: add profile-defined `allowed_models` allowlists so runtime overrides stay explicit and
-  deterministic
-- `planned`: persist execution-profile overlays as operation-local runtime truth, separate from
-  launch defaults and project profile data
-- `planned`: add a dedicated event-sourced operation command and query exposure for requested vs
-  effective execution profile
+- `implemented`: project profiles now carry typed per-adapter `allowed_models` allowlists alongside
+  adapter defaults
+- `implemented`: runtime control now supports bounded operation-local `set_execution_profile`
+  mutation for one explicitly named already allowed adapter
+- `implemented`: execution-profile overlays now persist as operation-local runtime truth, separate
+  from launch defaults and project profile data
+- `implemented`: event-sourced command handling, attached-turn reuse compatibility, and operation
+  query/status surfaces now expose requested vs effective execution-profile truth
 - `not allowed`: this feature must not permit adapter switching at runtime
 
 ## Context
@@ -642,11 +639,59 @@ Current repository truth that grounds this ADR:
 
 ## Verification
 
-Design-only slice.
+Verified locally on 2026-04-18 with targeted evidence plus full `pytest`.
 
-No code or tests were changed in this wave.
+Repository evidence for the closure criteria:
 
-When implemented, this ADR requires verification of at least the following behaviors:
+- accepted execution-profile override commands persist as canonical operation-local overlays through
+  event-sourced command handling and replay-backed state:
+  [operation_commands.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/commands/operation_commands.py:1212),
+  [event_sourced_commands.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/event_sourcing/event_sourced_commands.py:379),
+  [operation.py](/Users/thunderbird/Projects/operator/src/agent_operator/domain/operation.py:88),
+  [checkpoints.py](/Users/thunderbird/Projects/operator/src/agent_operator/domain/checkpoints.py:61),
+  covered by
+  [test_operation_command_service.py](/Users/thunderbird/Projects/operator/tests/test_operation_command_service.py:2476)
+- resume restores launch-default adapter settings from operation metadata, then continues using the
+  reconstructed effective runtime settings:
+  [control_runtime.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/workflows/control_runtime.py:440),
+  covered by
+  [test_cli.py](/Users/thunderbird/Projects/operator/tests/test_cli.py:6525)
+- idle session reuse is rejected when the concrete session stamp does not match the current
+  effective execution profile:
+  [loaded_operation.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/loaded_operation.py:95),
+  covered by
+  [test_attached_turn_service.py](/Users/thunderbird/Projects/operator/tests/test_attached_turn_service.py:741)
+- operation query/status surfaces expose launch default, overlay, allowed models, and effective
+  execution-profile truth:
+  [operation_projections.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/queries/operation_projections.py:491),
+  [operation_status_queries.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/queries/operation_status_queries.py:208),
+  covered by
+  [test_operation_projections.py](/Users/thunderbird/Projects/operator/tests/test_operation_projections.py:214)
+  and
+  [test_operation_status_queries.py](/Users/thunderbird/Projects/operator/tests/test_operation_status_queries.py:74)
+- deterministic rejection covers malformed payloads, unallowlisted profiles, and unsupported
+  adapters without permitting adapter switching:
+  [operation_commands.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/commands/operation_commands.py:1212),
+  covered by
+  [test_operation_command_service.py](/Users/thunderbird/Projects/operator/tests/test_operation_command_service.py:2542)
+  and
+  [test_operation_command_service.py](/Users/thunderbird/Projects/operator/tests/test_operation_command_service.py:2592)
+
+This wave also ran:
+
+- `pytest -q tests/test_operation_command_service.py tests/test_attached_turn_service.py tests/test_operation_projections.py tests/test_operation_status_queries.py`
+- `uv run pytest`
+
+Verification notes:
+
+- `resume` is directly covered.
+- `recover` uses the same effective-adapter-settings restore path as `resume` in
+  [control_runtime.py](/Users/thunderbird/Projects/operator/src/agent_operator/cli/workflows/control_runtime.py:426),
+  but this closure wave does not add a dedicated recover-only regression.
+- in-flight turn hot-swap prevention remains an implementation inference from the command/update
+  path plus the session-start compatibility rules; no separate dedicated regression was added here.
+
+The design requires verification of at least the following behaviors:
 
 - accepted execution-profile override commands replay into the same effective execution profile after
   checkpoint reload
