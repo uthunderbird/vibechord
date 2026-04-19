@@ -193,12 +193,33 @@ def render_status_brief(
     open_attention_count: int,
     summarize_task_counts: Callable[[OperationState], str],
 ) -> str:
-    return (
+    rendered = (
         f"{operation.operation_id} {operation.status.value.upper()} "
         f"iter={len(operation.iterations)}/{operation.execution_budget.max_iterations} "
         f"tasks={summarize_task_counts(operation) or 'none'} "
         f"att=[!!{open_attention_count}]"
     )
+    active_session = operation.active_session_record
+    if active_session is None:
+        return rendered
+    rendered += (
+        f" session={active_session.session_id} agent={active_session.adapter_key}"
+    )
+    stamp = active_session.execution_profile_stamp
+    if stamp is None:
+        return rendered + " model=unknown"
+    model = stamp.model.strip() if isinstance(stamp.model, str) and stamp.model.strip() else None
+    if model is None:
+        return rendered + " model=unknown"
+    rendered += f" model={model}"
+    effort_value = (
+        stamp.effort_value.strip()
+        if isinstance(stamp.effort_value, str) and stamp.effort_value.strip()
+        else None
+    )
+    if effort_value is not None:
+        rendered += f" effort={effort_value}"
+    return rendered
 
 
 def render_status_summary(
@@ -600,9 +621,33 @@ def format_live_event(
             rendered += f" | {summary}"
         return rendered
     if event.event_type == "command.applied":
-        return (
-            f"{prefix}command applied: {str(payload.get('command_type', '')).strip() or 'unknown'}"
-        )
+        command_type = str(payload.get("command_type", "")).strip() or "unknown"
+        if command_type == "set_execution_profile":
+            adapter_key = str(payload.get("adapter_key", "")).strip() or "agent"
+            previous_model = str(payload.get("previous_model", "")).strip() or "unknown"
+            previous_effort = str(payload.get("previous_effort_value", "")).strip()
+            current_model = str(payload.get("current_model", "")).strip() or "unknown"
+            current_effort = str(payload.get("current_effort_value", "")).strip()
+            previous_display = (
+                f"{previous_model} / {previous_effort}" if previous_effort else previous_model
+            )
+            current_display = (
+                f"{current_model} / {current_effort}" if current_effort else current_model
+            )
+            return (
+                f"{prefix}execution profile updated for {adapter_key}: "
+                f"{previous_display} -> {current_display}"
+            )
+        return f"{prefix}command applied: {command_type}"
+    if event.event_type == "session.execution_profile.applied":
+        adapter_key = str(payload.get("adapter_key", "")).strip() or "agent"
+        session_id = str(payload.get("session_id", "")).strip() or event.session_id or "-"
+        model = str(payload.get("model", "")).strip() or "unknown"
+        effort = str(payload.get("effort_value", "")).strip()
+        applied_via = str(payload.get("applied_via", "")).strip() or "start"
+        display = f"{model} / {effort}" if effort else model
+        verb = "reused with" if applied_via == "reuse" else "started with"
+        return f"{prefix}session {session_id} {verb} {adapter_key} {display}"
     if event.event_type == "command.rejected":
         command_type = str(payload.get("command_type", "")).strip() or "unknown"
         reason = shorten_live_text(str(payload.get("rejection_reason", "")).strip())

@@ -786,6 +786,46 @@ async def test_start_agent_does_not_reuse_idle_session_when_execution_profile_mi
 
 
 @pytest.mark.anyio
+async def test_start_agent_emits_session_execution_profile_applied_event() -> None:
+    store = MemoryStore()
+    event_sink = MemoryEventSink()
+    agent = FakeAgent(key="codex_acp")
+    service = make_service(
+        brain=NamedMixedSessionBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"claude_acp": FakeAgent(), "codex_acp": agent}
+        ),
+    )
+
+    outcome = await service.run(
+        OperationGoal(
+            objective="emit start profile event",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {"model": "gpt-5.4", "reasoning_effort": "low"}
+                }
+            },
+        ),
+        **run_settings(max_iterations=2, allowed_agents=["claude_acp", "codex_acp"]),
+    )
+
+    assert outcome.status is OperationStatus.COMPLETED
+    applied_events = [
+        event
+        for event in event_sink.events
+        if event.event_type == "session.execution_profile.applied"
+    ]
+    assert len(applied_events) == 1
+    assert applied_events[0].payload["adapter_key"] == "codex_acp"
+    assert applied_events[0].payload["model"] == "gpt-5.4"
+    assert applied_events[0].payload["effort_value"] == "low"
+    assert applied_events[0].payload["applied_via"] == "start"
+
+
+@pytest.mark.anyio
 async def test_background_request_metadata_includes_project_profile_path() -> None:
     store = MemoryStore()
     supervisor = FakeSupervisor()

@@ -295,6 +295,13 @@ def build_permission_decision_prompt(
             "Current involvement level is approval_heavy. Escalation to a blocking human "
             "attention request is allowed when human judgment is genuinely required."
         )
+    elif state.involvement_level.value == "collaborative":
+        involvement_instruction = (
+            "Current involvement level is collaborative. Escalate this request to a human "
+            "when it involves a significant choice the user would want to make themselves "
+            "(major route changes, destructive actions, project-shaping decisions). "
+            "For routine or clearly safe/unsafe requests, decide autonomously."
+        )
     else:
         involvement_instruction = (
             f"Current involvement level is {state.involvement_level.value}. Do not escalate "

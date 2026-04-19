@@ -13,6 +13,8 @@ from agent_operator.domain import (
     OperationGoal,
     OperationStatus,
     ProgressSummary,
+    RunMode,
+    RunOptions,
 )
 from agent_operator.testing.operator_service_support import (
     FakeAgent,
@@ -290,6 +292,7 @@ async def test_request_clarification_creates_blocking_attention_request() -> Non
     outcome = await service.run(
         OperationGoal(objective="pick a deployment target"),
         **run_settings(max_iterations=2, allowed_agents=["claude_acp"]),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(outcome.operation_id)
 
@@ -374,6 +377,7 @@ async def test_request_clarification_can_create_policy_gap_attention() -> None:
     outcome = await service.run(
         OperationGoal(objective="set the testing workflow"),
         **run_settings(max_iterations=2, allowed_agents=["claude_acp"]),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(outcome.operation_id)
 
@@ -411,6 +415,7 @@ async def test_policy_guardrail_blocks_policy_shaped_agent_action_in_auto_mode()
             allowed_agents=["claude_acp"],
             involvement_level=InvolvementLevel.AUTO,
         ),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(outcome.operation_id)
 
@@ -480,6 +485,7 @@ async def test_policy_guardrail_forces_policy_gap_type_for_clarification() -> No
             allowed_agents=["claude_acp"],
             involvement_level=InvolvementLevel.AUTO,
         ),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(outcome.operation_id)
 
@@ -509,6 +515,7 @@ async def test_request_clarification_can_create_novel_strategic_fork_attention()
             allowed_agents=["claude_acp"],
             involvement_level=InvolvementLevel.AUTO,
         ),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(outcome.operation_id)
 
@@ -542,6 +549,7 @@ async def test_novel_guardrail_blocks_strategic_agent_action_in_auto_mode() -> N
             allowed_agents=["claude_acp"],
             involvement_level=InvolvementLevel.AUTO,
         ),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(outcome.operation_id)
 
@@ -604,6 +612,7 @@ async def test_novel_guardrail_forces_strategic_fork_type_for_clarification() ->
             allowed_agents=["claude_acp"],
             involvement_level=InvolvementLevel.AUTO,
         ),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(outcome.operation_id)
 

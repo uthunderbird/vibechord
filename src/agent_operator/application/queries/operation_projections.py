@@ -304,6 +304,56 @@ class PolicyCoverageReadPayload:
 
 
 class OperationProjectionService:
+    def _execution_profile_display_value(
+        self,
+        *,
+        model: str | None,
+        effort_value: str | None,
+    ) -> str | None:
+        normalized_model = model.strip() if isinstance(model, str) and model.strip() else None
+        normalized_effort = (
+            effort_value.strip()
+            if isinstance(effort_value, str) and effort_value.strip()
+            else None
+        )
+        if normalized_model is None:
+            return None
+        if normalized_effort is None:
+            return normalized_model
+        return f"{normalized_model} / {normalized_effort}"
+
+    def _active_session_execution_profile_payload(
+        self,
+        operation: OperationState,
+    ) -> dict[str, object] | None:
+        active_session = operation.active_session_record
+        if active_session is None:
+            return None
+        stamp = active_session.execution_profile_stamp
+        if stamp is None:
+            return {
+                "session_id": active_session.session_id,
+                "adapter_key": active_session.adapter_key,
+                "known": False,
+                "model": None,
+                "effort_field_name": None,
+                "effort_value": None,
+                "display": "unknown",
+            }
+        display = self._execution_profile_display_value(
+            model=stamp.model,
+            effort_value=stamp.effort_value,
+        )
+        return {
+            "session_id": active_session.session_id,
+            "adapter_key": active_session.adapter_key,
+            "known": display is not None,
+            "model": stamp.model,
+            "effort_field_name": stamp.effort_field_name,
+            "effort_value": stamp.effort_value,
+            "display": display or "unknown",
+        }
+
     def memory_entries(
         self,
         operation: OperationState,
@@ -1099,6 +1149,9 @@ class OperationProjectionService:
                 "involvement_level": operation.policy.involvement_level.value,
             },
             "execution_profiles": self._execution_profiles_payload(operation),
+            "active_session_execution_profile": self._active_session_execution_profile_payload(
+                operation
+            ),
             "execution_budget": {
                 "max_iterations": operation.execution_budget.max_iterations,
                 "timeout_seconds": operation.execution_budget.timeout_seconds,
@@ -1240,6 +1293,9 @@ class OperationProjectionService:
             "success_criteria": list(operation.objective_state.success_criteria),
             "allowed_agents": list(operation.policy.allowed_agents),
             "execution_profiles": self._execution_profiles_payload(operation),
+            "active_session_execution_profile": self._active_session_execution_profile_payload(
+                operation
+            ),
             "available_agent_descriptors": self.available_agent_descriptors_payload(operation),
             "max_iterations": operation.execution_budget.max_iterations,
             "involvement_level": operation.involvement_level.value,
@@ -1811,6 +1867,9 @@ class OperationProjectionService:
                 self._agent_turn_brief_payload(latest_turn) if latest_turn is not None else None
             ),
             "runtime_alert": runtime_alert,
+            "active_session_execution_profile": self._active_session_execution_profile_payload(
+                operation
+            ),
         }
 
     def _operation_agent_activity(self, operation: OperationState) -> str | None:
@@ -1973,6 +2032,7 @@ class OperationProjectionService:
                     "status": active_session.status.value,
                     "session_name": active_session.handle.session_name,
                     "waiting_reason": active_session.waiting_reason,
+                    "execution_profile": self._active_session_execution_profile_payload(operation),
                 }
                 if active_session is not None
                 else None
@@ -2037,6 +2097,9 @@ class OperationProjectionService:
                     "session_name": session.handle.session_name,
                     "waiting_reason": session.waiting_reason,
                     "bound_task_ids": list(session.bound_task_ids),
+                    "execution_profile_stamp": self._execution_profile_stamp_payload(
+                        session.execution_profile_stamp
+                    ),
                 }
                 for session in sorted(
                     operation.sessions,
@@ -2363,6 +2426,22 @@ class OperationProjectionService:
             if isinstance(session_name, str) and session_name:
                 return f"started {adapter_key} ({session_name})"
             return f"started {adapter_key}"
+        if event_type == "session.execution_profile.applied":
+            adapter_key = payload.get("adapter_key") or event.session_id or "agent"
+            session_id = payload.get("session_id") or event.session_id
+            applied_via = payload.get("applied_via") or "started"
+            display = self._execution_profile_display_value(
+                model=payload.get("model") if isinstance(payload.get("model"), str) else None,
+                effort_value=(
+                    payload.get("effort_value")
+                    if isinstance(payload.get("effort_value"), str)
+                    else None
+                ),
+            ) or "unknown"
+            verb = "reused with" if applied_via == "reuse" else "started with"
+            if session_id:
+                return f"session {session_id} {verb} {adapter_key} {display}"
+            return f"{adapter_key} {verb} {display}"
         if event_type == "agent.result.received":
             status = payload.get("status") or "result"
             summary = payload.get("summary")
@@ -2374,6 +2453,39 @@ class OperationProjectionService:
         if event_type == "operation.command.enqueued":
             command_type = payload.get("command_type") or "command"
             return f"command queued: {command_type}"
+        if event_type == "command.applied":
+            command_type = str(payload.get("command_type") or "command").strip() or "command"
+            if command_type == "set_execution_profile":
+                adapter_key = str(payload.get("adapter_key") or "").strip() or "agent"
+                previous_display = self._execution_profile_display_value(
+                    model=(
+                        payload.get("previous_model")
+                        if isinstance(payload.get("previous_model"), str)
+                        else None
+                    ),
+                    effort_value=(
+                        payload.get("previous_effort_value")
+                        if isinstance(payload.get("previous_effort_value"), str)
+                        else None
+                    ),
+                ) or "unknown"
+                current_display = self._execution_profile_display_value(
+                    model=(
+                        payload.get("current_model")
+                        if isinstance(payload.get("current_model"), str)
+                        else None
+                    ),
+                    effort_value=(
+                        payload.get("current_effort_value")
+                        if isinstance(payload.get("current_effort_value"), str)
+                        else None
+                    ),
+                ) or "unknown"
+                return (
+                    "execution profile updated for "
+                    f"{adapter_key}: {previous_display} -> {current_display}"
+                )
+            return f"command applied: {command_type}"
         return self._shorten_text(
             json.dumps(self._run_event_payload(event), ensure_ascii=False), limit=120
         )

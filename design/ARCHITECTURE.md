@@ -442,13 +442,16 @@ This direction is captured by ADR 0015.
 
 ### Involvement levels
 
-Two levels are defined. See VISION.md CLI Design → Involvement levels for the full behavioral specification.
+Four levels are defined. See VISION.md CLI Design → Involvement levels for the full behavioral
+specification.
 
-- **`unattended`**: the brain proceeds without interrupting for routine decisions. Policy gaps and
-  novel strategic choices surface as typed attention requests but do not block non-affected tasks.
-  Best for long-running background work.
-- **`interactive`**: policy gaps and strategic forks block forward progress until the user answers.
-  Best for exploratory or high-stakes work.
+- **`unattended`**: user is away; brain continues within existing policy, preferring
+  defer-and-continue over blocking. Policy gaps surface as non-blocking attention requests.
+- **`auto`** *(default)*: brain asks on conceptually novel situations that policy cannot resolve;
+  routine tactical work continues without asking.
+- **`collaborative`**: brain asks more readily before major route changes, strategic
+  reprioritization, or destructive actions. Closer human steering without full approval gating.
+- **`approval_heavy`**: brain asks before most consequential decisions. Broadest blocking scope.
 
 The active level is inspectable via `context op-id` and visible in `dashboard` and `watch`. It
 can be changed while the operation is running; the change takes effect at the next brain decision
@@ -490,13 +493,9 @@ The `novel_strategic_fork` guardrail fires when:
 
 The runtime surfaces typed `novel_strategic_fork` attention instead of proceeding silently.
 
-At `interactive` involvement, both `policy_gap` and `novel_strategic_fork` block forward progress
-until the user answers. At `unattended` involvement, they surface as attention requests but do not
-block non-affected tasks.
-
-Note: VISION.md's Attention requests section uses the word `collaborative` in the blocking-rule
-sentence, but the defined involvement levels are `unattended` and `interactive` only. The word
-`collaborative` does not map to any defined level; treat the defined levels as normative.
+At `auto`, `collaborative`, and `approval_heavy` involvement, both `policy_gap` and
+`novel_strategic_fork` block forward progress until the user answers. At `unattended` involvement,
+they surface as attention requests but do not block non-affected tasks.
 
 These guardrails keep policy-shaped and strategy-shaped autonomy boundaries on the same explicit
 attention path instead of relying only on prompt compliance.

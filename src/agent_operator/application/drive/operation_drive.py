@@ -378,6 +378,19 @@ class OperationDriveService:
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
                 await self._advance_checkpoint(state)
+                if (
+                    options.run_mode is RunMode.ATTACHED
+                    and state.status is OperationStatus.NEEDS_HUMAN
+                    and state.current_focus is not None
+                    and state.current_focus.kind is FocusKind.ATTENTION_REQUEST
+                ):
+                    while state.status is OperationStatus.NEEDS_HUMAN:
+                        await self._control._drain_commands(state)
+                        if state.status is not OperationStatus.NEEDS_HUMAN:
+                            break
+                        await self._advance_checkpoint(state)
+                        await anyio.sleep(1.0)
+                    continue
                 break
             self._runtime._materialize_pause_if_ready(state)
             if self._runtime._is_scheduler_paused(state):
@@ -389,6 +402,18 @@ class OperationDriveService:
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
                 await self._advance_checkpoint(state)
+                if (
+                    options.run_mode is RunMode.ATTACHED
+                    and state.current_focus is not None
+                    and state.current_focus.kind is FocusKind.ATTENTION_REQUEST
+                ):
+                    while state.status is OperationStatus.NEEDS_HUMAN:
+                        await self._control._drain_commands(state)
+                        if state.status is not OperationStatus.NEEDS_HUMAN:
+                            break
+                        await self._advance_checkpoint(state)
+                        await anyio.sleep(1.0)
+                    continue
                 break
             if state.status in {
                 OperationStatus.COMPLETED,
@@ -399,6 +424,10 @@ class OperationDriveService:
                 await self._trace._sync_traceability_artifacts(state)
                 await self._advance_checkpoint(state)
                 break
+            if iteration.result is None:
+                await self._trace._record_iteration_brief(state, iteration, task)
+                await self._trace._sync_traceability_artifacts(state)
+                continue
             evaluation = await self._operator_policy.evaluate_result(state)
             await self._trace._emit(
                 "evaluation.completed",

@@ -6446,8 +6446,8 @@ def test_resume_streams_live_events(tmp_path: Path, monkeypatch) -> None:
             )
 
     monkeypatch.setattr(
-        "agent_operator.cli.main.build_service",
-        lambda settings, event_sink=None: FakeService(event_sink),
+        "agent_operator.cli.helpers.services._current_build_service",
+        lambda: (lambda settings, event_sink=None: FakeService(event_sink)),
     )
 
     result = runner.invoke(app, ["resume", "op-resume-live"])
@@ -6455,6 +6455,71 @@ def test_resume_streams_live_events(tmp_path: Path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert "[iter 2] command applied: resume_operator" in result.stdout
     assert "running: Resume cycle finished." in result.stdout
+
+
+def test_resume_streams_execution_profile_transparency_events(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    class FakeService:
+        def __init__(self, event_sink) -> None:
+            self._event_sink = event_sink
+
+        async def resume(self, operation_id: str, *, options):
+            assert self._event_sink is not None
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="command.applied",
+                    operation_id=operation_id,
+                    iteration=2,
+                    payload={
+                        "command_type": "set_execution_profile",
+                        "adapter_key": "codex_acp",
+                        "previous_model": "gpt-5.4",
+                        "previous_effort_value": "low",
+                        "current_model": "gpt-5.4-mini",
+                        "current_effort_value": "medium",
+                    },
+                    category="trace",
+                )
+            )
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="session.execution_profile.applied",
+                    operation_id=operation_id,
+                    iteration=2,
+                    session_id="session-1",
+                    payload={
+                        "session_id": "session-1",
+                        "adapter_key": "codex_acp",
+                        "model": "gpt-5.4-mini",
+                        "effort_value": "medium",
+                        "applied_via": "reuse",
+                    },
+                    category="trace",
+                )
+            )
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resume cycle finished.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.helpers.services._current_build_service",
+        lambda: (lambda settings, event_sink=None: FakeService(event_sink)),
+    )
+
+    result = runner.invoke(app, ["resume", "op-resume-profile-live"])
+
+    assert result.exit_code == 0
+    assert (
+        "[iter 2] execution profile updated for codex_acp: gpt-5.4 / low -> gpt-5.4-mini / medium"
+        in result.stdout
+    )
+    assert (
+        "[iter 2] session session-1 reused with codex_acp gpt-5.4-mini / medium"
+        in result.stdout
+    )
 
 
 def test_resume_restores_effective_adapter_settings_from_operation_metadata(

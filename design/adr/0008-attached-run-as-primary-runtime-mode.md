@@ -43,6 +43,27 @@ control substrate rather than the default product story.
 - the operator reaches a real blocked state,
 - or the process is explicitly interrupted.
 
+**Blocking attention is a transient wait, not an exit condition.** When a blocking attention
+request fires in attached mode, the attached process stays alive and polls — draining the command
+inbox — until the operator answers via `operator answer <id> "..."` from a separate terminal.
+When the last blocking attention is answered, the loop resumes automatically.
+
+The process exits only on:
+
+- terminal operation state (COMPLETED, FAILED, or CANCELLED),
+- explicit user interrupt (Ctrl-C),
+- or a genuine unresolvable block (e.g. the brain's evaluation decided to stop and there is no
+  open attention to answer).
+
+**Invariant for future contributors:** every `break` or early return from the attached drive loop
+should be audited to confirm it falls into one of these exit categories. A break that fires on a
+state that is resolvable by human command input is a UX regression.
+
+**`operator resume` should not be run against an operation with a live attached process.** There
+is no IPC channel between processes; a second `operator resume` starts a concurrent drive loop
+against the same state file, risking write conflicts. While the attached process is live, use
+`operator answer` to respond to blocking attention, and Ctrl-C to interrupt.
+
 ### 2. Recovery surface
 
 `resume`, `tick`, `cancel`, `sessions`, `wakeups`, and related persisted-runtime tools remain

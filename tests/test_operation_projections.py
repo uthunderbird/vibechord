@@ -273,6 +273,24 @@ def test_session_payload_includes_execution_profile_stamp() -> None:
     }
 
 
+def test_build_operation_context_payload_includes_unknown_active_session_execution_profile(
+) -> None:
+    operation = _operation()
+    operation.sessions[0].execution_profile_stamp = None
+
+    payload = OperationProjectionService().build_operation_context_payload(operation)
+
+    assert payload["active_session_execution_profile"] == {
+        "session_id": "session-1",
+        "adapter_key": "codex_acp",
+        "known": False,
+        "model": None,
+        "effort_field_name": None,
+        "effort_value": None,
+        "display": "unknown",
+    }
+
+
 def test_build_operation_context_payload_is_derived_without_truth_model_dump_patchup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1197,11 +1215,30 @@ def test_build_live_snapshot_and_format_live_snapshot() -> None:
 
     assert snapshot["operation_id"] == "op-1"
     assert snapshot["summary"]["objective"] == "Ship dashboard"
+    assert snapshot["active_session_execution_profile"]["display"] == "gpt-5.4 / low"
 
     rendered = service.format_live_snapshot(snapshot)
     assert "state: running" in rendered
     assert "objective=Ship dashboard" in rendered
     assert "alert=rate limit soon" in rendered
+
+
+def test_build_dashboard_payload_includes_active_session_execution_profile() -> None:
+    operation = _operation()
+    payload = OperationProjectionService().build_dashboard_payload(
+        operation,
+        brief=None,
+        outcome=None,
+        runtime_alert=None,
+        commands=[],
+        events=[],
+        decision_memos=[],
+        upstream_transcript=None,
+        report_text=None,
+    )
+
+    assert payload["active_session"]["execution_profile"]["model"] == "gpt-5.4"
+    assert payload["sessions"][0]["execution_profile_stamp"]["effort_value"] == "low"
 
 
 def test_brief_summary_and_live_snapshot_use_explicit_agent_turn_serializer(

@@ -139,6 +139,25 @@ def test_permission_decision_prompt_for_auto_forbids_escalation() -> None:
     assert "Do not escalate this request to a human." in prompt
 
 
+def test_permission_decision_prompt_for_collaborative_allows_escalation() -> None:
+    from agent_operator.domain import InvolvementLevel, OperationGoal, OperationState
+    from agent_operator.providers.prompting import build_permission_decision_prompt
+
+    state = OperationState(
+        goal=OperationGoal(objective="continue"),
+        involvement_level=InvolvementLevel.COLLABORATIVE,
+    )
+    prompt = build_permission_decision_prompt(
+        state,
+        request_payload={"kind": "permission"},
+        active_policy_payload=[],
+    )
+
+    assert "collaborative" in prompt
+    assert "escalate" in prompt.lower()
+    assert "Do not escalate" not in prompt
+
+
 def test_permission_decision_prompt_for_approval_heavy_allows_escalation() -> None:
     from agent_operator.domain import InvolvementLevel, OperationGoal, OperationState
     from agent_operator.providers.prompting import build_permission_decision_prompt
@@ -206,6 +225,103 @@ async def test_shared_permission_helper_records_escalation_payload() -> None:
     finally:
         assert session.active_prompt is not None
         session.active_prompt.cancel()
+
+
+@pytest.mark.anyio
+async def test_shared_permission_helper_approve_leaves_session_open() -> None:
+    session = _session_state()
+    try:
+        handled = await handle_permission_server_request(
+            adapter_key="codex_acp",
+            session=session,
+            payload={
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Run tests",
+                        "rawInput": {"command": ["pytest"]},
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            },
+            auto_approve=True,
+            permission_evaluator=None,
+            close_session_connection=_close_connection,
+        )
+
+        assert handled is True
+        assert session.pending_input_message is None
+        assert session.pending_input_raw is None
+        assert session.last_error is None
+        assert session.handle.metadata.get("closed") != "yes"
+    finally:
+        assert session.active_prompt is not None
+        session.active_prompt.cancel()
+
+
+@pytest.mark.anyio
+async def test_shared_permission_helper_reject_sets_last_error_and_closes() -> None:
+    class _RejectEvaluator:
+        async def evaluate(
+            self, *, operation_id: str, working_directory: object, request: object
+        ) -> PermissionEvaluationResult:
+            return PermissionEvaluationResult(
+                decision=AcpPermissionDecision.REJECT,
+                rationale="Rejected by policy.",
+            )
+
+    # operation_id must be in metadata for the evaluator to be called
+    # (see runtime_permissions.py:59)
+    session = AcpSessionState(
+        handle=AgentSessionHandle(
+            adapter_key="codex_acp",
+            session_id="sess-1",
+            metadata={"operation_id": "op-test"},
+        ),
+        working_directory=Path("/tmp/repo"),
+        acp_session_id="sess-1",
+        connection=cast(AcpConnection, _FakeConnection()),
+        active_prompt=asyncio.create_task(asyncio.sleep(60, result={})),
+    )
+    try:
+        handled = await handle_permission_server_request(
+            adapter_key="codex_acp",
+            session=session,
+            payload={
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Run git push --force",
+                        "rawInput": {"command": ["git", "push", "--force"]},
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            },
+            auto_approve=False,
+            permission_evaluator=_RejectEvaluator(),
+            close_session_connection=_close_connection,
+        )
+
+        assert handled is True
+        assert session.pending_input_message is None
+        assert session.pending_input_raw is None
+        assert session.last_error == "Rejected by policy."
+        assert session.handle.metadata["closed"] == "yes"
+    finally:
+        if session.active_prompt is not None and not session.active_prompt.done():
+            session.active_prompt.cancel()
 
 
 @pytest.mark.anyio

@@ -792,17 +792,27 @@ policy needs adjustment.
 
 **Definitions:** A **policy gap** is a decision the brain must make for which no applicable rule exists in `harness_instructions` or in prior answered attentions for this operation. A **novel strategic choice** is a subtype of policy gap where the decision could materially alter the operation's scope or approach (e.g., changing a target branch, adopting a different implementation strategy).
 
-The `involvement` command sets the autonomy level for a running operation. Two primary levels:
+The `involvement` command sets the autonomy level for a running operation. Four levels:
 
-- **unattended** — the brain proceeds without interrupting for routine decisions. Policy gaps and
-  novel strategic choices surface as typed attention requests but do not block non-affected tasks.
-  Best for long-running background work where the user prefers to review outcomes rather than
-  approve each step.
-- **interactive** — the brain surfaces decisions for user confirmation before acting on them. Policy
-  gaps and strategic forks block forward progress until the user answers. Best for exploratory or
-  high-stakes work where the user wants approval authority at each branch point.
+- **`unattended`** — the user is away. The brain continues autonomously within existing policy.
+  Policy gaps and novel strategic choices surface as attention requests but prefer
+  defer-and-continue over blocking non-affected tasks. No wakeup except configured hard-stop
+  conditions. Best for long-running background work where the user prefers to review outcomes
+  rather than approve each step.
+- **`auto`** *(default)* — the brain asks when it encounters a conceptually novel situation that
+  existing policy, prior accepted decisions, or the current objective cannot resolve. Routine
+  tactical work continues without asking. Best for everyday use.
+- **`collaborative`** — the brain asks more readily before major route changes, strategic
+  reprioritization, destructive actions, or project-shaping decisions. Favors closer human
+  steering without requiring approval for everything. Best for exploratory work where the user
+  wants to stay closely involved.
+- **`approval_heavy`** — the brain asks before most consequential decisions. Appropriate for
+  unfamiliar projects, high-risk environments, or work where the user wants strong approval
+  control at each branch point.
 
-Under `unattended`, both policy gap types surface as attention requests but do not block non-affected tasks. Under `interactive`, both types block forward progress until answered.
+Under `unattended`, policy gap types surface as attention requests but do not block non-affected
+tasks. Under `auto`, `collaborative`, and `approval_heavy`, policy gaps and strategic forks block
+forward progress until the user answers, with `approval_heavy` blocking most broadly.
 
 The active involvement level is inspectable through the richer policy/context inspection surfaces
 and is visible in the supervisory views. It can be changed at any point while the operation is

@@ -223,6 +223,13 @@ class OperationTraceabilityService:
         blocker_brief = None
         if state.status is OperationStatus.NEEDS_HUMAN:
             blocker_brief = state.final_summary
+        elif self._runtime_context.is_blocked_on_attention_request(state):
+            focus = state.current_focus
+            blocker_brief = (
+                f"Waiting for attention: {focus.blocking_reason}"
+                if focus is not None and focus.blocking_reason
+                else "Waiting for a human attention response."
+            )
         elif self._runtime_context.is_blocked_on_background_wait(state):
             blocker_brief = "Waiting on a background agent turn."
         elif self._runtime_context.is_waiting_on_attached_turn(state):
@@ -382,6 +389,11 @@ class OperationTraceabilityService:
             return "Pause requested; waiting for the current attached turn to yield."
         if state.scheduler_state is SchedulerState.DRAINING:
             return "Stopping the active attached agent turn."
+        if self._runtime_context.is_blocked_on_attention_request(state):
+            focus = state.current_focus
+            if focus is not None and focus.blocking_reason:
+                return f"Waiting for attention: {focus.blocking_reason}"
+            return "Operation is waiting for a human attention response."
         if self._runtime_context.is_blocked_on_background_wait(state):
             return "Operation is waiting on a background agent turn."
         if self._runtime_context.is_waiting_on_attached_turn(state):
@@ -541,6 +553,13 @@ class OperationTraceabilityService:
             OperationStatus.CANCELLED,
         }:
             return state.final_summary or state.status.value
+        if self._runtime_context.is_blocked_on_attention_request(state):
+            focus = state.current_focus
+            return (
+                f"Waiting for attention: {focus.blocking_reason}"
+                if focus is not None and focus.blocking_reason
+                else "Waiting for a human attention response."
+            )
         if self._runtime_context.is_blocked_on_background_wait(state):
             return "Waiting on a background agent turn."
         if state.scheduler_state is SchedulerState.DRAINING:

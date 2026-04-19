@@ -138,6 +138,15 @@ class OperationTurnExecutionService:
             record_iteration_brief=self._traceability_service.record_iteration_brief,
             sync_traceability_artifacts=self._traceability_service.sync_traceability_artifacts,
         )
+        await self._emit_session_execution_profile_applied(
+            state,
+            iteration=iteration.index,
+            session=session,
+            applied_via="reuse"
+            if iteration.decision is not None and iteration.decision.session_id is not None
+            else "start",
+            task_id=task.task_id if task is not None else None,
+        )
 
     async def start_agent_turn(
         self,
@@ -466,6 +475,13 @@ class OperationTurnExecutionService:
             task_id=iteration.task_id,
             session_id=session.session_id,
         )
+        await self._emit_session_execution_profile_applied(
+            state,
+            iteration=iteration.index,
+            session=session,
+            applied_via="reuse",
+            task_id=task.task_id if task is not None else None,
+        )
 
     def background_request_metadata(
         self,
@@ -516,3 +532,33 @@ class OperationTurnExecutionService:
             )
         )
         return metadata
+
+    async def _emit_session_execution_profile_applied(
+        self,
+        state: OperationState,
+        *,
+        iteration: int,
+        session: AgentSessionHandle,
+        applied_via: str,
+        task_id: str | None,
+    ) -> None:
+        record = self._loaded_operation.find_session_record(state, session.session_id)
+        stamp = record.execution_profile_stamp if record is not None else None
+        model = stamp.model if stamp is not None else None
+        effort_field_name = stamp.effort_field_name if stamp is not None else None
+        effort_value = stamp.effort_value if stamp is not None else None
+        await self._event_relay.emit(
+            "session.execution_profile.applied",
+            state,
+            iteration,
+            {
+                "session_id": session.session_id,
+                "adapter_key": session.adapter_key,
+                "model": model,
+                "effort_field_name": effort_field_name,
+                "effort_value": effort_value,
+                "applied_via": applied_via,
+            },
+            task_id=task_id,
+            session_id=session.session_id,
+        )

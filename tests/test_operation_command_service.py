@@ -141,6 +141,7 @@ async def test_answer_attention_request_resolves_after_replan() -> None:
     blocked = await service.run(
         OperationGoal(objective="pick a deployment target"),
         **run_settings(max_iterations=2, allowed_agents=["claude_acp"]),
+        options=RunOptions(run_mode=RunMode.RESUMABLE),
     )
     operation = await store.load_operation(blocked.operation_id)
     assert operation is not None

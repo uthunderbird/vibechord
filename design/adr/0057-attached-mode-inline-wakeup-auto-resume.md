@@ -79,6 +79,12 @@ attached owner process exists.
 
 ## Consequences
 
+- Positive consequence: the in-process polling pattern (drain-commands + sleep) applies to
+  blocking-attention waits as well as background-run waits. Both cases share the same design:
+  poll for state change, drain the command inbox, re-enter the main loop. The trigger condition
+  differs — background-run wait uses `_is_blocked_on_background_wait`; attention wait checks
+  `current_focus.kind is FocusKind.ATTENTION_REQUEST` — but the lifecycle invariant is the same:
+  the attached loop stays alive and polls rather than exiting.
 - Positive consequence: attached operations no longer need a separate daemon or manual `resume` to
   continue after a background turn completes.
 - Positive consequence: wakeup-to-reconcile latency becomes bounded by the attached loop tick

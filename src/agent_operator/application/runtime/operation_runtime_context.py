@@ -83,6 +83,12 @@ class OperationRuntimeContext:
             return run.status in {BackgroundRunStatus.PENDING, BackgroundRunStatus.RUNNING}
         return True
 
+    def is_blocked_on_attention_request(self, state: OperationState) -> bool:
+        focus = state.current_focus
+        if focus is None or focus.mode is not FocusMode.BLOCKING:
+            return False
+        return focus.kind is FocusKind.ATTENTION_REQUEST
+
     def should_use_background_runtime(self, options: RunOptions) -> bool:
         return options.background_runtime_mode is not BackgroundRuntimeMode.INLINE
 

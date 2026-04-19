@@ -27,6 +27,7 @@ from agent_operator.domain import (
     BackgroundRunStatus,
     CommandStatus,
     CommandTargetScope,
+    ExecutionProfileStamp,
     FocusKind,
     FocusMode,
     FocusState,
@@ -161,7 +162,47 @@ class OperationCommandService:
         *,
         applied_at: datetime | None = None,
         prior_status: CommandStatus | None = None,
+        previous_execution_profile: ExecutionProfileStamp | None = None,
     ) -> None:
+        event_payload: dict[str, object] = {
+            "command_id": command.command_id,
+            "command_type": command.command_type.value,
+            "status": CommandStatus.APPLIED.value,
+            "prior_status": prior_status.value if prior_status is not None else None,
+        }
+        if command.command_type is OperationCommandType.SET_EXECUTION_PROFILE:
+            adapter_key = str(command.payload.get("adapter_key", "")).strip()
+            current_model = str(command.payload.get("model", "")).strip()
+            current_effort = command.payload.get("effort")
+            event_payload.update(
+                {
+                    "adapter_key": adapter_key,
+                    "previous_model": (
+                        previous_execution_profile.model
+                        if previous_execution_profile is not None
+                        else None
+                    ),
+                    "previous_effort_field_name": (
+                        previous_execution_profile.effort_field_name
+                        if previous_execution_profile is not None
+                        else None
+                    ),
+                    "previous_effort_value": (
+                        previous_execution_profile.effort_value
+                        if previous_execution_profile is not None
+                        else None
+                    ),
+                    "current_model": current_model or None,
+                    "current_effort_field_name": (
+                        "reasoning_effort" if adapter_key == "codex_acp" else "effort"
+                    ),
+                    "current_effort_value": (
+                        current_effort.strip()
+                        if isinstance(current_effort, str) and current_effort.strip()
+                        else None
+                    ),
+                }
+            )
         if self._command_inbox is not None:
             await self._command_inbox.update_status(
                 command.command_id,
@@ -172,12 +213,7 @@ class OperationCommandService:
             "command.applied",
             state,
             iteration,
-            {
-                "command_id": command.command_id,
-                "command_type": command.command_type.value,
-                "status": CommandStatus.APPLIED.value,
-                "prior_status": prior_status.value if prior_status is not None else None,
-            },
+            event_payload,
         )
         await self._trace_store.append_trace_record(
             state.operation_id,
@@ -654,6 +690,16 @@ class OperationCommandService:
         trace_iteration: int,
     ) -> bool:
         assert self._event_sourced_command_service is not None
+        previous_execution_profile = None
+        if command.command_type is OperationCommandType.SET_EXECUTION_PROFILE:
+            adapter_key = str(command.payload.get("adapter_key", "")).strip()
+            if adapter_key:
+                previous_execution_profile = (
+                    self._loaded_operation.effective_execution_profile_stamp(
+                        state,
+                        adapter_key,
+                    )
+                )
         result = await self._event_sourced_command_service.apply(command)
         self._control_state_coordinator.refresh_state_from_checkpoint(state, result.checkpoint)
         await self._control_state_coordinator.persist_command_effect_state(state)
@@ -682,6 +728,7 @@ class OperationCommandService:
             command,
             trace_iteration,
             f"Command {command.command_type.value} applied via canonical event append.",
+            previous_execution_profile=previous_execution_profile,
         )
         return True
 

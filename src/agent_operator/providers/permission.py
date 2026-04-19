@@ -63,7 +63,7 @@ class ProviderBackedPermissionEvaluator:
         )
         decision = _decision_from_dto(
             payload.decision,
-            allow_escalation=state.involvement_level.value == "approval_heavy",
+            allow_escalation=state.involvement_level.value in {"collaborative", "approval_heavy"},
         )
         return PermissionEvaluationResult(
             decision=decision,
