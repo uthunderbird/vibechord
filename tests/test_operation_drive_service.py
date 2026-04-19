@@ -13,6 +13,7 @@ from agent_operator.domain import (
     BrainDecision,
     CommandTargetScope,
     Evaluation,
+    ExecutionBudget,
     FocusKind,
     OperationCommand,
     OperationCommandType,
@@ -732,3 +733,131 @@ async def test_evaluate_result_is_not_called_after_wait_for_agent_with_no_result
     # (asserted COMPLETED above).
     # Also verify the brain advanced past call 2 (WAIT_FOR_AGENT) to call 3 (STOP).
     assert brain.calls == 3
+
+
+class StartWaitOnResultStopBrain:
+    """Brain for the heartbeat guard test: waits for a real result before stopping.
+
+    Unlike StartWaitStopBrain (which counts calls), this brain keeps issuing WAIT_FOR_AGENT
+    until the target session actually has a reconciled result, then stops.  This lets the test
+    distinguish 'brain called spuriously on heartbeat' from 'brain called after result arrived'.
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._session_id: str | None = None
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        if self.calls == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="claude_acp",
+                instruction="run in background",
+                rationale="Dispatch background work.",
+            )
+        # Check if the most recent iteration already has a result (agent completed).
+        latest = state.iterations[-1].result if state.iterations else None
+        if latest is not None:
+            return BrainDecision(
+                action_type=BrainActionType.STOP,
+                rationale="Background agent completed.",
+            )
+        # No result yet — establish/re-establish WAIT_FOR_AGENT blocking focus.
+        session_id = state.sessions[0].session_id if state.sessions else None
+        self._session_id = session_id
+        return BrainDecision(
+            action_type=BrainActionType.WAIT_FOR_AGENT,
+            target_agent="claude_acp",
+            session_id=session_id,
+            rationale="Still waiting for background agent.",
+            blocking_focus={
+                "kind": "session",
+                "target_id": session_id,
+                "blocking_reason": "Waiting for result.",
+                "interrupt_policy": "material_wakeup",
+                "resume_policy": "replan",
+            },
+        )
+
+    async def evaluate_result(self, state) -> Evaluation:
+        return Evaluation(goal_satisfied=False, should_continue=True, summary="continue")
+
+    async def summarize_progress(self, state) -> ProgressSummary:
+        return ProgressSummary(summary="summary")
+
+    async def normalize_artifact(self, goal, result) -> AgentResult:
+        return result
+
+
+@pytest.mark.anyio
+async def test_resumable_background_wait_skips_brain_on_heartbeat_tick() -> None:
+    """Brain must not be called on daemon ticks while the background agent is still running.
+
+    In RESUMABLE_WAKEUP mode, after WAIT_FOR_AGENT establishes a blocking SESSION focus, each
+    heartbeat tick that finds the run still RUNNING and no new operator messages should skip the
+    brain entirely and just save a checkpoint.
+
+    Sequence:
+    - Tick 1 (run):    brain call 1 → START_AGENT → exits RUNNING
+    - Tick 2 (resume): brain call 2 → WAIT_FOR_AGENT (blocking focus set) → exits RUNNING
+    - Tick 3 (resume): heartbeat, run still RUNNING (poll 1/3) → NO brain call (guard fires)
+    - Tick 4 (resume): heartbeat, run still RUNNING (poll 2/3) → NO brain call (guard fires)
+    - Tick 5 (resume): run now COMPLETED (poll 3) → reconcile folds result, focus cleared
+                       → brain call 3 → STOP → exits COMPLETED
+
+    Without the guard: ticks 3 and 4 call brain → brain.calls grows beyond 3.
+    With the guard: brain.calls == 3 exactly.
+    """
+    store = MemoryStore()
+    brain = StartWaitOnResultStopBrain()
+    # complete_after_polls=8: run stays RUNNING across 3 full resume ticks (each does ~2 polls),
+    # completing mid-way through resume 4.  Without the guard, brain is called on every
+    # heartbeat tick — brain.calls ends up > resume_count + 1.
+    supervisor = FakeSupervisor(complete_after_polls=8)
+    resumable_options = RunOptions(
+        run_mode=RunMode.RESUMABLE,
+        background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+    )
+    # max_cycles=1 keeps each resume() to a single brain-decision cycle so we can count precisely.
+    tick_budget = ExecutionBudget(max_iterations=20, max_cycles=1)
+    service = make_service(
+        brain=brain,
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        wakeup_inbox=MemoryWakeupInbox(),
+        supervisor=supervisor,
+    )
+
+    # Tick 1: START_AGENT
+    outcome = await service.run(
+        OperationGoal(objective="resumable background task"),
+        options=resumable_options,
+        **run_settings(max_iterations=20, allowed_agents=["claude_acp"]),
+    )
+    assert outcome.status is OperationStatus.RUNNING
+
+    # Ticks 2-N: resume until terminal (max 10 ticks to avoid infinite loop in failure mode)
+    resume_count = 0
+    for _ in range(10):
+        outcome = await service.resume(
+            outcome.operation_id,
+            options=resumable_options,
+            budget=tick_budget,
+        )
+        resume_count += 1
+        if outcome.status is not OperationStatus.RUNNING:
+            break
+
+    assert outcome.status is OperationStatus.COMPLETED
+    # Key invariant: brain.calls <= resume_count + 1.
+    # Without the guard: brain is called on every heartbeat tick while run is RUNNING →
+    #   brain.calls grows to 6+ across 4 resumes (verified empirically: 6 > 5 = 4 + 1).
+    # With the guard: heartbeat ticks skip the brain → brain.calls stays at resume_count + 1
+    #   or less (≤ 1 call per tick where something material happened).
+    assert brain.calls <= resume_count + 1, (
+        f"Expected brain.calls <= {resume_count + 1} but got {brain.calls}. "
+        "Brain was likely called on heartbeat ticks while the background run was still running."
+    )

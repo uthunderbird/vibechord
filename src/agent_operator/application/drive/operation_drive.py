@@ -276,6 +276,16 @@ class OperationDriveService:
                 await self._advance_checkpoint(state)
                 await anyio.sleep(1.0)
                 continue
+            if self._runtime._is_blocked_on_background_wait(state):
+                has_active_operator_messages = any(
+                    self._message_is_active_this_cycle(
+                        m, window=state.runtime_hints.operator_message_window
+                    )
+                    for m in state.operator_messages
+                )
+                if not has_active_operator_messages and not state.pending_attention_resolution_ids:
+                    await self._advance_checkpoint(state)
+                    continue
             await self._control._drain_pending_planning_triggers(
                 state,
                 iteration=len(state.iterations),
