@@ -53,6 +53,7 @@ class CodexAcpAgentAdapter:
             approval_policy=approval_policy,
             sandbox_mode=sandbox_mode,
         )
+        self._approval_policy = approval_policy
         self._model = model
         self._reasoning_effort = reasoning_effort
         self._timeout_seconds = timeout_seconds
@@ -197,6 +198,8 @@ class _CodexAcpHooks:
         session: AcpSessionState,
         payload: JsonObject,
     ) -> bool:
+        if self._owner._approval_policy == "never":
+            return True
         params = payload.get("params")
         if not isinstance(params, dict):
             return False
@@ -255,10 +258,18 @@ def _build_codex_acp_command(
     argv = shlex.split(command)
     if not argv:
         raise ValueError("ACP command must not be empty.")
+    # Insert -c flags before any trailing "--" end-of-options marker so that
+    # commands like "npx @zed-industries/codex-acp --" don't treat -c as a
+    # positional argument after the "--" separator.
+    insert_at = len(argv)
+    if argv and argv[-1] == "--":
+        insert_at = len(argv) - 1
+    extra: list[str] = []
     if approval_policy:
-        argv.extend(["-c", f'approval_policy="{approval_policy}"'])
+        extra.extend(["-c", f'approval_policy="{approval_policy}"'])
     if sandbox_mode:
-        argv.extend(["-c", f'sandbox_mode="{sandbox_mode}"'])
+        extra.extend(["-c", f'sandbox_mode="{sandbox_mode}"'])
+    argv[insert_at:insert_at] = extra
     return shlex.join(argv)
 
 
