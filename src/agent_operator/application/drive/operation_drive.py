@@ -12,6 +12,7 @@ from agent_operator.domain import (
     FocusKind,
     FocusMode,
     FocusState,
+    InterruptPolicy,
     IterationState,
     OperationOutcome,
     OperationState,
@@ -276,7 +277,11 @@ class OperationDriveService:
                 await self._advance_checkpoint(state)
                 await anyio.sleep(1.0)
                 continue
-            if self._runtime._is_blocked_on_background_wait(state):
+            if (
+                self._runtime._is_blocked_on_background_wait(state)
+                and state.current_focus is not None
+                and state.current_focus.interrupt_policy is InterruptPolicy.MATERIAL_WAKEUP
+            ):
                 has_active_operator_messages = any(
                     self._message_is_active_this_cycle(
                         m, window=state.runtime_hints.operator_message_window
@@ -285,7 +290,7 @@ class OperationDriveService:
                 )
                 if not has_active_operator_messages and not state.pending_attention_resolution_ids:
                     await self._advance_checkpoint(state)
-                    continue
+                    break
             await self._control._drain_pending_planning_triggers(
                 state,
                 iteration=len(state.iterations),
@@ -412,18 +417,6 @@ class OperationDriveService:
                 await self._trace._record_iteration_brief(state, iteration, task)
                 await self._trace._sync_traceability_artifacts(state)
                 await self._advance_checkpoint(state)
-                if (
-                    options.run_mode is RunMode.ATTACHED
-                    and state.current_focus is not None
-                    and state.current_focus.kind is FocusKind.ATTENTION_REQUEST
-                ):
-                    while state.status is OperationStatus.NEEDS_HUMAN:
-                        await self._control._drain_commands(state)
-                        if state.status is not OperationStatus.NEEDS_HUMAN:
-                            break
-                        await self._advance_checkpoint(state)
-                        await anyio.sleep(1.0)
-                    continue
                 break
             if state.status in {
                 OperationStatus.COMPLETED,
