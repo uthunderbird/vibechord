@@ -4,23 +4,24 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Verified
 
-Skim-safe status on 2026-04-15:
+Skim-safe status on 2026-04-22:
 
 - `implemented`: ADR 0190 adds bounded dynamic execution-profile overrides through
   `set_execution_profile`, operation-local overlays, and session execution-profile stamps
 - `implemented`: operation projections already expose per-adapter execution-profile views and
   session stamp payloads
-- `planned`: make execution-profile changes explicit in operator-facing logs and command/event
-  narratives
-- `planned`: make status surfaces show the actual current model of the active agent session
-- `planned`: add these transparency surfaces without introducing a second canonical "current model"
-  state
+- `verified`: operator-facing command/timeline rendering shows explicit request-time and
+  application-time execution-profile transitions
+- `verified`: status surfaces expose `active_session_execution_profile` only when an active
+  session stamp exists, avoiding a duplicate derived "current model" authority
+- `verified`: per-adapter `execution_profiles` and active-session execution-profile payloads are
+  covered by projection, status-query, and CLI tests
 
 ## Context
 

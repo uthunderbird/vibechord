@@ -1849,7 +1849,7 @@ class OperationProjectionService:
         runtime_alert: str | None,
     ) -> dict[str, object]:
         latest_turn = self._latest_agent_turn_brief(brief)
-        return {
+        payload: dict[str, object] = {
             "operation_id": operation.operation_id,
             "status": operation.status.value,
             "scheduler_state": operation.scheduler_state.value,
@@ -1867,10 +1867,11 @@ class OperationProjectionService:
                 self._agent_turn_brief_payload(latest_turn) if latest_turn is not None else None
             ),
             "runtime_alert": runtime_alert,
-            "active_session_execution_profile": self._active_session_execution_profile_payload(
-                operation
-            ),
         }
+        active_session_execution_profile = self._active_session_execution_profile_payload(operation)
+        if active_session_execution_profile is not None:
+            payload["active_session_execution_profile"] = active_session_execution_profile
+        return payload
 
     def _operation_agent_activity(self, operation: OperationState) -> str | None:
         running_sessions = [item for item in operation.sessions if item.status.value == "running"]
