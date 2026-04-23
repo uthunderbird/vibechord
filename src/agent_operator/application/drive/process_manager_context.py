@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from agent_operator.domain.agent import AgentDescriptor
 from agent_operator.domain.policy import PolicyCoverage
+from agent_operator.domain.read_model import DecisionRecord
 
 
 @dataclass
@@ -30,6 +31,7 @@ class ProcessManagerContext:
 
     policy_context: PolicyCoverage | None = None
     available_agents: list[AgentDescriptor] = field(default_factory=list)
+    recent_decisions: list[DecisionRecord] = field(default_factory=list)
     session_contexts: dict[str, RuntimeSessionContext] = field(default_factory=dict)
     pending_replan_command_ids: list[str] = field(default_factory=list)
     orphan_check_completed: bool = False

@@ -138,6 +138,21 @@ def _serialize_recent_iterations(
     return rendered
 
 
+def _serialize_recent_decisions(
+    state: OperationState,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "action_type": record.action_type,
+            "more_actions": record.more_actions,
+            "wake_cycle_id": record.wake_cycle_id,
+            "timestamp": record.timestamp.isoformat(),
+        }
+        for record in state.recent_decisions[-limit:]
+    ]
+
+
 def _serialize_tasks(state: OperationState) -> list[dict[str, object]]:
     tasks = sorted(state.tasks, key=lambda item: (-item.effective_priority, item.created_at))
     return [
@@ -484,6 +499,8 @@ def build_decision_prompt(state: OperationState) -> str:
         f"{_attention_requests_json(state, statuses={'open'})}\n\n"
         "Answered Attention Pending Replan:\n"
         f"{_attention_requests_json(state, statuses={'answered'})}\n\n"
+        "Recent decision history:\n"
+        f"{json.dumps(_serialize_recent_decisions(state), ensure_ascii=True)}\n\n"
         "Recent iteration history:\n"
         f"{json.dumps(_serialize_recent_iterations(state), ensure_ascii=True)}"
     )

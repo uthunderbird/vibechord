@@ -18,6 +18,7 @@ from agent_operator.domain import (
     PolicyCategory,
     PolicyEntry,
 )
+from agent_operator.domain.read_model import DecisionRecord
 from agent_operator.providers.prompting import (
     build_converse_fleet_prompt,
     build_converse_operation_prompt,
@@ -71,6 +72,32 @@ def test_build_decision_prompt_excludes_dropped_operator_messages() -> None:
 
     assert "Keep the release notes concise." in prompt
     assert "Old message that should not reach planning." not in prompt
+
+
+def test_build_decision_prompt_surfaces_recent_decision_history() -> None:
+    state = OperationState(
+        goal=OperationGoal(objective="Ship the feature"),
+        **state_settings(),
+        recent_decisions=[
+            DecisionRecord(
+                action_type="apply_policy",
+                more_actions=True,
+                wake_cycle_id="wc-1",
+            ),
+            DecisionRecord(
+                action_type="stop",
+                more_actions=False,
+                wake_cycle_id="wc-1",
+            ),
+        ],
+    )
+
+    prompt = build_decision_prompt(state)
+
+    assert "Recent decision history:" in prompt
+    assert '"action_type": "apply_policy"' in prompt
+    assert '"more_actions": true' in prompt
+    assert '"wake_cycle_id": "wc-1"' in prompt
 
 
 def test_build_question_answer_prompt_enforces_read_only_grounded_answering() -> None:

@@ -36,6 +36,7 @@ from agent_operator.domain.enums import (
     TaskStatus,
 )
 from agent_operator.domain.policy import PolicyCoverage, PolicyEntry
+from agent_operator.domain.read_model import DecisionRecord
 from agent_operator.domain.traceability import (
     AgentTurnBrief,
     AgentTurnSummary,
@@ -539,6 +540,7 @@ class OperationState(BaseModel):
     memory_entries: list[MemoryEntry] = Field(default_factory=list)
     operation_brief: OperationBrief | None = None
     iteration_briefs: list[IterationBrief] = Field(default_factory=list)
+    recent_decisions: list[DecisionRecord] = Field(default_factory=list)
     agent_turn_briefs: list[AgentTurnBrief] = Field(default_factory=list)
     current_focus: FocusState | None = None
     pending_wakeups: list[WakeupRef] = Field(default_factory=list)
