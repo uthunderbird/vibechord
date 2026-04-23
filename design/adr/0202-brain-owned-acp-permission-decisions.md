@@ -320,9 +320,11 @@ Current verification evidence on 2026-04-23:
 
 - `pytest -q tests/test_acp_permissions.py tests/test_agent_session_runtime.py tests/test_drive_service_v2.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_permission_evaluator.py tests/test_cli.py::test_resolution_accepts_event_sourced_operation_id tests/test_operation_command_service.py::test_provider_permission_evaluator_replays_exact_signature_policy_without_llm`
   passed (`65 passed`)
-- `uv run pytest` passed (`921 passed, 11 skipped`)
+- `uv run pytest` passed (`923 passed, 11 skipped`)
 - `uv run pytest tests/test_acp_permissions.py tests/test_permission_evaluator.py tests/test_drive_service_v2.py tests/test_operation_projector.py tests/test_operation_read_model_projector.py tests/test_operation_status_queries.py tests/test_operation_projections.py -q`
   passed (`83 passed`)
+- `uv run pytest tests/test_cli.py::test_inspect_json_replays_v2_permission_events_into_durable_truth -q`
+  passed (`1 passed`)
 - `uv run ruff check src/agent_operator/domain/checkpoints.py src/agent_operator/domain/operation.py src/agent_operator/projectors/operation.py src/agent_operator/application/queries/operation_state_views.py src/agent_operator/application/queries/operation_projections.py src/agent_operator/application/queries/aggregate_query_adapter.py tests/test_operation_projector.py tests/test_operation_status_queries.py`
   passed
 

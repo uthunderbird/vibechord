@@ -47,6 +47,8 @@ from agent_operator.domain import (
     MemoryScope,
     MemorySourceRef,
     OperationBrief,
+    OperationCheckpoint,
+    OperationCheckpointRecord,
     OperationCommand,
     OperationCommandType,
     OperationGoal,
@@ -2585,6 +2587,49 @@ def test_inspect_json_emits_aggregate_payload(tmp_path: Path, monkeypatch) -> No
     assert '"memory"' in result.stdout
     assert '"artifacts"' in result.stdout
     assert '"trace_records"' not in result.stdout
+
+
+def test_inspect_json_replays_v2_permission_events_into_durable_truth(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Catches inspect falling back to legacy-only state or dropping v2 permission events."""
+    operation_id = "op-cli-v2-permission"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.permission_events = [
+        {
+            "event_type": "permission.request.followup_required",
+            "sequence": 12,
+            "timestamp": "2026-04-23T00:00:00+00:00",
+            "payload": {
+                "adapter_key": "codex_acp",
+                "session_id": "sess-1",
+                "required_followup_reason": "Codex needs replacement instructions.",
+            },
+        }
+    ]
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["inspect", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    permission_events = payload["durable_truth"]["permission_events"]
+    assert permission_events[0]["event_type"] == "permission.request.followup_required"
+    assert permission_events[0]["payload"]["required_followup_reason"] == (
+        "Codex needs replacement instructions."
+    )
 
 
 def test_inspect_full_json_includes_forensic_arrays(tmp_path: Path, monkeypatch) -> None:
