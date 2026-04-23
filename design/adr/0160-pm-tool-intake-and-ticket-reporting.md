@@ -8,7 +8,47 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
+
+### Evidence
+
+Phase 1 and Phase 2 are both landed and covered by automated tests.
+
+- Domain model: `ExternalTicketLink` at `src/agent_operator/domain/operation.py:51` and
+  `external_ticket` field on `OperationGoal` at `src/agent_operator/domain/operation.py:65`.
+- Intake service: `parse_ticket_ref` and `TicketIntakeService` at
+  `src/agent_operator/application/ticketing.py:27` and
+  `src/agent_operator/application/ticketing.py:77`, including GitHub REST fetch and
+  hook-provider subprocess path.
+- CLI flag: `operator run --from` at `src/agent_operator/cli/commands/run.py:51`, wired
+  through `src/agent_operator/cli/workflows/control.py:196` which resolves the ticket and
+  carries it into `OperationGoal` at
+  `src/agent_operator/cli/workflows/control.py:263`.
+- Global config: `GlobalGithubProviderConfig.token` at
+  `src/agent_operator/config.py:83`, consumed by
+  `TicketIntakeService._fetch_github_issue` at
+  `src/agent_operator/application/ticketing.py:110`.
+- Event emission: `operation.ticket_linked` drafted at
+  `src/agent_operator/application/event_sourcing/event_sourced_birth.py:87` and at
+  `src/agent_operator/application/operator_service_v2.py:110`.
+- Read-model projection: handled at
+  `src/agent_operator/projectors/operation.py:139` and
+  `src/agent_operator/domain/aggregate.py:206`; surfaced on
+  `OperationCheckpoint.external_ticket`.
+- Profile schema: `TicketReportingConfig` with `intake_hook` at
+  `src/agent_operator/domain/profile.py:34`.
+- Reporting service: `TicketReportingService` at
+  `src/agent_operator/application/ticketing.py:155` — native GitHub comment+close,
+  draft-review non-blocking attention hold, webhook posting, duplicate-post guard via
+  `reported` flag, and non-blocking failure attention on error.
+- Retry command: `operator report OP --ticket` at
+  `src/agent_operator/cli/commands/operation_detail.py:433`.
+- Automated coverage: `tests/test_ticketing.py` (parse, GitHub intake, hook intake,
+  reporting, draft-review hold, duplicate-guard, failure attention),
+  `tests/test_cli.py::test_run_from_ticket_populates_goal_and_ticket_metadata` and
+  the `--goal` override variant, plus `tests/test_event_sourced_birth.py` and
+  `tests/test_operation_projections.py` covering the event and projector slices.
+- Verification run: `uv run pytest -q` — 928 passed, 11 skipped (2026-04-23).
 
 ## Context
 
