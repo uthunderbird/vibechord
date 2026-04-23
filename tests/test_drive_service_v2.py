@@ -8,13 +8,14 @@ from agent_operator.application.drive.drive_service import DriveService
 from agent_operator.application.drive.lifecycle_gate import LifecycleGate
 from agent_operator.application.drive.policy_executor import PolicyExecutor
 from agent_operator.application.drive.runtime_reconciler import RuntimeReconciler
-from agent_operator.domain import AgentResult, AgentResultStatus
+from agent_operator.domain import AgentError, AgentResult, AgentResultStatus
 from agent_operator.domain.brain import BrainDecision
 from agent_operator.domain.checkpoints import OperationCheckpoint
 from agent_operator.domain.enums import BrainActionType, OperationStatus
 from agent_operator.domain.event_sourcing import (
     OperationCheckpointRecord,
     OperationDomainEventDraft,
+    StaleEpochError,
     StoredOperationDomainEvent,
 )
 from agent_operator.domain.events import RunEvent
@@ -105,6 +106,31 @@ class StubSessionManager:
         return None
 
 
+class IncompleteSessionManager(StubSessionManager):
+    async def collect(self, handle):
+        self.collected = True
+        return AgentResult(
+            session_id=handle.session_id,
+            status=AgentResultStatus.INCOMPLETE,
+            output_text="partial output",
+            completed_at=datetime.now(UTC),
+            error=AgentError(
+                code="agent_waiting_input",
+                message="Codex ACP turn is waiting for approval.",
+                retryable=False,
+                raw={
+                    "kind": "permission_escalation",
+                    "signature": {
+                        "adapter_key": "codex_acp",
+                        "method": "session/request_permission",
+                        "interaction": "approval",
+                        "command": ["uv", "run", "operator"],
+                    },
+                },
+            ),
+        )
+
+
 class StubEventStore:
     def __init__(self) -> None:
         self.streams: dict[str, list[StoredOperationDomainEvent]] = {}
@@ -140,15 +166,23 @@ class StubEventStore:
 class StubCheckpointStore:
     def __init__(self) -> None:
         self.saved: list[OperationCheckpointRecord] = []
+        self.loaded_epoch_id = 0
+        self.saved_epoch_ids: list[int] = []
 
     async def load(self, operation_id: str):
-        return None, 0
+        return None, self.loaded_epoch_id
 
     async def save(self, record: OperationCheckpointRecord) -> None:
         self.saved.append(record)
 
     async def save_with_epoch(self, record: OperationCheckpointRecord, epoch_id: int) -> None:
+        self.saved_epoch_ids.append(epoch_id)
         self.saved.append(record)
+
+
+class StaleEpochCheckpointStore(StubCheckpointStore):
+    async def save_with_epoch(self, record: OperationCheckpointRecord, epoch_id: int) -> None:
+        raise StaleEpochError(f"stale epoch {epoch_id}")
 
 
 class StubReplayService:
@@ -266,6 +300,60 @@ async def test_drive_service_emits_session_created_before_turn_completion() -> N
         "agent.turn.completed",
     ]
     assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+
+
+@pytest.mark.anyio
+async def test_drive_service_materializes_permission_escalation_as_attention_request() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+    session_manager = IncompleteSessionManager()
+
+    created = OperationDomainEventDraft(
+        event_type="operation.created",
+        payload={
+            "objective": "do the task",
+            "allowed_agents": ["codex_acp"],
+            "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+            "execution_budget": {
+                "max_iterations": 3,
+                "timeout_seconds": None,
+                "max_task_retries": 2,
+            },
+            "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+        },
+    )
+    await event_store.append("op-1", 0, [created])
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=session_manager,
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+    )
+
+    outcome = await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    event_types = [event.event_type for event in event_sink.events]
+    assert "attention.request.created" in event_types
+    attention_event = next(
+        event for event in event_sink.events if event.event_type == "attention.request.created"
+    )
+    assert attention_event.payload["attention_type"] == "approval_request"
+    assert attention_event.payload["target_scope"] == "session"
+    assert attention_event.payload["target_id"] == "sess-1"
+    assert attention_event.payload["blocking"] is True
+    assert attention_event.payload["metadata"]["kind"] == "permission_escalation"
+    assert outcome.status is OperationStatus.NEEDS_HUMAN
 
 
 @pytest.mark.anyio
@@ -427,3 +515,79 @@ async def test_drive_service_passes_recent_decisions_to_brain_across_replay_and_
     assert second_call_history[1][0] == BrainActionType.APPLY_POLICY.value
     assert second_call_history[1][1] is True
     assert second_call_history[1][2] != "wc-prior"
+
+
+@pytest.mark.anyio
+async def test_drive_service_uses_epoch_loaded_from_checkpoint_store() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    checkpoint_store.loaded_epoch_id = 7
+
+    created = OperationDomainEventDraft(
+        event_type="operation.created",
+        payload={
+            "objective": "do the task",
+            "allowed_agents": ["codex_acp"],
+            "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+            "execution_budget": {
+                "max_iterations": 1,
+                "timeout_seconds": None,
+                "max_task_retries": 2,
+            },
+            "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+        },
+    )
+    await event_store.append("op-1", 0, [created])
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(brain=MoreActionsBrain()),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=2))
+
+    assert checkpoint_store.saved_epoch_ids == [7]
+
+
+@pytest.mark.anyio
+async def test_drive_service_propagates_stale_epoch_error() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StaleEpochCheckpointStore()
+
+    created = OperationDomainEventDraft(
+        event_type="operation.created",
+        payload={
+            "objective": "do the task",
+            "allowed_agents": ["codex_acp"],
+            "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+            "execution_budget": {
+                "max_iterations": 1,
+                "timeout_seconds": None,
+                "max_task_retries": 2,
+            },
+            "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+        },
+    )
+    await event_store.append("op-1", 0, [created])
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(brain=MoreActionsBrain()),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+    )
+
+    with pytest.raises(StaleEpochError, match="stale epoch"):
+        await drive.drive("op-1", RunOptions(max_cycles=2))

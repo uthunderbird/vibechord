@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,7 +51,10 @@ class ClaudeAcpAdapterSettings(BaseModel):
 class CodexAcpAdapterSettings(BaseModel):
     command: str = "codex-acp"
     model: str | None = None
-    reasoning_effort: Literal["low", "medium", "high", "xhigh"] | None = None
+    reasoning_effort: Literal["low", "medium", "high", "xhigh"] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("reasoning_effort", "effort"),
+    )
     approval_policy: Literal["untrusted", "on-request", "never"] | None = None
     sandbox_mode: Literal["read-only", "workspace-write", "danger-full-access"] | None = None
     timeout_seconds: float | None = None

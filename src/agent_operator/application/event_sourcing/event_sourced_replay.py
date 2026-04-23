@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 
 from agent_operator.domain import (
@@ -122,6 +123,29 @@ class EventSourcedReplayService:
             suffix_events=[*state.suffix_events, *events],
             stored_checkpoint=state.stored_checkpoint,
         )
+
+    async def load_aggregate(
+        self,
+        operation_id: str,
+    ) -> tuple[object, int, int]:
+        """Load OperationAggregate for v2 DriveService.
+
+        Returns (aggregate, last_applied_sequence, epoch_id).
+        epoch_id is 0 unless checkpoint_store supports the epoch-fenced load() API (ADR 0197).
+        """
+        from agent_operator.domain.aggregate import OperationAggregate
+        from agent_operator.domain.operation import OperationGoal
+
+        replay_state = await self.load(operation_id)
+        epoch_id = 0
+        with suppress(AttributeError, NotImplementedError):
+            _checkpoint, epoch_id = await self._checkpoint_store.load(operation_id)
+
+        checkpoint = replay_state.checkpoint
+        goal = getattr(checkpoint, "goal", None) or OperationGoal(objective="")
+        agg = OperationAggregate.create(goal=goal, operation_id=operation_id)
+        agg = agg.apply_events(replay_state.suffix_events)
+        return agg, replay_state.last_applied_sequence, epoch_id
 
     def _load_checkpoint(
         self,

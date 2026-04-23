@@ -13,6 +13,7 @@ from agent_operator.bootstrap import (
     build_brain,
     build_event_sink,
     build_store,
+    build_v2_service,
 )
 from agent_operator.bootstrap import (
     build_service as bootstrap_build_service,
@@ -34,6 +35,7 @@ from agent_operator.domain import (
     SchedulerState,
 )
 from agent_operator.runtime import (
+    ProjectingEventSink,
     apply_project_profile_settings,
     resolve_project_run_config,
 )
@@ -175,6 +177,7 @@ async def run_async(
     timeout: float | None,
     brief: bool,
     json_mode: bool,
+    use_v2: bool = False,
 ) -> None:
     settings, data_dir_source = load_settings_with_data_dir()
     settings.data_dir = Path(settings.data_dir)
@@ -252,32 +255,54 @@ async def run_async(
     if not (wait and json_mode):
         projector.emit_operation(operation_id)
     assert resolved.objective_text is not None
-    outcome = await run_with_startup_failure_handling(
-        service=service,
-        goal=OperationGoal(
-            objective=resolved.objective_text,
-            harness_instructions=resolved.harness_instructions,
-            success_criteria=resolved.success_criteria,
-            metadata=goal_metadata,
-            external_ticket=intake_result.ticket if intake_result is not None else None,
-        ),
-        policy=OperationPolicy(
-            allowed_agents=resolved.default_agents,
-            involvement_level=resolved.involvement_level,
-        ),
-        budget=ExecutionBudget(max_iterations=resolved.max_iterations),
-        runtime_hints=RuntimeHints(operator_message_window=resolved.message_window),
-        options=RunOptions(
-            run_mode=effective_mode,
-            background_runtime_mode=(
-                BackgroundRuntimeMode.ATTACHED_LIVE
-                if effective_mode is RunMode.ATTACHED
-                else BackgroundRuntimeMode.RESUMABLE_WAKEUP
-            ),
-        ),
-        operation_id=operation_id,
-        attached_sessions=attached_sessions or None,
+    goal = OperationGoal(
+        objective=resolved.objective_text,
+        harness_instructions=resolved.harness_instructions,
+        success_criteria=resolved.success_criteria,
+        metadata=goal_metadata,
+        external_ticket=intake_result.ticket if intake_result is not None else None,
     )
+    policy = OperationPolicy(
+        allowed_agents=resolved.default_agents,
+        involvement_level=resolved.involvement_level,
+    )
+    budget = ExecutionBudget(max_iterations=resolved.max_iterations)
+    runtime_hints = RuntimeHints(operator_message_window=resolved.message_window)
+    options = RunOptions(
+        run_mode=effective_mode,
+        background_runtime_mode=(
+            BackgroundRuntimeMode.ATTACHED_LIVE
+            if effective_mode is RunMode.ATTACHED
+            else BackgroundRuntimeMode.RESUMABLE_WAKEUP
+        ),
+    )
+    if use_v2:
+        v2_service = build_v2_service(
+            settings,
+            event_sink=ProjectingEventSink(
+                build_event_sink(settings, operation_id),
+                projector.handle_event,
+            ),
+        )
+        outcome = await v2_service.run(
+            goal,
+            options,
+            operation_id=operation_id,
+            policy=policy,
+            budget=budget,
+            runtime_hints=runtime_hints,
+        )
+    else:
+        outcome = await run_with_startup_failure_handling(
+            service=service,
+            goal=goal,
+            policy=policy,
+            budget=budget,
+            runtime_hints=runtime_hints,
+            options=options,
+            operation_id=operation_id,
+            attached_sessions=attached_sessions or None,
+        )
     if wait and effective_mode is RunMode.RESUMABLE:
         outcome = await _wait_for_operation_outcome(
             operation_id=operation_id,

@@ -39,6 +39,7 @@ from agent_operator.application.operation_entrypoints import OperationEntrypoint
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
 from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
 from agent_operator.application.operator_policy import LlmFirstOperatorPolicy
+from agent_operator.application.operator_service_v2 import OperatorServiceV2
 from agent_operator.application.queries.operation_agenda_queries import OperationAgendaQueryService
 from agent_operator.application.queries.operation_dashboard_queries import (
     OperationDashboardQueryService,
@@ -98,6 +99,7 @@ __all__ = [
     "OperationStateViewService",
     "OperationTurnExecutionService",
     "OperatorService",
+    "OperatorServiceV2",
     "OperationCancellationService",
     "OperationCommandService",
     "OperationControlStateCoordinator",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Iterator
@@ -12,6 +13,7 @@ from agent_operator.domain import (
     OperationEventStoreAppendConflict,
     StoredOperationDomainEvent,
 )
+from agent_operator.domain.event_sourcing import StaleEpochError
 from agent_operator.runtime.files import atomic_write_text, read_text_with_retry
 
 
@@ -186,6 +188,8 @@ class FileOperationCheckpointStore:
     def __init__(self, root: Path) -> None:
         self._root = root
         self._root.mkdir(parents=True, exist_ok=True)
+        self._lock_root = self._root / ".locks"
+        self._lock_root.mkdir(parents=True, exist_ok=True)
 
     async def save(self, record: OperationCheckpointRecord) -> None:
         """Persist the latest derived checkpoint for one operation.
@@ -193,11 +197,72 @@ class FileOperationCheckpointStore:
         Args:
             record: Checkpoint record to store.
         """
+        await self.save_with_epoch(record, epoch_id=(await self.load(record.operation_id))[1])
 
-        atomic_write_text(
-            self._checkpoint_path(record.operation_id),
-            record.model_dump_json(indent=2),
-        )
+    async def load(
+        self,
+        operation_id: str,
+    ) -> tuple[OperationCheckpointRecord | None, int]:
+        """Load the checkpoint record and current epoch for one operation."""
+        payload = self._load_checkpoint_payload(operation_id)
+        if payload is None:
+            return None, 0
+        epoch_id = payload.get("epoch_id", 0)
+        if not isinstance(epoch_id, int) or epoch_id < 0:
+            raise ValueError("Checkpoint epoch_id must be a non-negative integer.")
+        record_payload = {key: value for key, value in payload.items() if key != "epoch_id"}
+        if not record_payload:
+            return None, epoch_id
+        record = OperationCheckpointRecord.model_validate(record_payload)
+        return record, epoch_id
+
+    async def save_with_epoch(
+        self,
+        record: OperationCheckpointRecord,
+        *,
+        epoch_id: int,
+    ) -> None:
+        """Persist a checkpoint only when the supplied epoch matches storage."""
+        if epoch_id < 0:
+            raise ValueError("epoch_id must be non-negative.")
+        with self._operation_lock(record.operation_id):
+            payload = self._load_checkpoint_payload(record.operation_id)
+            stored_epoch = 0
+            if payload is not None:
+                stored_epoch_value = payload.get("epoch_id", 0)
+                if not isinstance(stored_epoch_value, int) or stored_epoch_value < 0:
+                    raise ValueError("Stored checkpoint epoch_id must be a non-negative integer.")
+                stored_epoch = stored_epoch_value
+            if stored_epoch != epoch_id:
+                raise StaleEpochError(
+                    f"Expected checkpoint epoch {stored_epoch}, received {epoch_id} "
+                    f"for operation {record.operation_id!r}."
+                )
+            atomic_write_text(
+                self._checkpoint_path(record.operation_id),
+                self._serialize_checkpoint(record, epoch_id=epoch_id),
+            )
+
+    async def advance_epoch(self, operation_id: str) -> int:
+        """Increment and persist the epoch for one operation."""
+        with self._operation_lock(operation_id):
+            payload = self._load_checkpoint_payload(operation_id)
+            if payload is None:
+                new_epoch = 1
+                record = None
+            else:
+                current_epoch = payload.get("epoch_id", 0)
+                if not isinstance(current_epoch, int) or current_epoch < 0:
+                    raise ValueError("Stored checkpoint epoch_id must be a non-negative integer.")
+                new_epoch = current_epoch + 1
+                record = OperationCheckpointRecord.model_validate(payload)
+            serialized = (
+                self._serialize_checkpoint(record, epoch_id=new_epoch)
+                if record is not None
+                else '{\n  "epoch_id": ' + str(new_epoch) + "\n}\n"
+            )
+            atomic_write_text(self._checkpoint_path(operation_id), serialized)
+            return new_epoch
 
     async def load_latest(self, operation_id: str) -> OperationCheckpointRecord | None:
         """Load the latest checkpoint for one operation.
@@ -209,10 +274,64 @@ class FileOperationCheckpointStore:
             The latest checkpoint record, if present.
         """
 
-        path = self._checkpoint_path(operation_id)
-        if not path.exists():
-            return None
-        return OperationCheckpointRecord.model_validate_json(read_text_with_retry(path))
+        record, _epoch_id = await self.load(operation_id)
+        return record
 
     def _checkpoint_path(self, operation_id: str) -> Path:
         return self._root / f"{operation_id}.json"
+
+    def _lock_path(self, operation_id: str) -> Path:
+        return self._lock_root / f"{operation_id}.lock"
+
+    def _load_checkpoint_payload(self, operation_id: str) -> dict[str, object] | None:
+        path = self._checkpoint_path(operation_id)
+        if not path.exists():
+            return None
+        raw = read_text_with_retry(path)
+        if not raw.strip():
+            return None
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("Checkpoint payload must be a JSON object.")
+        return payload
+
+    def _serialize_checkpoint(
+        self,
+        record: OperationCheckpointRecord,
+        *,
+        epoch_id: int,
+    ) -> str:
+        payload = {
+            **record.model_dump(mode="json"),
+            "epoch_id": epoch_id,
+        }
+        return json.dumps(payload, indent=2) + "\n"
+
+    @contextmanager
+    def _operation_lock(
+        self,
+        operation_id: str,
+        *,
+        timeout_seconds: float = 2.0,
+        retry_delay_seconds: float = 0.01,
+    ) -> Iterator[None]:
+        lock_path = self._lock_path(operation_id)
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                file_descriptor = os.open(
+                    lock_path,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o600,
+                )
+                break
+            except FileExistsError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for lock {lock_path}.") from None
+                time.sleep(retry_delay_seconds)
+        try:
+            os.close(file_descriptor)
+            yield
+        finally:
+            with suppress(FileNotFoundError):
+                lock_path.unlink()

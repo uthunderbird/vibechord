@@ -15,6 +15,7 @@ from agent_operator.domain import (
     AgentResultStatus,
     AgentSessionCommand,
     AgentSessionCommandType,
+    RunEvent,
     TechnicalFactDraft,
 )
 from agent_operator.dtos.requests import AgentRunRequest
@@ -233,6 +234,67 @@ class ReattachableSessionRuntime(FakeSessionRuntime):
         await super().send(command)
 
 
+class SlowStartSessionRuntime(FakeSessionRuntime):
+    """Fake runtime that delays the session.started fact."""
+
+    def __init__(self, *, start_delay_seconds: float) -> None:
+        super().__init__()
+        self.start_delay_seconds = start_delay_seconds
+
+    async def send(self, command: AgentSessionCommand) -> None:
+        self.commands.append(command)
+        if command.command_type == AgentSessionCommandType.START_SESSION:
+            await asyncio.sleep(self.start_delay_seconds)
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.started",
+                    payload={"session_id": "slow-sess-1"},
+                    session_id="slow-sess-1",
+                )
+            )
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.completed",
+                    payload={},
+                    session_id="slow-sess-1",
+                )
+            )
+            return
+        await super().send(command)
+
+
+class SessionIdOnlyStartupRuntime(FakeSessionRuntime):
+    """Fake runtime that starts streaming with a session-scoped fact before session.started."""
+
+    async def send(self, command: AgentSessionCommand) -> None:
+        self.commands.append(command)
+        if command.command_type == AgentSessionCommandType.START_SESSION:
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.output_chunk_observed",
+                    payload={"text": "hello", "session_id": "sess-1"},
+                    session_id="sess-1",
+                )
+            )
+            await self._queue.put(
+                TechnicalFactDraft(
+                    fact_type="session.completed",
+                    payload={},
+                    session_id="sess-1",
+                )
+            )
+            return
+        await super().send(command)
+
+
+class RecordingEventSink:
+    def __init__(self) -> None:
+        self.events: list[RunEvent] = []
+
+    async def emit(self, event: RunEvent) -> None:
+        self.events.append(event)
+
+
 @pytest.mark.anyio
 async def test_attached_session_runtime_registry_synthesizes_start_poll_collect_and_follow_up(
 ) -> None:
@@ -409,6 +471,109 @@ async def test_attached_session_runtime_registry_rehydrates_runtime_from_handle_
     assert runtimes[1].commands[-1].command_type is AgentSessionCommandType.SEND_MESSAGE
     assert runtimes[1].commands[-1].session_id == "sess-1"
     assert follow_up.output_text == "runtime-2:follow-up"
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_honors_configured_startup_timeout() -> None:
+    runtime = SlowStartSessionRuntime(start_delay_seconds=0.02)
+    registry = AttachedSessionManager(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
+            )
+        },
+        startup_timeout_seconds=0.2,
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            working_directory=Path.cwd(),
+        ),
+    )
+
+    assert handle.session_id == "slow-sess-1"
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_starts_from_first_session_scoped_fact() -> None:
+    runtime = SessionIdOnlyStartupRuntime()
+    registry = AttachedSessionManager(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
+            )
+        },
+        startup_timeout_seconds=0.2,
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            working_directory=Path.cwd(),
+        ),
+    )
+    result = await registry.collect(handle)
+
+    assert handle.session_id == "sess-1"
+    assert result.output_text == "hello"
+
+
+@pytest.mark.anyio
+async def test_attached_session_runtime_registry_emits_runtime_facts_to_event_sink() -> None:
+    event_sink = RecordingEventSink()
+    registry = AttachedSessionManager(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: FakeSessionRuntime(),
+            )
+        },
+        event_sink=event_sink,
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            one_shot=True,
+            working_directory=Path.cwd(),
+            metadata={"operation_id": "op-1"},
+        ),
+    )
+
+    await registry.collect(handle)
+
+    assert [event.event_type for event in event_sink.events] == [
+        "session.started",
+        "session.output_chunk_observed",
+        "session.completed",
+    ]
+    assert all(event.operation_id == "op-1" for event in event_sink.events)
+    assert all(event.category == "trace" for event in event_sink.events)
+    assert event_sink.events[0].session_id == "sess-1"
 
 
 @pytest.mark.anyio

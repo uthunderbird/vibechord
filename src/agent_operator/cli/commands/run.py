@@ -81,6 +81,11 @@ def run(
         help="Emit a single-line completion summary when --wait is used.",
     ),
     json_mode: bool = JSON_OPTION,
+    v2: bool = typer.Option(
+        False,
+        "--v2",
+        help="Use the v2 event-sourced drive stack (ADR 0194). Experimental.",
+    ),
 ) -> None:
     if brief and not wait:
         raise typer.BadParameter("--brief requires --wait.")
@@ -106,6 +111,7 @@ def run(
         timeout,
         brief,
         json_mode,
+        v2,
     )
 
 

@@ -80,6 +80,19 @@ def test_agent_show_defaults_to_human_readable_configuration(
     assert payload["configured_settings"]["approval_policy"] == "never"
 
 
+def test_agent_show_accepts_legacy_codex_effort_env_name(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPERATOR_CODEX_ACP__MODEL", "gpt-5.4")
+    monkeypatch.setenv("OPERATOR_CODEX_ACP__EFFORT", "low")
+
+    result = runner.invoke(app, ["agent", "show", "codex_acp", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["configured_settings"]["model"] == "gpt-5.4"
+    assert payload["configured_settings"]["reasoning_effort"] == "low"
+
+
 def test_agent_show_rejects_unknown_agent_key(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 

@@ -37,6 +37,14 @@ class ProcessManagerContext:
     orphan_check_completed: bool = False
     draining: bool = False
 
+    def request_drain(self) -> None:
+        """Mark this drive-call context as draining.
+
+        The owning operator service calls this during shutdown so the active
+        drive loop can exit after finishing its current cycle.
+        """
+        self.draining = True
+
 
 async def build_pm_context(
     agg: object,

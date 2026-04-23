@@ -115,3 +115,10 @@ class OperationCheckpointRecord(BaseModel):
 
 class OperationEventStoreAppendConflict(Exception):
     """Raised when optimistic event append observes a stale stream position."""
+
+
+class StaleEpochError(Exception):
+    """Raised by OperationCheckpointStore.save_with_epoch() when the supplied epoch_id
+    does not match the stored epoch — indicating a stale write from a superseded operator
+    process (ADR 0197 epoch fencing).
+    """

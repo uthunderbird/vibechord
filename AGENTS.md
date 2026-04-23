@@ -27,6 +27,12 @@ Agents working in this repository should start with:
 - Do not overclaim; distinguish `implemented`, `verified`, `partial`, `planned`, and `blocked`.
 - Keep public docs self-contained and aligned with repository truth.
 
+## Before Any Code Change
+
+Read [policies/ENGINEERING_RULES.md](/Users/thunderbird/Projects/operator/policies/ENGINEERING_RULES.md)
+before making any code changes. Key absolute rules: R0 (grounded disagreement), R5 (read before
+edit), R7 (blast radius gate), R9 (no self-approval).
+
 ## Canonical Policy Locations
 
 - Engineering and code-authoring rules:

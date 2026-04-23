@@ -205,18 +205,15 @@ class OperationStatusQueryService:
             payload["action_hint"] = action_hint
         payload["involvement_level"] = operation.involvement_level.value
         payload["updated_at"] = operation.updated_at.isoformat()
-        active_session_execution_profile = (
-            self.projection_service._active_session_execution_profile_payload(  # noqa: SLF001
-                operation
-            )
-        )
-        if active_session_execution_profile is not None:
-            payload["active_session_execution_profile"] = active_session_execution_profile
         active_session = operation.active_session_record
+        if active_session is None:
+            payload.pop("active_session_execution_profile", None)
+            payload.pop("session_execution_profile_known", None)
         if active_session is not None:
             payload["session_id"] = active_session.session_id
             payload["adapter_key"] = active_session.adapter_key
             payload["session_status"] = active_session.status.value
+            active_session_execution_profile = payload.get("active_session_execution_profile")
             if active_session_execution_profile is not None:
                 payload["session_execution_profile_known"] = bool(
                     active_session_execution_profile.get("known")

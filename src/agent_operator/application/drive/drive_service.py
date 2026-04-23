@@ -6,7 +6,7 @@ all changes flow through apply_events() which returns a new instance.
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
@@ -85,7 +85,13 @@ class DriveService:
         self._max_cycles = max_cycles
         self._max_consecutive_actions = max_consecutive_actions
 
-    async def drive(self, operation_id: str, options: RunOptions) -> OperationOutcome:
+    async def drive(
+        self,
+        operation_id: str,
+        options: RunOptions,
+        *,
+        context_ready: Callable[[ProcessManagerContext], None] | None = None,
+    ) -> OperationOutcome:
         """Execute the v2 orchestration loop for one operation.
 
         1. Load aggregate from event log via replay service.
@@ -99,6 +105,8 @@ class DriveService:
 
         # ── Step 2: Build ephemeral context ───────────────────────────────────
         ctx = await self._build_context(agg, suffix_events=suffix_events)
+        if context_ready is not None:
+            context_ready(ctx)
 
         cycle_budget = options.max_cycles or self._max_cycles
         cycles_executed = 0

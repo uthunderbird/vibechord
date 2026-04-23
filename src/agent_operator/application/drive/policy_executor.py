@@ -14,6 +14,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
 from agent_operator.domain.aggregate import OperationAggregate
 from agent_operator.domain.enums import (
@@ -64,6 +65,7 @@ class PolicyExecutor:
         event_store: object | None = None,
         command_inbox: object | None = None,
         planning_trigger_bus: object | None = None,
+        attention_coordinator: OperationAttentionCoordinator | None = None,
     ) -> None:
         self._brain = brain
         self._supervisor = supervisor
@@ -71,6 +73,7 @@ class PolicyExecutor:
         self._event_store = event_store
         self._command_inbox = command_inbox
         self._planning_trigger_bus = planning_trigger_bus
+        self._attention_coordinator = attention_coordinator or OperationAttentionCoordinator()
 
     async def decide_and_execute(
         self,
@@ -323,6 +326,14 @@ class PolicyExecutor:
                     },
                 )
             )
+            attention_event = self._attention_event_from_agent_result(
+                agg=agg,
+                ctx=ctx,
+                session_handle=handle,
+                agent_result=agent_result,
+            )
+            if attention_event is not None:
+                result.events.append(attention_event)
             result.events.append(
                 OperationDomainEventDraft(
                     event_type="session.observed_state.changed",
@@ -335,6 +346,29 @@ class PolicyExecutor:
             )
 
         return result
+
+    def _attention_event_from_agent_result(
+        self,
+        *,
+        agg: OperationAggregate,
+        ctx: ProcessManagerContext,
+        session_handle,
+        agent_result,
+    ) -> OperationDomainEventDraft | None:
+        if agent_result.status is not AgentResultStatus.INCOMPLETE:
+            return None
+        attention = self._attention_coordinator.attention_from_incomplete_result(
+            self._build_brain_state(agg, ctx),
+            session_handle,
+            None,
+            agent_result,
+        )
+        if attention is None:
+            return None
+        return OperationDomainEventDraft(
+            event_type="attention.request.created",
+            payload=self._attention_coordinator.event_payload(attention),
+        )
 
     def _build_brain_state(
         self,

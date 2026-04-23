@@ -28,10 +28,18 @@ from agent_operator.application import (
     OperationRuntimeReconciliationService,
     OperationTraceabilityService,
     OperatorService,
+    OperatorServiceV2,
     SupervisorBackedOperationRuntime,
 )
 from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.commands.operation_cancellation import OperationCancellationService
+from agent_operator.application.drive import (
+    AgentRunSupervisorV2,
+    DriveService,
+    LifecycleGate,
+    PolicyExecutor,
+    RuntimeReconciler,
+)
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
 from agent_operator.application.loaded_operation import LoadedOperation
 from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
@@ -218,8 +226,9 @@ class RuntimeProvider(_BootstrapProviderBase):
     def attached_session_registry(
         self,
         runtime_bindings: dict[str, AgentRuntimeBinding],
+        event_sink: EventSink,
     ) -> AttachedSessionManager:
-        return AttachedSessionManager.from_bindings(runtime_bindings)
+        return AttachedSessionManager(runtime_bindings, event_sink=event_sink)
 
     @provide(scope=Scope.APP)
     def agent_session_manager(
@@ -681,6 +690,110 @@ class OperatorGraphProvider(_BootstrapProviderBase):
             operation_cancellation_service=operation_cancellation_service,
             operation_runtime=operation_runtime,
         )
+
+
+class V2Provider(_BootstrapProviderBase):
+    """Providers for the v2 drive stack (ADR 0194/0195/0200)."""
+
+    @provide(scope=Scope.APP)
+    def agent_run_supervisor_v2(self) -> AgentRunSupervisorV2:
+        return AgentRunSupervisorV2()
+
+    @provide(scope=Scope.APP)
+    def lifecycle_gate(self) -> LifecycleGate:
+        return LifecycleGate()
+
+    @provide(scope=Scope.APP)
+    def runtime_reconciler(
+        self,
+        wakeup_inbox: FileWakeupInbox,
+        command_inbox: FileOperationCommandInbox,
+        supervisor_v2: AgentRunSupervisorV2,
+    ) -> RuntimeReconciler:
+        return RuntimeReconciler(
+            wakeup_inbox=wakeup_inbox,
+            command_inbox=command_inbox,
+            supervisor=supervisor_v2,
+        )
+
+    @provide(scope=Scope.APP)
+    def policy_executor(
+        self,
+        brain: ProviderBackedBrain,
+        supervisor_v2: AgentRunSupervisorV2,
+        session_manager: AgentSessionManager,
+        event_store: FileOperationEventStore,
+        command_inbox: FileOperationCommandInbox,
+        control_intent_bus: FileControlIntentBus,
+        operation_attention_coordinator: OperationAttentionCoordinator,
+    ) -> PolicyExecutor:
+        return PolicyExecutor(
+            brain=brain,
+            supervisor=supervisor_v2,
+            session_manager=session_manager,
+            event_store=event_store,
+            command_inbox=command_inbox,
+            planning_trigger_bus=control_intent_bus,
+            attention_coordinator=operation_attention_coordinator,
+        )
+
+    @provide(scope=Scope.APP)
+    def drive_service(
+        self,
+        lifecycle_gate: LifecycleGate,
+        reconciler: RuntimeReconciler,
+        executor: PolicyExecutor,
+        event_store: FileOperationEventStore,
+        checkpoint_store: FileOperationCheckpointStore,
+        replay_service: EventSourcedReplayService,
+        history_ledger: FileOperationHistoryLedger,
+        policy_store: FilePolicyStore,
+        session_manager: AgentSessionManager,
+        event_sink: EventSink,
+    ) -> DriveService:
+        return DriveService(
+            lifecycle_gate=lifecycle_gate,
+            reconciler=reconciler,
+            executor=executor,
+            event_store=event_store,
+            checkpoint_store=checkpoint_store,
+            replay_service=replay_service,
+            policy_store=policy_store,
+            adapter_registry=session_manager,
+            event_sink=event_sink,
+            history_ledger=history_ledger,
+        )
+
+    @provide(scope=Scope.APP)
+    def operator_service_v2(
+        self,
+        drive_service: DriveService,
+        event_store: FileOperationEventStore,
+        event_sink: EventSink,
+        supervisor_v2: AgentRunSupervisorV2,
+    ) -> OperatorServiceV2:
+        return OperatorServiceV2(
+            drive_service=drive_service,
+            event_store=event_store,
+            event_sink=event_sink,
+            supervisor=supervisor_v2,
+        )
+
+
+def build_v2_service(
+    settings: OperatorSettings,
+    *,
+    event_sink: EventSink | None = None,
+) -> OperatorServiceV2:
+    container = make_container(
+        StorageProvider(settings, event_sink=event_sink),
+        BrainProvider(settings, event_sink=event_sink),
+        EventSourcingProvider(settings, event_sink=event_sink),
+        RuntimeProvider(settings, event_sink=event_sink),
+        OperatorGraphProvider(settings, event_sink=event_sink),
+        V2Provider(settings, event_sink=event_sink),
+    )
+    return container.get(OperatorServiceV2)
 
 
 def build_service(

@@ -11,6 +11,7 @@ from agent_operator.domain.agent import (
     AgentUsage,
 )
 from agent_operator.domain.agent_tools import standard_coding_agent_capabilities
+from agent_operator.domain.aggregate import OperationAggregate
 from agent_operator.domain.attention import AttentionRequest
 from agent_operator.domain.brain import BrainDecision, Evaluation, MemoryEntryDraft, ProgressSummary
 from agent_operator.domain.checkpoints import OperationCheckpoint
@@ -61,6 +62,7 @@ from agent_operator.domain.event_sourcing import (
     OperationCheckpointRecord,
     OperationDomainEventDraft,
     OperationEventStoreAppendConflict,
+    StaleEpochError,
     StoredOperationDomainEvent,
 )
 from agent_operator.domain.events import EVENT_FILE_SCHEMA_VERSION, EventFileRecord, RunEvent
@@ -127,6 +129,7 @@ from agent_operator.domain.profile import (
     ResolvedProjectRunConfig,
     TicketReportingConfig,
 )
+from agent_operator.domain.read_model import DecisionRecord, OperationReadModel
 from agent_operator.domain.session_runtime import AgentSessionCommand, AgentSessionCommandType
 from agent_operator.domain.traceability import (
     AgentTurnBrief,
@@ -276,4 +279,8 @@ __all__ = [
     "IterationBrief",
     "DecisionMemo",
     "OperatorMessage",
+    "StaleEpochError",
+    "OperationAggregate",
+    "OperationReadModel",
+    "DecisionRecord",
 ]

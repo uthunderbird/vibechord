@@ -69,7 +69,7 @@ class OperationCommandService:
         attention_coordinator: OperationAttentionCoordinator,
         attached_session_registry: AgentSessionManager,
         operation_runtime: OperationRuntime | None,
-        event_sourced_command_service: EventSourcedCommandApplicationService | None,
+        event_sourced_command_service: EventSourcedCommandApplicationService,
         event_relay: OperationEventRelay,
         control_state_coordinator: OperationControlStateCoordinator,
         lifecycle_coordinator: OperationLifecycleCoordinator,
@@ -369,10 +369,6 @@ class OperationCommandService:
         assert policy_store is not None
         await policy_store.save(entry)
         await self.refresh_policy_context(state)
-        if self._event_sourced_command_service is None:
-            raise RuntimeError(
-                "RECORD_POLICY_DECISION requires EventSourcedCommandApplicationService."
-            )
         applied_at = datetime.now(UTC)
         result = await self._event_sourced_command_service.append_domain_events(
             state.operation_id,
@@ -459,10 +455,6 @@ class OperationCommandService:
         entry.source_refs.append(PolicySourceRef(kind="command", ref_id=command.command_id))
         await policy_store.save(entry)
         await self.refresh_policy_context(state)
-        if self._event_sourced_command_service is None:
-            raise RuntimeError(
-                "REVOKE_POLICY_DECISION requires EventSourcedCommandApplicationService."
-            )
         result = await self._event_sourced_command_service.append_domain_events(
             state.operation_id,
             self._policy_context_domain_events(state, command, applied_at=applied_at),
@@ -523,11 +515,6 @@ class OperationCommandService:
         resolved_at = datetime.now(UTC)
         state.pending_attention_resolution_ids = []
         changed = False
-        if self._event_sourced_command_service is None:
-            raise RuntimeError(
-                "Pending attention resolution finalization requires "
-                "EventSourcedCommandApplicationService."
-            )
         for attention_id in pending_ids:
             attention = self.find_attention_request(state, attention_id)
             if attention is None or attention.status is not AttentionStatus.ANSWERED:
@@ -806,10 +793,6 @@ class OperationCommandService:
         *,
         trace_iteration: int,
     ) -> bool:
-        if self._event_sourced_command_service is None:
-            raise RuntimeError(
-                "ANSWER_ATTENTION_REQUEST requires EventSourcedCommandApplicationService."
-            )
         snapshot_attention = self.find_attention_request(state, command.target_id)
         if snapshot_attention is not None:
             checkpoint = (
@@ -961,10 +944,6 @@ class OperationCommandService:
                 f"Failed to stop the active attached turn: {exc}",
             )
             return False
-        if self._event_sourced_command_service is None:
-            raise RuntimeError(
-                "STOP_AGENT_TURN requires EventSourcedCommandApplicationService."
-            )
         applied_at = datetime.now(UTC)
         record = self._loaded_operation.ensure_session_record(state, attached_session)
         record.waiting_reason = "Stopping the active attached agent turn."
@@ -1083,10 +1062,6 @@ class OperationCommandService:
         ]
         if running_run_ids and self._operation_runtime is not None:
             await self._operation_runtime.cancel_operation_runs(running_run_ids)
-        if self._event_sourced_command_service is None:
-            raise RuntimeError(
-                "STOP_OPERATION requires EventSourcedCommandApplicationService."
-            )
         applied_at = datetime.now(UTC)
         result = await self._event_sourced_command_service.append_domain_events(
             state.operation_id,

@@ -180,7 +180,7 @@ def test_answer_attention_request_command_path_does_not_use_legacy_snapshot_pers
     ]
 
     assert legacy_persist_calls == []
-    assert len(runtime_guards) == 1
+    assert len(runtime_guards) == 0
 
 
 def test_finalize_pending_attention_resolutions_uses_no_legacy_snapshot_persistence() -> None:

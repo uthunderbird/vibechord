@@ -14,6 +14,7 @@ from agent_operator.domain import (
     OperationDomainEventDraft,
     OperationEventStoreAppendConflict,
 )
+from agent_operator.domain.event_sourcing import StaleEpochError
 from agent_operator.runtime import FileOperationCheckpointStore, FileOperationEventStore
 
 
@@ -84,6 +85,59 @@ async def test_checkpoint_store_roundtrip(tmp_path: Path) -> None:
     loaded = await store.load_latest("op-1")
 
     assert loaded == record
+
+
+@pytest.mark.anyio
+async def test_checkpoint_store_load_returns_epoch_with_record(tmp_path: Path) -> None:
+    store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    record = OperationCheckpointRecord(
+        operation_id="op-1",
+        checkpoint_payload={"status": "running"},
+        last_applied_sequence=2,
+        checkpoint_format_version=1,
+        created_at=datetime(2026, 4, 3, tzinfo=UTC),
+    )
+
+    await store.save(record)
+
+    loaded, epoch_id = await store.load("op-1")
+
+    assert loaded == record
+    assert epoch_id == 0
+
+
+@pytest.mark.anyio
+async def test_checkpoint_store_save_with_epoch_rejects_stale_epoch(tmp_path: Path) -> None:
+    store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    record = OperationCheckpointRecord(
+        operation_id="op-1",
+        checkpoint_payload={"status": "running"},
+        last_applied_sequence=2,
+        checkpoint_format_version=1,
+        created_at=datetime(2026, 4, 3, tzinfo=UTC),
+    )
+
+    await store.save(record)
+    new_epoch = await store.advance_epoch("op-1")
+
+    with pytest.raises(StaleEpochError):
+        await store.save_with_epoch(record, epoch_id=0)
+
+    loaded, epoch_id = await store.load("op-1")
+    assert loaded == record
+    assert epoch_id == new_epoch
+
+
+@pytest.mark.anyio
+async def test_checkpoint_store_advance_epoch_without_existing_checkpoint(tmp_path: Path) -> None:
+    store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+
+    new_epoch = await store.advance_epoch("op-1")
+    loaded, epoch_id = await store.load("op-1")
+
+    assert new_epoch == 1
+    assert loaded is None
+    assert epoch_id == 1
 
 
 @pytest.mark.anyio
