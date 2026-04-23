@@ -1,8 +1,29 @@
 # ADR 0122: Project Operator State Clear Command
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Verified
+
+Skim-safe current truth on 2026-04-23:
+
+- `verified`: `operator clear` exists, is confirmation-gated (`--yes`), and refuses when active
+  or recoverable operations are present —
+  `tests/test_cli.py::test_clear_yes_removes_runtime_state_and_preserves_profiles` and
+  `tests/test_cli.py::test_clear_refuses_when_running_operation_exists`
+- `verified`: `operator clear --force` exists and discards live or recoverable operator state
+  while preserving the same operator-owned deletion boundary —
+  `tests/test_cli.py::test_clear_force_yes_discards_blockers_and_preserves_profiles`
+- `verified`: interactive confirmation path without `--yes` can be cancelled —
+  `tests/test_cli.py::test_clear_without_yes_prompts_and_can_cancel`
+- `verified`: clears runtime state while preserving committed profiles (`operator-profile.yaml`,
+  `operator-profiles/`, `.operator/profiles/`, `.operator/uv-cache/`) and removes
+  `operator-history.jsonl` — covered by the `_removes_runtime_state_and_preserves_profiles` test
+
+Full `uv run pytest -q` on 2026-04-23: 928 passed, 11 skipped.
 
 ## Context
 
@@ -291,18 +312,3 @@ Current repository truth now includes a first implementation tranche:
 This satisfies the ADR's P0 contract. The broader forced-clear follow-on was later added under
 [ADR 0168](./0168-operator-clear-force-mode.md).
 
-## Implementation Status
-
-Implemented
-
-Skim-safe current truth on 2026-04-14:
-
-- `implemented`: `operator clear` exists, is confirmation-gated (`--yes`), and refuses when active
-  or recoverable operations are present
-- `implemented`: `operator clear --force` exists and discards live or recoverable operator state
-  while preserving the same operator-owned deletion boundary
-- `implemented`: clears runtime state while preserving committed profiles
-- `verified`: `test_clear_yes_removes_runtime_state_and_preserves_profiles`,
-  `test_clear_refuses_when_running_operation_exists`,
-  `test_clear_force_yes_discards_blockers_and_preserves_profiles`, and
-  `test_clear_without_yes_prompts_and_can_cancel` in `tests/test_cli.py`
