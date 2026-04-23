@@ -74,6 +74,7 @@ class OperationStateViewService:
             tasks=[task.model_copy(deep=True) for task in checkpoint.tasks],
             sessions=[session.model_copy(deep=True) for session in checkpoint.sessions],
             executions=[execution.model_copy(deep=True) for execution in checkpoint.executions],
+            permission_events=[dict(item) for item in checkpoint.permission_events],
             attention_requests=[
                 request.model_copy(deep=True)
                 for request in checkpoint.attention_requests

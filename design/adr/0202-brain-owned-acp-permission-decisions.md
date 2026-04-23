@@ -31,14 +31,17 @@ Skim-safe status:
 - `implemented`: Codex-specific rejection/escalation follow-up is represented as canonical event
   evidence so the operator brain can choose replacement instructions, skip the blocked action, or
   escalate to a human on the next drive decision
+- `implemented`: `v2` replay now projects permission events into checkpoint-derived
+  `OperationState` views and status/inspect durable-truth payloads, so query and TUI consumers do
+  not need raw event-log access to see permission follow-up evidence
 - `implemented`: OpenCode post-rejection behavior remains intentionally conservative; until it is
   characterized, `opencode_acp` is treated as requiring explicit follow-up like Codex
 - `verified`: unit and integration coverage exercises approval, rejection, escalation, user-input
   wait, deterministic approval, active-policy replay, provider-backed brain decisions, v2 replay
   fallback, Codex explicit follow-up, Claude no-follow-up, OpenCode conservative follow-up,
   permission-event streaming, prompt-turn-scoped permission event accumulation, v2
-  materialization, status/inspect replay, incompatible checkpoint replay, and event-sourced
-  operation id resolution
+  materialization, status/inspect durable-truth replay, incompatible checkpoint replay, and
+  event-sourced operation id resolution
 
 ## Context
 
@@ -317,7 +320,11 @@ Current verification evidence on 2026-04-23:
 
 - `pytest -q tests/test_acp_permissions.py tests/test_agent_session_runtime.py tests/test_drive_service_v2.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_permission_evaluator.py tests/test_cli.py::test_resolution_accepts_event_sourced_operation_id tests/test_operation_command_service.py::test_provider_permission_evaluator_replays_exact_signature_policy_without_llm`
   passed (`65 passed`)
-- `uv run pytest` passed (`919 passed, 11 skipped`)
+- `uv run pytest` passed (`921 passed, 11 skipped`)
+- `uv run pytest tests/test_acp_permissions.py tests/test_permission_evaluator.py tests/test_drive_service_v2.py tests/test_operation_projector.py tests/test_operation_read_model_projector.py tests/test_operation_status_queries.py tests/test_operation_projections.py -q`
+  passed (`83 passed`)
+- `uv run ruff check src/agent_operator/domain/checkpoints.py src/agent_operator/domain/operation.py src/agent_operator/projectors/operation.py src/agent_operator/application/queries/operation_state_views.py src/agent_operator/application/queries/operation_projections.py src/agent_operator/application/queries/aggregate_query_adapter.py tests/test_operation_projector.py tests/test_operation_status_queries.py`
+  passed
 
 ## Closure Criteria
 

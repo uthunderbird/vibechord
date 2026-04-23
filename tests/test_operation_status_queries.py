@@ -221,3 +221,52 @@ async def test_status_payload_falls_back_to_event_sourced_replay() -> None:
     assert operation.canonical_persistence_mode.value == "event_sourced"
     assert operation.goal.objective == "Report v2 status."
     assert operation.status is OperationStatus.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_status_json_replays_permission_events_into_durable_truth() -> None:
+    """Catches omitting replayed permission events from status/inspect query payloads."""
+    checkpoint = OperationCheckpoint.initial("op-status-v2-permission")
+    checkpoint.objective = ObjectiveState(objective="Report permission replay.")
+    checkpoint.permission_events = [
+        {
+            "event_type": "permission.request.followup_required",
+            "sequence": 7,
+            "timestamp": "2026-04-23T00:00:00+00:00",
+            "payload": {
+                "adapter_key": "codex_acp",
+                "session_id": "sess-1",
+                "required_followup_reason": "Codex needs replacement instructions.",
+            },
+        }
+    ]
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    payload = json.loads(
+        await service.render_status_output(
+            "op-status-v2-permission",
+            json_mode=True,
+            brief=False,
+        )
+    )
+
+    permission_events = payload["durable_truth"]["permission_events"]
+    assert permission_events[0]["event_type"] == "permission.request.followup_required"
+    assert permission_events[0]["sequence"] == 7
+    assert (
+        permission_events[0]["payload"]["required_followup_reason"]
+        == "Codex needs replacement instructions."
+    )

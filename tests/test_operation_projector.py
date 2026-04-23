@@ -138,6 +138,48 @@ def test_operation_projector_coordinates_execution_and_session_slices() -> None:
     assert projected.sessions[0].terminal_state is SessionTerminalState.COMPLETED
 
 
+def test_operation_projector_projects_permission_events_for_replay_visibility() -> None:
+    """Catches dropping permission.request.* events from replay-derived inspection state."""
+    projector = DefaultOperationProjector()
+    checkpoint = OperationCheckpoint.initial("op-1")
+
+    projected = projector.project(
+        checkpoint,
+        [
+            _event(
+                "permission.request.decided",
+                sequence=1,
+                payload={
+                    "adapter_key": "codex_acp",
+                    "session_id": "sess-1",
+                    "decision": "reject",
+                    "decision_source": "brain",
+                },
+            ),
+            _event(
+                "permission.request.followup_required",
+                sequence=2,
+                payload={
+                    "adapter_key": "codex_acp",
+                    "session_id": "sess-1",
+                    "required_followup_reason": "Codex needs replacement instructions.",
+                },
+            ),
+        ],
+    )
+
+    assert [event["event_type"] for event in projected.permission_events] == [
+        "permission.request.decided",
+        "permission.request.followup_required",
+    ]
+    assert projected.permission_events[0]["sequence"] == 1
+    assert projected.permission_events[0]["payload"]["decision"] == "reject"
+    assert (
+        projected.permission_events[1]["payload"]["required_followup_reason"]
+        == "Codex needs replacement instructions."
+    )
+
+
 def test_operation_projector_updates_attention_scheduler_and_optional_subslices() -> None:
     projector = DefaultOperationProjector()
     checkpoint = OperationCheckpoint.initial("op-1")

@@ -1187,6 +1187,7 @@ class OperationProjectionService:
             "agent_turn_briefs": [
                 self._agent_turn_brief_payload(item) for item in operation.agent_turn_briefs
             ],
+            "permission_events": [dict(item) for item in operation.permission_events],
             "current_focus": (
                 self._focus_payload(operation.current_focus)
                 if operation.current_focus is not None
@@ -1274,6 +1275,7 @@ class OperationProjectionService:
                 ],
             },
             "artifacts": [self._artifact_payload(artifact) for artifact in operation.artifacts],
+            "permission_events": [dict(item) for item in operation.permission_events],
         }
 
     def build_operation_context_payload(self, operation: OperationState) -> dict[str, object]:

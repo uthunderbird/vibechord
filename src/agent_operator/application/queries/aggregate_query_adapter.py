@@ -53,6 +53,7 @@ def aggregate_to_state(agg: OperationAggregate) -> OperationState:
         executions=list(agg.executions),
         artifacts=list(agg.artifacts),
         memory_entries=list(agg.memory_entries),
+        permission_events=[],
         current_focus=agg.current_focus,
         attention_requests=list(agg.attention_requests),
         active_policies=[],

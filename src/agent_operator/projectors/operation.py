@@ -71,6 +71,7 @@ class DefaultOperationProjector:
         updated = self._apply_operator_message_slice(updated, event)
         updated = self._apply_policy_slice(updated, event)
         updated = self._apply_focus_slice(updated, event)
+        updated = self._apply_permission_slice(updated, event)
         updated.updated_at = event.timestamp
         return updated
 
@@ -448,6 +449,23 @@ class DefaultOperationProjector:
                     "updated_at",
                     event.timestamp,
                 )
+        return checkpoint
+
+    def _apply_permission_slice(
+        self,
+        checkpoint: OperationCheckpoint,
+        event: StoredOperationDomainEvent,
+    ) -> OperationCheckpoint:
+        if not event.event_type.startswith("permission.request."):
+            return checkpoint
+        checkpoint.permission_events.append(
+            {
+                "event_type": event.event_type,
+                "sequence": event.sequence,
+                "timestamp": event.timestamp.isoformat(),
+                "payload": dict(event.payload),
+            }
+        )
         return checkpoint
 
     def _payload_model(self, payload: dict[str, Any], model_type: type[BaseModel]) -> Any:

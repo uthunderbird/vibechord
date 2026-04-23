@@ -542,6 +542,7 @@ class OperationState(BaseModel):
     iteration_briefs: list[IterationBrief] = Field(default_factory=list)
     recent_decisions: list[DecisionRecord] = Field(default_factory=list)
     agent_turn_briefs: list[AgentTurnBrief] = Field(default_factory=list)
+    permission_events: list[dict[str, object]] = Field(default_factory=list)
     current_focus: FocusState | None = None
     pending_wakeups: list[WakeupRef] = Field(default_factory=list)
     attention_requests: list[AttentionRequest] = Field(default_factory=list)

@@ -59,6 +59,7 @@ class OperationCheckpoint(BaseModel):
     allowed_agents: list[str] = Field(default_factory=list)
     involvement_level: InvolvementLevel = InvolvementLevel.AUTO
     execution_profile_overrides: dict[str, ExecutionProfileOverride] = Field(default_factory=dict)
+    permission_events: list[dict[str, object]] = Field(default_factory=list)
     processed_command_ids: list[str] = Field(default_factory=list)
     current_focus: FocusState | None = None
     external_ticket: ExternalTicketLink | None = None
