@@ -4,8 +4,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 
 from agent_operator.domain import (
+    OperationAggregate,
     OperationCheckpoint,
     OperationCheckpointRecord,
+    OperationGoal,
+    OperationPolicy,
     StoredOperationDomainEvent,
 )
 from agent_operator.protocols import (
@@ -128,25 +131,102 @@ class EventSourcedReplayService:
     async def load_aggregate(
         self,
         operation_id: str,
-    ) -> tuple[object, int, int]:
+    ) -> tuple[OperationAggregate, int, int]:
         """Load OperationAggregate for v2 DriveService.
 
         Returns (aggregate, last_applied_sequence, epoch_id).
         epoch_id is 0 unless checkpoint_store supports the epoch-fenced load() API (ADR 0197).
         """
-        from agent_operator.domain.aggregate import OperationAggregate
-        from agent_operator.domain.operation import OperationGoal
-
         replay_state = await self.load(operation_id)
         epoch_id = 0
         with suppress(AttributeError, NotImplementedError):
             _checkpoint, epoch_id = await self._checkpoint_store.load(operation_id)
 
-        checkpoint = replay_state.checkpoint
-        goal = getattr(checkpoint, "goal", None) or OperationGoal(objective="")
-        agg = OperationAggregate.create(goal=goal, operation_id=operation_id)
+        agg = self._aggregate_from_checkpoint(replay_state.checkpoint)
         agg = agg.apply_events(replay_state.suffix_events)
         return agg, replay_state.last_applied_sequence, epoch_id
+
+    def _aggregate_from_checkpoint(self, checkpoint: OperationCheckpoint) -> OperationAggregate:
+        """Build the v2 drive aggregate from replayed checkpoint truth."""
+        goal = OperationGoal(
+            objective=(
+                checkpoint.objective.objective if checkpoint.objective is not None else ""
+            ),
+            harness_instructions=(
+                checkpoint.objective.harness_instructions
+                if checkpoint.objective is not None
+                else None
+            ),
+            success_criteria=(
+                list(checkpoint.objective.success_criteria)
+                if checkpoint.objective is not None
+                else []
+            ),
+            metadata=(
+                dict(checkpoint.objective.metadata)
+                if checkpoint.objective is not None
+                else {}
+            ),
+            external_ticket=(
+                checkpoint.external_ticket.model_copy(deep=True)
+                if checkpoint.external_ticket is not None
+                else None
+            ),
+        )
+        policy = OperationPolicy(
+            allowed_agents=list(checkpoint.allowed_agents),
+            involvement_level=checkpoint.involvement_level,
+        )
+        defaults = OperationAggregate.create(goal)
+        return OperationAggregate(
+            operation_id=checkpoint.operation_id,
+            goal=goal,
+            policy=policy,
+            execution_budget=defaults.execution_budget,
+            runtime_hints=defaults.runtime_hints,
+            execution_profile_overrides={
+                key: value.model_copy(deep=True)
+                for key, value in checkpoint.execution_profile_overrides.items()
+            },
+            status=checkpoint.status,
+            objective=(
+                checkpoint.objective.model_copy(deep=True)
+                if checkpoint.objective is not None
+                else None
+            ),
+            tasks=[task.model_copy(deep=True) for task in checkpoint.tasks],
+            features=[],
+            sessions=[session.model_copy(deep=True) for session in checkpoint.sessions],
+            executions=[execution.model_copy(deep=True) for execution in checkpoint.executions],
+            artifacts=[],
+            memory_entries=[],
+            external_ticket=(
+                checkpoint.external_ticket.model_copy(deep=True)
+                if checkpoint.external_ticket is not None
+                else None
+            ),
+            final_summary=checkpoint.final_summary,
+            allowed_agents=list(checkpoint.allowed_agents),
+            created_at=checkpoint.created_at,
+            updated_at=checkpoint.updated_at,
+            current_focus=(
+                checkpoint.current_focus.model_copy(deep=True)
+                if checkpoint.current_focus is not None
+                else None
+            ),
+            scheduler_state=checkpoint.scheduler_state,
+            operator_messages=[
+                message.model_copy(deep=True)
+                for message in checkpoint.operator_messages
+            ],
+            attention_requests=[
+                request.model_copy(deep=True)
+                for request in checkpoint.attention_requests
+            ],
+            processed_command_ids=list(checkpoint.processed_command_ids),
+            pending_replan_command_ids=[],
+            pending_attention_resolution_ids=[],
+        )
 
     def _load_checkpoint(
         self,
