@@ -31,6 +31,9 @@ Skim-safe status:
 - `implemented`: Codex-specific rejection/escalation follow-up is represented as canonical event
   evidence so the operator brain can choose replacement instructions, skip the blocked action, or
   escalate to a human on the next drive decision
+- `implemented`: `v2` drive aggregates now accumulate materialized permission events and pass
+  them through the policy-executor brain-state bridge, so the next brain decision can observe
+  Codex follow-up-required evidence instead of only the raw terminal session result
 - `implemented`: `v2` replay now projects permission events into checkpoint-derived
   `OperationState` views and status/inspect durable-truth payloads, so query and TUI consumers do
   not need raw event-log access to see permission follow-up evidence
@@ -332,6 +335,18 @@ Current verification evidence on 2026-04-23:
   durable-truth payloads
 - `uv run ruff check src/agent_operator/cli/tui/models.py tests/test_tui.py` passed
 - `uv run pytest` passed (`925 passed, 11 skipped`) after the TUI replay-consumption slice
+- `uv run pytest tests/test_acp_permissions.py tests/test_agent_session_runtime.py tests/test_drive_service_v2.py -q`
+  passed (`38 passed`) after adding Codex-specific live-stream coverage for rejected permission
+  follow-up-required events and fixing synthetic prompt-task exception consumption
+- `uv run ruff check src/agent_operator/acp/runtime_permissions.py tests/test_agent_session_runtime.py`
+  passed
+- `uv run pytest` passed (`926 passed, 11 skipped`) after the Codex live-stream regression slice
+- `uv run pytest tests/test_acp_permissions.py tests/test_agent_session_runtime.py tests/test_drive_service_v2.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_permission_evaluator.py tests/test_operation_aggregate.py -q`
+  passed (`87 passed`) after adding v2 drive brain-bridge coverage for Codex
+  follow-up-required permission events
+- `uv run ruff check src/agent_operator/domain/aggregate.py src/agent_operator/application/drive/policy_executor.py src/agent_operator/application/drive/drive_service.py src/agent_operator/application/event_sourcing/event_sourced_replay.py tests/test_drive_service_v2.py`
+  passed
+- `uv run pytest` passed (`927 passed, 11 skipped`) after the v2 drive brain-bridge slice
 
 ## Closure Criteria
 

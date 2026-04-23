@@ -360,6 +360,7 @@ class DriveService:
             executions=list(agg.executions),
             artifacts=list(agg.artifacts),
             memory_entries=list(agg.memory_entries),
+            permission_events=[dict(event) for event in agg.permission_events],
             current_focus=agg.current_focus,
             attention_requests=list(agg.attention_requests),
             involvement_level=agg.policy.involvement_level,

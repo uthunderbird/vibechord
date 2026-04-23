@@ -64,6 +64,7 @@ class OperationAggregate:
     executions: list[ExecutionState]
     artifacts: list[ArtifactRecord]
     memory_entries: list[MemoryEntry]
+    permission_events: list[dict[str, object]]
     external_ticket: ExternalTicketLink | None
     final_summary: str | None
     allowed_agents: list[str]
@@ -110,6 +111,7 @@ class OperationAggregate:
             executions=[],
             artifacts=[],
             memory_entries=[],
+            permission_events=[],
             external_ticket=None,
             final_summary=None,
             allowed_agents=list(resolved_policy.allowed_agents),
@@ -313,6 +315,18 @@ class OperationAggregate:
                     e = e.model_copy(update=execution_updates)
                 updated_execs.append(e)
             return dataclasses.replace(self, executions=updated_execs, updated_at=now)
+
+        # ── Permission event slice ───────────────────────────────────────────
+        if event_type.startswith("permission.request."):
+            permission_event = {
+                "event_type": event_type,
+                "payload": dict(payload),
+            }
+            return dataclasses.replace(
+                self,
+                permission_events=[*self.permission_events, permission_event],
+                updated_at=now,
+            )
 
         # ── Attention slice ───────────────────────────────────────────────────
         if event_type == "attention.request.created":

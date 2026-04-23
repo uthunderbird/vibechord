@@ -230,6 +230,27 @@ class PermissionRejectedSessionManager(StubSessionManager):
         )
 
 
+class PermissionFollowupBrain:
+    def __init__(self) -> None:
+        self.observed_permission_events: list[list[dict[str, object]]] = []
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.observed_permission_events.append(
+            [dict(event) for event in state.permission_events]
+        )
+        if len(self.observed_permission_events) == 1:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="codex_acp",
+                instruction="inspect",
+                rationale="Start immediately.",
+            )
+        return BrainDecision(
+            action_type=BrainActionType.STOP,
+            rationale="Saw rejected permission follow-up evidence.",
+        )
+
+
 class StubEventStore:
     def __init__(self) -> None:
         self.streams: dict[str, list[StoredOperationDomainEvent]] = {}
@@ -626,6 +647,65 @@ async def test_drive_service_materializes_rejected_codex_permission_followup_eve
     ]
     assert permission_events[1].payload["decision"] == "reject"
     assert permission_events[2].payload["required_followup_reason"] == (
+        "Codex needs replacement instructions."
+    )
+
+
+@pytest.mark.anyio
+async def test_drive_service_exposes_codex_permission_followup_to_next_brain_call() -> None:
+    """Catches dropping materialized permission follow-up events from the v2 brain bridge."""
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    brain = PermissionFollowupBrain()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=brain,
+            session_manager=PermissionRejectedSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+    )
+
+    outcome = await drive.drive("op-1", RunOptions(max_cycles=2))
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert brain.observed_permission_events[0] == []
+    followup_events = brain.observed_permission_events[1]
+    assert [event["event_type"] for event in followup_events] == [
+        "permission.request.observed",
+        "permission.request.decided",
+        "permission.request.followup_required",
+    ]
+    assert followup_events[1]["payload"]["decision"] == "reject"
+    assert followup_events[2]["payload"]["required_followup_reason"] == (
         "Codex needs replacement instructions."
     )
 

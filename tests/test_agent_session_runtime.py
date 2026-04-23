@@ -7,7 +7,9 @@ import pytest
 
 from agent_operator.acp.adapter_runtime import AcpAdapterRuntime
 from agent_operator.acp.client import AcpJsonRpcError
+from agent_operator.acp.permissions import AcpPermissionDecision, PermissionEvaluationResult
 from agent_operator.acp.session_runtime import AcpAgentSessionRuntime
+from agent_operator.adapters.codex_acp import CodexAcpAgentAdapter
 from agent_operator.adapters.opencode_acp import OpencodeAcpAgentAdapter
 from agent_operator.domain import (
     AgentSessionCommand,
@@ -60,6 +62,27 @@ class FakeAcpConnection:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class RejectPermissionEvaluator:
+    """Permission evaluator double that rejects every permission request.
+
+    Example:
+        evaluator = RejectPermissionEvaluator()
+        result = await evaluator.evaluate(
+            operation_id="op-1",
+            working_directory=Path.cwd(),
+            request={},
+        )
+        assert result.decision is AcpPermissionDecision.REJECT
+    """
+
+    async def evaluate(self, **_: object) -> PermissionEvaluationResult:
+        return PermissionEvaluationResult(
+            decision=AcpPermissionDecision.REJECT,
+            rationale="Outside harness scope.",
+            decision_source="brain",
+        )
 
 
 @pytest.mark.anyio
@@ -707,6 +730,81 @@ async def test_acp_agent_session_runtime_forwards_opencode_permission_requests_t
     ]
     assert all(fact.session_id == "sess-1" for fact in facts)
     assert facts[-1].payload["message"] == "ACP turn is waiting for approval."
+    assert connection.responses == [
+        (7, {"outcome": {"outcome": "selected", "optionId": "abort"}}, None)
+    ]
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_streams_codex_rejection_followup_required() -> None:
+    """Catches dropping Codex follow-up-required permission facts from the live stream."""
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="codex_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    adapter = CodexAcpAgentAdapter(
+        connection_factory=lambda _cwd, _log_path: connection,
+        permission_evaluator=RejectPermissionEvaluator(),
+    )
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+        handle_server_request=adapter._runner._hooks.handle_server_request,  # type: ignore[attr-defined]
+    )
+
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+                metadata={"operation_id": "op-1"},
+            )
+        )
+        _started = await asyncio.wait_for(anext(stream), timeout=1.0)
+        next_fact_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0.02)
+        connection.drained_notifications.append(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Run external e2e",
+                        "kind": "execute",
+                        "rawInput": {"command": ["uv", "run", "operator"]},
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            }
+        )
+        facts = [await asyncio.wait_for(next_fact_task, timeout=1.0)]
+        for _ in range(3):
+            facts.append(await asyncio.wait_for(anext(stream), timeout=1.0))
+
+    assert [fact.fact_type for fact in facts] == [
+        "permission.request.observed",
+        "permission.request.decided",
+        "permission.request.followup_required",
+        "session.failed",
+    ]
+    assert all(fact.session_id == "sess-1" for fact in facts)
+    assert facts[1].payload["decision"] == "reject"
+    assert facts[1].payload["decision_source"] == "brain"
+    assert (
+        facts[2].payload["required_followup_reason"]
+        == "codex_acp requires explicit replacement instructions after a rejected "
+        "or escalated permission request."
+    )
+    assert facts[3].payload["error_code"] == "agent_permission_rejected"
     assert connection.responses == [
         (7, {"outcome": {"outcome": "selected", "optionId": "abort"}}, None)
     ]

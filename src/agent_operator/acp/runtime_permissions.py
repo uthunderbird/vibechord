@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from typing import Any
 
 from agent_operator.acp.permissions import (
@@ -227,7 +228,13 @@ async def replace_active_prompt_with_error(session: AcpSessionState, message: st
     if session.active_prompt is not None and not session.active_prompt.done():
         session.active_prompt.cancel()
     session.active_prompt = asyncio.create_task(_raise_runtime_error(message))
+    session.active_prompt.add_done_callback(_consume_prompt_task_exception)
 
 
 async def _raise_runtime_error(message: str) -> JsonObject:
     raise RuntimeError(message)
+
+
+def _consume_prompt_task_exception(task: asyncio.Task[JsonObject]) -> None:
+    with suppress(asyncio.CancelledError):
+        task.exception()

@@ -200,6 +200,7 @@ class EventSourcedReplayService:
             executions=[execution.model_copy(deep=True) for execution in checkpoint.executions],
             artifacts=[],
             memory_entries=[],
+            permission_events=[dict(event) for event in checkpoint.permission_events],
             external_ticket=(
                 checkpoint.external_ticket.model_copy(deep=True)
                 if checkpoint.external_ticket is not None
