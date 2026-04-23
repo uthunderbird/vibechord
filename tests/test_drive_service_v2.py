@@ -528,6 +528,11 @@ async def test_drive_service_materializes_permission_escalation_as_attention_req
     ]
     assert permission_events[0].payload["signature"]["adapter_key"] == "codex_acp"
     assert permission_events[1].payload["rationale"] == "Need operator decision."
+    assert permission_events[1].payload["involvement_level"] == "auto"
+    assert (
+        permission_events[1].payload["linked_attention_id"]
+        == attention_event.payload["attention_id"]
+    )
     assert (
         permission_events[2].payload["required_followup_reason"]
         == "codex_acp requires explicit replacement instructions after a rejected "
