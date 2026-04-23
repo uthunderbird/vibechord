@@ -4,11 +4,24 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Skim-safe status on 2026-04-23:
+
+- `implemented`: `DriveService` constructs `ProcessManagerContext` once per drive call and passes
+  it through the v2 loop
+- `implemented`: `build_pm_context()` now rebuilds policy coverage from policy-store scope at
+  drive-call start instead of reusing stale aggregate policy coverage
+- `implemented`: the v2 brain bridge now prefers per-call `ctx.policy_context` when seeding
+  `OperationState.policy_coverage`
+- `partial`: `OperationAggregate` still carries `policy_coverage`, `active_policies`, and
+  `involvement_level`, so the aggregate/ephemeral split is not yet complete
+- `verified`: targeted regression coverage now exists for policy-context reconstruction and the
+  brain-context wiring in the v2 drive path
 
 ## Context
 
@@ -83,3 +96,27 @@ class ProcessManagerContext:
 - `build_pm_context()` adds one async round-trip (policy store lookup) at the start of each drive call — acceptable since drive calls are wake-cycle-scoped, not per-iteration
 - `ProcessManagerContext` is independently testable (constructed with test doubles for policy store, adapter registry)
 - v1 `OperationState` snapshot fields `policy_coverage`, `active_policies`, `involvement_level`, `pending_wakeups` are deleted — no migration path (ADR 0194)
+
+## Repository Evidence
+
+- `src/agent_operator/application/drive/process_manager_context.py` rebuilds per-drive-call policy
+  coverage from replayed operation metadata plus `PolicyStore`
+- `src/agent_operator/application/drive/policy_executor.py` now seeds the brain bridge from
+  `ctx.policy_context` instead of relying only on aggregate-carried policy coverage
+- `src/agent_operator/application/drive/drive_service.py` remains the construction boundary for
+  one ephemeral `ProcessManagerContext` per drive call
+
+## Remaining Blockers
+
+- `OperationAggregate` still owns `policy_coverage`, `active_policies`, and `involvement_level`,
+  so the runtime-only fields are not fully evicted from aggregate truth yet
+- The v1 service shell and command path still refresh and persist policy context on `OperationState`
+- Query/projection surfaces still read involvement and policy state from aggregate-backed views
+
+## Verification
+
+Verified locally on 2026-04-23 with:
+
+- `pytest -q tests/test_lifecycle_gate.py tests/test_drive_service_v2.py tests/test_operator_service_v2.py`
+- `ruff check src/agent_operator/application/drive/process_manager_context.py src/agent_operator/application/drive/policy_executor.py tests/test_lifecycle_gate.py tests/test_drive_service_v2.py`
+- `mypy src/agent_operator/application/drive/process_manager_context.py src/agent_operator/application/drive/policy_executor.py`

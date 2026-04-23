@@ -17,9 +17,17 @@ from agent_operator.domain.enums import (
     FocusKind,
     FocusMode,
     OperationStatus,
+    PolicyCoverageStatus,
+    PolicyStatus,
     SchedulerState,
 )
-from agent_operator.domain.operation import ExecutionBudget, FocusState, OperationGoal
+from agent_operator.domain.operation import (
+    ExecutionBudget,
+    FocusState,
+    ObjectiveState,
+    OperationGoal,
+)
+from agent_operator.domain.policy import PolicyApplicability, PolicyCategory, PolicyEntry
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +59,24 @@ class StubAdapterRegistry:
 
 class InvalidAdapterRegistry:
     pass
+
+
+class StubPolicyStore:
+    def __init__(self, entries: list[PolicyEntry]) -> None:
+        self._entries = list(entries)
+
+    async def list(
+        self,
+        *,
+        project_scope: str | None = None,
+        status: PolicyStatus | None = None,
+    ) -> list[PolicyEntry]:
+        entries = list(self._entries)
+        if project_scope is not None:
+            entries = [entry for entry in entries if entry.project_scope == project_scope]
+        if status is not None:
+            entries = [entry for entry in entries if entry.status is status]
+        return entries
 
 
 gate = LifecycleGate()
@@ -230,6 +256,41 @@ async def test_build_pm_context_uses_duck_typed_adapter_registry() -> None:
     )
 
     assert [descriptor.key for descriptor in ctx.available_agents] == ["codex_acp"]
+
+
+@pytest.mark.anyio
+async def test_build_pm_context_rebuilds_policy_coverage_from_policy_store() -> None:
+    agg = _agg(
+        goal=OperationGoal(
+            objective="Ship the release checklist",
+            metadata={"policy_scope": "profile:test"},
+        ),
+        objective=ObjectiveState(objective="Ship the release checklist"),
+        allowed_agents=["codex_acp"],
+    )
+    policy_store = StubPolicyStore(
+        [
+            PolicyEntry(
+                policy_id="policy-1",
+                project_scope="profile:test",
+                title="Release policy",
+                category=PolicyCategory.RELEASE,
+                rule_text="Require review for release work.",
+                applicability=PolicyApplicability(objective_keywords=["release"]),
+            )
+        ]
+    )
+
+    ctx = await build_pm_context(
+        agg,
+        policy_store=policy_store,
+        adapter_registry=StubAdapterRegistry(),
+    )
+
+    assert ctx.policy_context is not None
+    assert ctx.policy_context.status is PolicyCoverageStatus.COVERED
+    assert ctx.policy_context.project_scope == "profile:test"
+    assert ctx.policy_context.active_policy_count == 1
 
 
 @pytest.mark.anyio

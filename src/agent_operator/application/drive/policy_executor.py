@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
+from agent_operator.domain import AgentResult, AgentSessionHandle
 from agent_operator.domain.aggregate import OperationAggregate
 from agent_operator.domain.enums import (
     AgentResultStatus,
@@ -352,8 +353,8 @@ class PolicyExecutor:
         *,
         agg: OperationAggregate,
         ctx: ProcessManagerContext,
-        session_handle,
-        agent_result,
+        session_handle: AgentSessionHandle,
+        agent_result: AgentResult,
     ) -> OperationDomainEventDraft | None:
         if agent_result.status is not AgentResultStatus.INCOMPLETE:
             return None
@@ -399,7 +400,7 @@ class PolicyExecutor:
             current_focus=agg.current_focus,
             attention_requests=list(agg.attention_requests),
             active_policies=list(agg.active_policies),
-            policy_coverage=agg.policy_coverage,
+            policy_coverage=ctx.policy_context or agg.policy_coverage,
             involvement_level=agg.involvement_level,
             scheduler_state=agg.scheduler_state,
             operator_messages=list(agg.operator_messages),

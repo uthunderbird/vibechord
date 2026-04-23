@@ -11,7 +11,12 @@ from agent_operator.application.drive.runtime_reconciler import RuntimeReconcile
 from agent_operator.domain import AgentError, AgentResult, AgentResultStatus
 from agent_operator.domain.brain import BrainDecision
 from agent_operator.domain.checkpoints import OperationCheckpoint
-from agent_operator.domain.enums import BrainActionType, OperationStatus
+from agent_operator.domain.enums import (
+    BrainActionType,
+    OperationStatus,
+    PolicyCoverageStatus,
+    PolicyStatus,
+)
 from agent_operator.domain.event_sourcing import (
     OperationCheckpointRecord,
     OperationDomainEventDraft,
@@ -20,6 +25,7 @@ from agent_operator.domain.event_sourcing import (
 )
 from agent_operator.domain.events import RunEvent
 from agent_operator.domain.operation import RunOptions
+from agent_operator.domain.policy import PolicyApplicability, PolicyCategory, PolicyEntry
 from agent_operator.dtos.requests import AgentRunRequest
 
 
@@ -225,6 +231,23 @@ class ReplayServiceWithPriorDecision:
         )()
 
 
+class ReplayServiceWithSuffixEvents:
+    def __init__(self, suffix_events: list[StoredOperationDomainEvent]) -> None:
+        self._suffix_events = suffix_events
+
+    async def load(self, operation_id: str):
+        checkpoint = OperationCheckpoint.initial(operation_id)
+        return type(
+            "ReplayState",
+            (),
+            {
+                "checkpoint": checkpoint,
+                "last_applied_sequence": len(self._suffix_events),
+                "suffix_events": list(self._suffix_events),
+            },
+        )()
+
+
 class RecordingEventSink:
     def __init__(self) -> None:
         self.events: list[RunEvent] = []
@@ -250,6 +273,34 @@ class StubWakeupInbox:
 class StubCommandInbox:
     async def list_pending(self, operation_id: str):
         return []
+
+
+class StubAdapterRegistry:
+    def has(self, adapter_key: str) -> bool:
+        return adapter_key == "codex_acp"
+
+    async def describe(self, adapter_key: str):
+        from agent_operator.domain.agent import AgentDescriptor
+
+        return AgentDescriptor(key=adapter_key, display_name="Codex ACP")
+
+
+class StubPolicyStore:
+    def __init__(self, entries: list[PolicyEntry]) -> None:
+        self._entries = list(entries)
+
+    async def list(
+        self,
+        *,
+        project_scope: str | None = None,
+        status: PolicyStatus | None = None,
+    ) -> list[PolicyEntry]:
+        entries = list(self._entries)
+        if project_scope is not None:
+            entries = [entry for entry in entries if entry.project_scope == project_scope]
+        if status is not None:
+            entries = [entry for entry in entries if entry.status is status]
+        return entries
 
 
 @pytest.mark.anyio
@@ -515,6 +566,72 @@ async def test_drive_service_passes_recent_decisions_to_brain_across_replay_and_
     assert second_call_history[1][0] == BrainActionType.APPLY_POLICY.value
     assert second_call_history[1][1] is True
     assert second_call_history[1][2] != "wc-prior"
+
+
+@pytest.mark.anyio
+async def test_drive_service_rebuilds_policy_coverage_for_brain_context() -> None:
+    """Catches the mutation where DriveService keeps using stale aggregate policy coverage."""
+
+    class PolicyCoverageBrain:
+        def __init__(self) -> None:
+            self.seen_status: PolicyCoverageStatus | None = None
+
+        async def decide_next_action(self, state) -> BrainDecision:
+            self.seen_status = state.policy_coverage.status
+            return BrainDecision(
+                action_type=BrainActionType.STOP,
+                rationale="Stop after observing policy coverage.",
+            )
+
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    brain = PolicyCoverageBrain()
+
+    created = OperationDomainEventDraft(
+        event_type="operation.created",
+        payload={
+            "objective": "Prepare the release checklist",
+            "metadata": {"policy_scope": "profile:test"},
+            "allowed_agents": ["codex_acp"],
+            "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+            "execution_budget": {
+                "max_iterations": 3,
+                "timeout_seconds": None,
+                "max_task_retries": 2,
+            },
+            "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+        },
+    )
+    stored_created = await event_store.append("op-1", 0, [created])
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(brain=brain),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=ReplayServiceWithSuffixEvents(stored_created),
+        policy_store=StubPolicyStore(
+            [
+                PolicyEntry(
+                    policy_id="policy-1",
+                    project_scope="profile:test",
+                    title="Release policy",
+                    category=PolicyCategory.RELEASE,
+                    rule_text="Require review for release work.",
+                    applicability=PolicyApplicability(objective_keywords=["release"]),
+                )
+            ]
+        ),
+        adapter_registry=StubAdapterRegistry(),
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    assert brain.seen_status is PolicyCoverageStatus.COVERED
 
 
 @pytest.mark.anyio
