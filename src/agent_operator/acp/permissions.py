@@ -163,6 +163,8 @@ class PermissionEvaluationResult:
     suggested_options: tuple[str, ...] = ()
     policy_title: str | None = None
     policy_rule_text: str | None = None
+    decision_source: str = "brain"
+    policy_id: str | None = None
 
 
 def permission_signature_for_request(request: AcpPermissionRequest) -> PermissionRequestSignature:

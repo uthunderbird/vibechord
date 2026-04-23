@@ -51,8 +51,27 @@ async def handle_permission_server_request(
     )
     if request is None:
         return False
+    serialized_request = serialize_permission_request(request)
+    signature = permission_signature_for_request(request).model_dump(mode="json")
+    session.permission_event_payloads.append(
+        {
+            "event_type": "permission.request.observed",
+            "adapter_key": adapter_key,
+            "session_id": request.session_id,
+            "request": serialized_request,
+            "signature": signature,
+        }
+    )
     decision = evaluate_permission_request(request, auto_approve=auto_approve)
-    evaluation = PermissionEvaluationResult(decision=decision)
+    decision_source = (
+        "deterministic_rule"
+        if decision is AcpPermissionDecision.APPROVE
+        else "brain"
+    )
+    evaluation = PermissionEvaluationResult(
+        decision=decision,
+        decision_source=decision_source,
+    )
     if (
         decision is AcpPermissionDecision.ESCALATE
         and permission_evaluator is not None
@@ -67,25 +86,87 @@ async def handle_permission_server_request(
     if decision is AcpPermissionDecision.APPROVE:
         session.pending_input_message = None
         session.pending_input_raw = None
+        session.permission_event_payloads.append(
+            {
+                "event_type": "permission.request.decided",
+                "adapter_key": adapter_key,
+                "session_id": request.session_id,
+                "request": serialized_request,
+                "signature": signature,
+                "decision": decision.value,
+                "decision_source": evaluation.decision_source,
+                "rationale": evaluation.rationale,
+                "policy_id": evaluation.policy_id,
+                "policy_title": evaluation.policy_title,
+            }
+        )
     elif decision is AcpPermissionDecision.ESCALATE:
         session.pending_input_message = waiting_message_for_request(request)
         session.pending_input_raw = {
             "kind": "permission_escalation",
-            "request": serialize_permission_request(request),
-            "signature": permission_signature_for_request(request).model_dump(mode="json"),
+            "request": serialized_request,
+            "signature": signature,
             "rationale": evaluation.rationale,
             "suggested_options": list(evaluation.suggested_options),
             "policy_title": evaluation.policy_title,
             "policy_rule_text": evaluation.policy_rule_text,
+            "decision": decision.value,
+            "decision_source": evaluation.decision_source,
+            "policy_id": evaluation.policy_id,
             "raw_payload": payload,
         }
+        session.permission_event_payloads.append(
+            {
+                "event_type": "permission.request.escalated",
+                "adapter_key": adapter_key,
+                "session_id": request.session_id,
+                "request": serialized_request,
+                "signature": signature,
+                "rationale": evaluation.rationale,
+                "suggested_options": list(evaluation.suggested_options),
+                "policy_title": evaluation.policy_title,
+                "policy_rule_text": evaluation.policy_rule_text,
+                "policy_id": evaluation.policy_id,
+            }
+        )
+        if adapter_key in {"codex_acp", "opencode_acp"}:
+            session.permission_event_payloads.append(
+                {
+                    "event_type": "permission.request.followup_required",
+                    "adapter_key": adapter_key,
+                    "session_id": request.session_id,
+                    "request": serialized_request,
+                    "signature": signature,
+                    "required_followup_reason": (
+                        f"{adapter_key} requires explicit replacement instructions after "
+                        "a rejected or escalated permission request."
+                    ),
+                    "recommended_instruction": (
+                        "Decide whether to give the agent a safe alternative instruction, "
+                        "skip the blocked action, or escalate to the human."
+                    ),
+                }
+            )
     elif decision is AcpPermissionDecision.WAIT_INPUT:
         session.pending_input_message = waiting_message_for_request(request)
         session.pending_input_raw = {
             "kind": "user_input_request",
-            "request": serialize_permission_request(request),
+            "request": serialized_request,
+            "decision": decision.value,
+            "decision_source": evaluation.decision_source,
             "raw_payload": payload,
         }
+        session.permission_event_payloads.append(
+            {
+                "event_type": "permission.request.escalated",
+                "adapter_key": adapter_key,
+                "session_id": request.session_id,
+                "request": serialized_request,
+                "signature": signature,
+                "rationale": "Agent requested user input.",
+                "suggested_options": [],
+            }
+        )
     else:
         session.pending_input_message = None
         session.pending_input_raw = None
@@ -93,6 +174,38 @@ async def handle_permission_server_request(
             evaluation.rationale
             or "Permission request rejected by operator policy."
         )
+        session.permission_event_payloads.append(
+            {
+                "event_type": "permission.request.decided",
+                "adapter_key": adapter_key,
+                "session_id": request.session_id,
+                "request": serialized_request,
+                "signature": signature,
+                "decision": decision.value,
+                "decision_source": evaluation.decision_source,
+                "rationale": evaluation.rationale,
+                "policy_id": evaluation.policy_id,
+                "policy_title": evaluation.policy_title,
+            }
+        )
+        if adapter_key in {"codex_acp", "opencode_acp"}:
+            session.permission_event_payloads.append(
+                {
+                    "event_type": "permission.request.followup_required",
+                    "adapter_key": adapter_key,
+                    "session_id": request.session_id,
+                    "request": serialized_request,
+                    "signature": signature,
+                    "required_followup_reason": (
+                        f"{adapter_key} requires explicit replacement instructions after "
+                        "a rejected or escalated permission request."
+                    ),
+                    "recommended_instruction": (
+                        "Decide whether to give the agent a safe alternative instruction, "
+                        "skip the blocked action, or escalate to the human."
+                    ),
+                }
+            )
         await replace_active_prompt_with_error(session, session.last_error)
     if session.connection is not None:
         await session.connection.respond(

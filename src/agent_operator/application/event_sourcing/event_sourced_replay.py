@@ -64,14 +64,15 @@ class EventSourcedReplayService:
     async def load(self, operation_id: str) -> EventSourcedReplayState:
         """Load canonical live truth from checkpoint plus suffix."""
         stored_checkpoint = await self._checkpoint_store.load_latest(operation_id)
+        replay_checkpoint = self._compatible_checkpoint(stored_checkpoint)
         last_stream_sequence = await self._event_store.load_last_sequence(operation_id)
-        checkpoint_sequence = stored_checkpoint.last_applied_sequence if stored_checkpoint else 0
+        checkpoint_sequence = replay_checkpoint.last_applied_sequence if replay_checkpoint else 0
         if checkpoint_sequence > last_stream_sequence:
             raise ValueError(
                 f"Checkpoint for operation {operation_id!r} is ahead of stream: "
                 f"{checkpoint_sequence} > {last_stream_sequence}."
             )
-        checkpoint = self._load_checkpoint(operation_id, stored_checkpoint)
+        checkpoint = self._load_checkpoint(operation_id, replay_checkpoint)
         suffix_events = await self._event_store.load_after(
             operation_id,
             after_sequence=checkpoint_sequence,
@@ -155,3 +156,13 @@ class EventSourcedReplayService:
         if record is None:
             return OperationCheckpoint.initial(operation_id)
         return OperationCheckpoint.model_validate(record.checkpoint_payload)
+
+    def _compatible_checkpoint(
+        self,
+        record: OperationCheckpointRecord | None,
+    ) -> OperationCheckpointRecord | None:
+        if record is None:
+            return None
+        if record.checkpoint_format_version != self._CHECKPOINT_FORMAT_VERSION:
+            return None
+        return record

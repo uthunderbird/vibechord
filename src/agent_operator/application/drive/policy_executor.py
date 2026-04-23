@@ -328,6 +328,13 @@ class PolicyExecutor:
                     },
                 )
             )
+            result.events.extend(
+                self._permission_events_from_agent_result(
+                    session_handle=handle,
+                    agent_result=agent_result,
+                    completed_at=completed_at,
+                )
+            )
             attention_event = self._attention_event_from_agent_result(
                 agg=agg,
                 ctx=ctx,
@@ -341,13 +348,102 @@ class PolicyExecutor:
                     event_type="session.observed_state.changed",
                     payload={
                         "session_id": session_id,
-                        "observed_state": turn_status,
+                        **self._session_observed_state_payload(agent_result.status),
                         "updated_at": completed_at.isoformat(),
                     },
                 )
             )
 
         return result
+
+    def _session_observed_state_payload(
+        self,
+        status: AgentResultStatus,
+    ) -> dict[str, str]:
+        if status is AgentResultStatus.SUCCESS:
+            return {"observed_state": "terminal", "terminal_state": "completed"}
+        if status is AgentResultStatus.CANCELLED:
+            return {"observed_state": "terminal", "terminal_state": "cancelled"}
+        if status is AgentResultStatus.INCOMPLETE:
+            return {"observed_state": "waiting"}
+        return {"observed_state": "terminal", "terminal_state": "failed"}
+
+    def _permission_events_from_agent_result(
+        self,
+        *,
+        session_handle: AgentSessionHandle,
+        agent_result: AgentResult,
+        completed_at: datetime,
+    ) -> list[OperationDomainEventDraft]:
+        raw_result = agent_result.raw if isinstance(agent_result.raw, dict) else {}
+        raw_permission_events = raw_result.get("permission_events")
+        if isinstance(raw_permission_events, list):
+            return [
+                OperationDomainEventDraft(
+                    event_type=str(event["event_type"]),
+                    payload={
+                        key: value
+                        for key, value in dict(event).items()
+                        if key != "event_type"
+                    },
+                )
+                for event in raw_permission_events
+                if isinstance(event, dict) and isinstance(event.get("event_type"), str)
+            ]
+        if agent_result.status is not AgentResultStatus.INCOMPLETE:
+            return []
+        if agent_result.error is None or not isinstance(agent_result.error.raw, dict):
+            return []
+        raw = agent_result.error.raw
+        if raw.get("kind") != "permission_escalation":
+            return []
+        request = raw.get("request")
+        signature = raw.get("signature")
+        observed_payload = {
+            "adapter_key": session_handle.adapter_key,
+            "session_id": session_handle.session_id,
+            "request": request if isinstance(request, dict) else None,
+            "signature": signature if isinstance(signature, dict) else None,
+            "observed_at": completed_at.isoformat(),
+        }
+        events = [
+            OperationDomainEventDraft(
+                event_type="permission.request.observed",
+                payload=observed_payload,
+            ),
+            OperationDomainEventDraft(
+                event_type="permission.request.escalated",
+                payload={
+                    **observed_payload,
+                    "rationale": raw.get("rationale"),
+                    "suggested_options": (
+                        list(raw.get("suggested_options"))
+                        if isinstance(raw.get("suggested_options"), list)
+                        else []
+                    ),
+                    "policy_title": raw.get("policy_title"),
+                    "policy_rule_text": raw.get("policy_rule_text"),
+                },
+            ),
+        ]
+        if session_handle.adapter_key in {"codex_acp", "opencode_acp"}:
+            events.append(
+                OperationDomainEventDraft(
+                    event_type="permission.request.followup_required",
+                    payload={
+                        **observed_payload,
+                        "required_followup_reason": (
+                            f"{session_handle.adapter_key} requires explicit replacement "
+                            "instructions after a rejected or escalated permission request."
+                        ),
+                        "recommended_instruction": (
+                            "Decide whether to give the agent a safe alternative instruction, "
+                            "skip the blocked action, or escalate to the human."
+                        ),
+                    },
+                )
+            )
+        return events
 
     def _attention_event_from_agent_result(
         self,

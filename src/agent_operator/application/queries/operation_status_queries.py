@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from agent_operator.application.queries.operation_projections import OperationProjectionService
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.domain import AttentionStatus, OperationOutcome, OperationState, SchedulerState
 from agent_operator.protocols import OperationStore
 
@@ -22,6 +23,10 @@ class WakeupInspectionStoreLike(Protocol):
     def read_all(self, operation_id: str | None = None) -> list[dict[str, object]]: ...
 
 
+class ReplayServiceLike(Protocol):
+    async def load(self, operation_id: str): ...
+
+
 @dataclass(slots=True)
 class OperationStatusQueryService:
     store: OperationStore
@@ -33,6 +38,10 @@ class OperationStatusQueryService:
     render_status_brief: Callable[[OperationState], str]
     render_inspect_summary: Callable[..., str]
     render_status_summary: Callable[..., str]
+    replay_service: ReplayServiceLike | None = None
+    state_view_service: OperationStateViewService = field(
+        default_factory=OperationStateViewService
+    )
 
     def _background_run_payload(self, run) -> dict[str, object]:
         return {
@@ -92,6 +101,8 @@ class OperationStatusQueryService:
         operation = await self.store.load_operation(operation_id)
         outcome = await self.store.load_outcome(operation_id)
         if operation is None and outcome is None:
+            operation = await self._load_event_sourced_operation(operation_id)
+        if operation is None and outcome is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         if operation is None:
             return None, outcome, None, None
@@ -108,6 +119,22 @@ class OperationStatusQueryService:
             background_runs=[self._background_run_payload(item) for item in runs],
         )
         return operation, outcome, brief_bundle, runtime_alert
+
+    async def _load_event_sourced_operation(self, operation_id: str) -> OperationState | None:
+        """Load v2 operations from event-sourced truth when no legacy run snapshot exists."""
+        if self.replay_service is None:
+            return None
+        replay_state = await self.replay_service.load(operation_id)
+        if (
+            getattr(replay_state, "stored_checkpoint", None) is None
+            and getattr(replay_state, "last_applied_sequence", 0) == 0
+            and not getattr(replay_state, "suffix_events", [])
+        ):
+            return None
+        checkpoint = getattr(replay_state, "checkpoint", None)
+        if checkpoint is None:
+            return None
+        return self.state_view_service.from_checkpoint(checkpoint)
 
     async def render_status_output(
         self,

@@ -158,11 +158,13 @@ class BrainProvider(_BootstrapProviderBase):
         provider: OpenAIResponsesStructuredOutputProvider | CodexStructuredOutputProvider,
         store: FileOperationStore,
         policy_store: FilePolicyStore,
+        replay_service: EventSourcedReplayService,
     ) -> ProviderBackedPermissionEvaluator:
         return ProviderBackedPermissionEvaluator(
             provider,
             store=store,
             policy_store=policy_store,
+            replay_service=replay_service,
         )
 
     @provide(scope=Scope.APP)
@@ -840,6 +842,14 @@ def build_command_inbox(settings: OperatorSettings) -> FileOperationCommandInbox
 
 def build_policy_store(settings: OperatorSettings) -> FilePolicyStore:
     return FilePolicyStore(settings.data_dir / "policies")
+
+
+def build_replay_service(settings: OperatorSettings) -> EventSourcedReplayService:
+    return EventSourcedReplayService(
+        event_store=FileOperationEventStore(settings.data_dir / "operation_events"),
+        checkpoint_store=FileOperationCheckpointStore(settings.data_dir / "operation_checkpoints"),
+        projector=DefaultOperationProjector(),
+    )
 
 
 def build_background_run_inspection_store(

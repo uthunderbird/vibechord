@@ -136,3 +136,35 @@ async def test_event_sourced_replay_rejects_checkpoint_ahead_of_stream(
 
     with pytest.raises(ValueError, match="ahead of stream"):
         await replay.load(operation_id)
+
+
+@pytest.mark.anyio
+async def test_event_sourced_replay_ignores_incompatible_checkpoint_format(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=DefaultOperationProjector(),
+    )
+    operation_id = "op-incompatible-checkpoint"
+    await _seed_event_stream(event_store, operation_id)
+    await checkpoint_store.save(
+        OperationCheckpointRecord(
+            operation_id=operation_id,
+            checkpoint_payload={"operation_id": operation_id, "status": "failed"},
+            last_applied_sequence=2,
+            checkpoint_format_version=2,
+        )
+    )
+
+    state = await replay.load(operation_id)
+
+    assert state.stored_checkpoint is not None
+    assert state.stored_checkpoint.checkpoint_format_version == 2
+    assert state.last_applied_sequence == 2
+    assert len(state.suffix_events) == 2
+    assert state.checkpoint.objective is not None
+    assert state.checkpoint.objective.objective == "Updated objective"

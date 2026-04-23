@@ -45,6 +45,7 @@ class AcpSessionState:
     last_error: str | None = None
     pending_input_message: str | None = None
     pending_input_raw: JsonObject | None = None
+    permission_event_payloads: list[JsonObject] = field(default_factory=list)
     last_event_at: datetime | None = None
     session_accumulator: SessionAccumulator = field(default_factory=SessionAccumulator)
     session_snapshot: SessionSnapshot | None = None

@@ -595,6 +595,8 @@ async def test_provider_permission_evaluator_replays_exact_signature_policy_with
     )
 
     assert result.decision.value == "approve"
+    assert result.decision_source == "active_policy"
+    assert result.policy_id is not None
     assert "Matched stored autonomy policy" in result.rationale
 
 

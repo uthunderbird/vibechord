@@ -192,8 +192,11 @@ class DefaultOperationProjector:
                 event.payload["session_id"],
             )
             if session is not None:
-                session.observed_state = SessionObservedState(event.payload["observed_state"])
-                terminal_state = self._payload_optional_string(event.payload, "terminal_state")
+                observed_state, terminal_state = self._session_observed_state(
+                    event.payload["observed_state"],
+                    self._payload_optional_string(event.payload, "terminal_state"),
+                )
+                session.observed_state = observed_state
                 session.terminal_state = (
                     SessionTerminalState(terminal_state) if terminal_state is not None else None
                 )
@@ -222,6 +225,19 @@ class DefaultOperationProjector:
                     event.timestamp,
                 )
         return checkpoint
+
+    def _session_observed_state(
+        self,
+        observed_state: object,
+        terminal_state: str | None,
+    ) -> tuple[SessionObservedState, str | None]:
+        if observed_state in {
+            SessionTerminalState.COMPLETED.value,
+            SessionTerminalState.FAILED.value,
+            SessionTerminalState.CANCELLED.value,
+        }:
+            return SessionObservedState.TERMINAL, terminal_state or str(observed_state)
+        return SessionObservedState(str(observed_state)), terminal_state
 
     def _apply_execution_slice(
         self,

@@ -787,6 +787,19 @@ def test_ask_cli_missing_operation_exits_code_4(tmp_path: Path, monkeypatch) -> 
     assert "Operation 'missing-op' was not found." in result.output
 
 
+def test_resolution_accepts_event_sourced_operation_id(tmp_path: Path, monkeypatch) -> None:
+    from agent_operator.cli.helpers.resolution import resolve_operation_id
+
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    operation_id = "op-v2-resolution"
+    (event_dir / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
+
+    assert resolve_operation_id(operation_id) == operation_id
+    assert resolve_operation_id("op-v2") == operation_id
+
+
 def test_converse_cli_read_only_query_renders_answer_without_executing_commands(
     tmp_path: Path, monkeypatch
 ) -> None:

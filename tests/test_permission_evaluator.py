@@ -17,7 +17,13 @@ from agent_operator.acp.permissions import (
     AcpPermissionInteraction,
     AcpPermissionRequest,
 )
-from agent_operator.domain import InvolvementLevel, OperationGoal, OperationState
+from agent_operator.domain import (
+    InvolvementLevel,
+    ObjectiveState,
+    OperationCheckpoint,
+    OperationGoal,
+    OperationState,
+)
 from agent_operator.dtos.brain import PermissionDecisionDTO
 from agent_operator.providers.permission import (
     ProviderBackedPermissionEvaluator,
@@ -104,6 +110,21 @@ class _FakeOperationStore:
         return self._state
 
 
+class _FakeReplayState:
+    def __init__(self, checkpoint: OperationCheckpoint) -> None:
+        self.checkpoint = checkpoint
+
+
+class _FakeReplayService:
+    def __init__(self, checkpoint: OperationCheckpoint) -> None:
+        self.checkpoint = checkpoint
+        self.loaded_operation_ids: list[str] = []
+
+    async def load(self, operation_id: str) -> _FakeReplayState:
+        self.loaded_operation_ids.append(operation_id)
+        return _FakeReplayState(self.checkpoint)
+
+
 def _make_request() -> AcpPermissionRequest:
     return AcpPermissionRequest(
         request_id=1,
@@ -150,6 +171,30 @@ async def test_evaluator_llm_approve_auto_returns_approve() -> None:
         request=_make_request(),
     )
     assert result.decision is AcpPermissionDecision.APPROVE
+
+
+@pytest.mark.anyio
+async def test_evaluator_falls_back_to_v2_replay_when_legacy_store_has_no_state() -> None:
+    checkpoint = OperationCheckpoint.initial("op-v2")
+    checkpoint.objective = ObjectiveState(objective="use v2 state for permission decisions")
+    checkpoint.involvement_level = InvolvementLevel.APPROVAL_HEAVY
+    provider = _FakePermissionDecisionProvider(decision="approve")
+    replay_service = _FakeReplayService(checkpoint)
+    evaluator = ProviderBackedPermissionEvaluator(
+        provider,
+        store=_FakeOperationStore(None),
+        replay_service=replay_service,
+    )
+
+    result = await evaluator.evaluate(
+        operation_id="op-v2",
+        working_directory=Path("/tmp"),
+        request=_make_request(),
+    )
+
+    assert result.decision is AcpPermissionDecision.APPROVE
+    assert provider.call_count == 1
+    assert replay_service.loaded_operation_ids == ["op-v2"]
 
 
 @pytest.mark.anyio

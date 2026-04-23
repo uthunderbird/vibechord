@@ -13,6 +13,7 @@ from agent_operator.application import (
     OperationDeliveryCommandService,
     OperationFleetWorkbenchQueryService,
     OperationProjectDashboardQueryService,
+    OperationStateViewService,
     OperationStatusQueryService,
 )
 from agent_operator.bootstrap import (
@@ -20,6 +21,7 @@ from agent_operator.bootstrap import (
     build_command_inbox,
     build_event_sink,
     build_policy_store,
+    build_replay_service,
     build_store,
     build_trace_store,
     build_wakeup_inbox,
@@ -152,6 +154,8 @@ def build_status_query_service(settings: OperatorSettings) -> OperationStatusQue
         trace_store=build_trace_store(settings),
         background_inspection_store=build_background_run_inspection_store(settings),
         wakeup_inspection_store=build_wakeup_inbox(settings),
+        replay_service=build_replay_service(settings),
+        state_view_service=OperationStateViewService(),
         build_runtime_alert=build_runtime_alert,
         render_status_brief=render_status_brief,
         render_inspect_summary=render_inspect_summary,

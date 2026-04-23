@@ -37,7 +37,12 @@ class _FakeConnection:
 
 class _FakePermissionEvaluator:
     async def evaluate(self, **_: object) -> PermissionEvaluationResult:
-        return PermissionEvaluationResult(decision=AcpPermissionDecision.ESCALATE)
+        return PermissionEvaluationResult(
+            decision=AcpPermissionDecision.ESCALATE,
+            rationale="Brain chose to escalate.",
+            suggested_options=("Approve once", "Reject"),
+            decision_source="brain",
+        )
 
 
 def test_normalize_and_render_claude_session_permission_request() -> None:
@@ -181,7 +186,11 @@ async def _close_connection(session: AcpSessionState) -> None:
 
 def _session_state() -> AcpSessionState:
     return AcpSessionState(
-        handle=AgentSessionHandle(adapter_key="codex_acp", session_id="sess-1", metadata={}),
+        handle=AgentSessionHandle(
+            adapter_key="codex_acp",
+            session_id="sess-1",
+            metadata={"operation_id": "op-test"},
+        ),
         working_directory=Path("/tmp/repo"),
         acp_session_id="sess-1",
         connection=cast(AcpConnection, _FakeConnection()),
@@ -221,6 +230,16 @@ async def test_shared_permission_helper_records_escalation_payload() -> None:
         assert session.pending_input_message == "Codex ACP turn is waiting for approval."
         assert isinstance(session.pending_input_raw, dict)
         assert session.pending_input_raw["kind"] == "permission_escalation"
+        assert session.pending_input_raw["decision"] == "escalate"
+        assert session.pending_input_raw["decision_source"] == "brain"
+        assert session.pending_input_raw["rationale"] == "Brain chose to escalate."
+        assert session.pending_input_raw["suggested_options"] == ["Approve once", "Reject"]
+        assert [item["event_type"] for item in session.permission_event_payloads] == [
+            "permission.request.observed",
+            "permission.request.escalated",
+            "permission.request.followup_required",
+        ]
+        assert session.permission_event_payloads[1]["rationale"] == "Brain chose to escalate."
         assert session.handle.metadata["closed"] == "yes"
     finally:
         assert session.active_prompt is not None
@@ -259,6 +278,12 @@ async def test_shared_permission_helper_approve_leaves_session_open() -> None:
         assert session.pending_input_message is None
         assert session.pending_input_raw is None
         assert session.last_error is None
+        assert [item["event_type"] for item in session.permission_event_payloads] == [
+            "permission.request.observed",
+            "permission.request.decided",
+        ]
+        assert session.permission_event_payloads[1]["decision"] == "approve"
+        assert session.permission_event_payloads[1]["decision_source"] == "deterministic_rule"
         assert session.handle.metadata.get("closed") != "yes"
     finally:
         assert session.active_prompt is not None
@@ -318,7 +343,72 @@ async def test_shared_permission_helper_reject_sets_last_error_and_closes() -> N
         assert session.pending_input_message is None
         assert session.pending_input_raw is None
         assert session.last_error == "Rejected by policy."
+        assert [item["event_type"] for item in session.permission_event_payloads] == [
+            "permission.request.observed",
+            "permission.request.decided",
+            "permission.request.followup_required",
+        ]
+        assert session.permission_event_payloads[1]["decision"] == "reject"
+        assert session.permission_event_payloads[1]["rationale"] == "Rejected by policy."
         assert session.handle.metadata["closed"] == "yes"
+    finally:
+        if session.active_prompt is not None and not session.active_prompt.done():
+            session.active_prompt.cancel()
+
+
+@pytest.mark.anyio
+async def test_shared_permission_helper_claude_reject_does_not_require_followup() -> None:
+    class _RejectEvaluator:
+        async def evaluate(
+            self, *, operation_id: str, working_directory: object, request: object
+        ) -> PermissionEvaluationResult:
+            return PermissionEvaluationResult(
+                decision=AcpPermissionDecision.REJECT,
+                rationale="Rejected by operator policy.",
+            )
+
+    session = AcpSessionState(
+        handle=AgentSessionHandle(
+            adapter_key="claude_acp",
+            session_id="sess-1",
+            metadata={"operation_id": "op-test"},
+        ),
+        working_directory=Path("/tmp/repo"),
+        acp_session_id="sess-1",
+        connection=cast(AcpConnection, _FakeConnection()),
+        active_prompt=asyncio.create_task(asyncio.sleep(60, result={})),
+    )
+    try:
+        handled = await handle_permission_server_request(
+            adapter_key="claude_acp",
+            session=session,
+            payload={
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Run risky command",
+                        "rawInput": {"command": ["git", "push", "--force"]},
+                    },
+                    "options": [
+                        {"optionId": "allow_always", "kind": "allow_always"},
+                        {"optionId": "reject", "kind": "reject_once"},
+                    ],
+                },
+            },
+            auto_approve=False,
+            permission_evaluator=_RejectEvaluator(),
+            close_session_connection=_close_connection,
+        )
+
+        assert handled is True
+        assert [item["event_type"] for item in session.permission_event_payloads] == [
+            "permission.request.observed",
+            "permission.request.decided",
+        ]
+        assert session.permission_event_payloads[1]["decision"] == "reject"
     finally:
         if session.active_prompt is not None and not session.active_prompt.done():
             session.active_prompt.cancel()
@@ -346,6 +436,10 @@ async def test_shared_permission_helper_records_user_input_wait() -> None:
         assert session.pending_input_message == "Codex ACP turn requested user input."
         assert isinstance(session.pending_input_raw, dict)
         assert session.pending_input_raw["kind"] == "user_input_request"
+        assert [item["event_type"] for item in session.permission_event_payloads] == [
+            "permission.request.observed",
+            "permission.request.escalated",
+        ]
         assert session.handle.metadata["closed"] == "yes"
     finally:
         assert session.active_prompt is not None

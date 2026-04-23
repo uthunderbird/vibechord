@@ -695,11 +695,88 @@ async def test_acp_agent_session_runtime_forwards_opencode_permission_requests_t
                 },
             }
         )
-        fact = await asyncio.wait_for(next_fact_task, timeout=1.0)
+        facts = [await asyncio.wait_for(next_fact_task, timeout=1.0)]
+        for _ in range(3):
+            facts.append(await asyncio.wait_for(anext(stream), timeout=1.0))
 
-    assert fact.fact_type == "session.waiting_input_observed"
-    assert fact.session_id == "sess-1"
-    assert fact.payload["message"] == "ACP turn is waiting for approval."
+    assert [fact.fact_type for fact in facts] == [
+        "permission.request.observed",
+        "permission.request.escalated",
+        "permission.request.followup_required",
+        "session.waiting_input_observed",
+    ]
+    assert all(fact.session_id == "sess-1" for fact in facts)
+    assert facts[-1].payload["message"] == "ACP turn is waiting for approval."
     assert connection.responses == [
         (7, {"outcome": {"outcome": "selected", "optionId": "abort"}}, None)
     ]
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_scopes_permission_events_to_one_prompt_turn() -> None:
+    """Catches stale permission events leaking from a prior prompt into a later result."""
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="opencode_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    adapter = OpencodeAcpAgentAdapter(
+        connection_factory=lambda _cwd, _log_path: connection,
+    )
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+        handle_server_request=adapter._runner._hooks.handle_server_request,  # type: ignore[attr-defined]
+    )
+
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+                metadata={"operation_id": "op-1"},
+            )
+        )
+        _started = await asyncio.wait_for(anext(stream), timeout=1.0)
+        next_fact_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0.02)
+        connection.drained_notifications.append(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Edit file",
+                        "kind": "edit",
+                        "rawInput": {"command": ["git", "status"]},
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            }
+        )
+        _permission_observed = await asyncio.wait_for(next_fact_task, timeout=1.0)
+        for _ in range(3):
+            await asyncio.wait_for(anext(stream), timeout=1.0)
+
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.SEND_MESSAGE,
+                session_id="sess-1",
+                instruction="Continue with read-only inspection",
+                metadata={"operation_id": "op-1"},
+            )
+        )
+        completed = await asyncio.wait_for(anext(stream), timeout=1.0)
+
+    assert completed.fact_type == "session.completed"
+    raw_payload = completed.payload.get("raw")
+    assert isinstance(raw_payload, dict)
+    assert raw_payload["permission_events"] == []

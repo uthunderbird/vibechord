@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol
 
 from agent_operator.acp.permissions import (
     AcpPermissionDecision,
@@ -9,12 +10,17 @@ from agent_operator.acp.permissions import (
     find_matching_permission_policy,
     serialize_permission_request,
 )
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.domain import OperationState, PolicyCategory, PolicyEntry
 from agent_operator.protocols import (
     OperationStore,
     PolicyStore,
     StructuredOutputProvider,
 )
+
+
+class EventSourcedReplayReader(Protocol):
+    async def load(self, operation_id: str): ...
 
 
 class ProviderBackedPermissionEvaluator:
@@ -24,10 +30,14 @@ class ProviderBackedPermissionEvaluator:
         *,
         store: OperationStore,
         policy_store: PolicyStore | None = None,
+        replay_service: EventSourcedReplayReader | None = None,
+        state_views: OperationStateViewService | None = None,
     ) -> None:
         self._provider = provider
         self._store = store
         self._policy_store = policy_store
+        self._replay_service = replay_service
+        self._state_views = state_views or OperationStateViewService()
 
     async def evaluate(
         self,
@@ -36,13 +46,14 @@ class ProviderBackedPermissionEvaluator:
         working_directory: Path,
         request: AcpPermissionRequest,
     ) -> PermissionEvaluationResult:
-        state = await self._store.load_operation(operation_id)
+        state = await self._load_operation_state(operation_id)
         if state is None:
             return PermissionEvaluationResult(
                 decision=AcpPermissionDecision.REJECT,
                 rationale=(
-                    "Operation state was unavailable while evaluating the permission "
-                    "request, so the operator rejected it conservatively."
+                    "Operation state was unavailable in both legacy and v2 stores "
+                    "while evaluating the permission request, so the operator "
+                    "rejected it conservatively."
                 ),
                 suggested_options=("Reject",),
             )
@@ -54,6 +65,8 @@ class ProviderBackedPermissionEvaluator:
                 rationale=f"Matched stored autonomy policy {matched_policy.policy_id}.",
                 policy_title=matched_policy.title,
                 policy_rule_text=matched_policy.rule_text,
+                decision_source="active_policy",
+                policy_id=matched_policy.policy_id,
             )
 
         payload = await self._provider.evaluate_permission_request(
@@ -71,6 +84,7 @@ class ProviderBackedPermissionEvaluator:
             suggested_options=tuple(payload.suggested_options),
             policy_title=payload.policy_title,
             policy_rule_text=payload.policy_rule_text,
+            decision_source="brain",
         )
 
     async def _active_policies_for_operation(self, state: OperationState) -> list[PolicyEntry]:
@@ -87,6 +101,21 @@ class ProviderBackedPermissionEvaluator:
         except TypeError:
             policies = await self._policy_store.list(project_scope=project_scope, status=None)
         return [item for item in policies if item.category is PolicyCategory.AUTONOMY]
+
+    async def _load_operation_state(self, operation_id: str) -> OperationState | None:
+        state = await self._store.load_operation(operation_id)
+        if state is not None:
+            return state
+        if self._replay_service is None:
+            return None
+        try:
+            replay_state = await self._replay_service.load(operation_id)
+        except (FileNotFoundError, KeyError, ValueError):
+            return None
+        checkpoint = getattr(replay_state, "checkpoint", None)
+        if checkpoint is None:
+            return None
+        return self._state_views.from_checkpoint(checkpoint)
 
 
 def _decision_from_dto(raw: str, *, allow_escalation: bool) -> AcpPermissionDecision:

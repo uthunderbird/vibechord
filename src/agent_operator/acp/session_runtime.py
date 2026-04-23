@@ -55,6 +55,7 @@ class AcpAgentSessionRuntime:
         self._session_name: str | None = None
         self._one_shot = False
         self._session_metadata: dict[str, str] = {}
+        self._permission_event_payloads: list[dict[str, object]] = []
 
     async def __aenter__(self) -> AcpAgentSessionRuntime:
         await self._adapter_runtime.__aenter__()
@@ -293,6 +294,7 @@ class AcpAgentSessionRuntime:
         return connection
 
     def _start_prompt_task(self, session_id: str, instruction: str) -> None:
+        self._permission_event_payloads.clear()
         self._active_prompt_task = asyncio.create_task(self._run_prompt(session_id, instruction))
 
     async def _run_prompt(self, session_id: str, instruction: str) -> None:
@@ -314,7 +316,10 @@ class AcpAgentSessionRuntime:
             await self._emit_fact(
                 TechnicalFactDraft(
                     fact_type=fact_type,
-                    payload={"stop_reason": stop_reason} if isinstance(stop_reason, str) else {},
+                    payload={
+                        **({"stop_reason": stop_reason} if isinstance(stop_reason, str) else {}),
+                        "raw": {"permission_events": list(self._permission_event_payloads)},
+                    },
                     observed_at=datetime.now(UTC),
                     session_id=session_id,
                 )
@@ -471,6 +476,20 @@ class AcpAgentSessionRuntime:
             active_prompt=self._active_prompt_task,
         )
         await self._handle_server_request(session, dict(fact.payload))
+        self._permission_event_payloads.extend(session.permission_event_payloads)
+        for payload in session.permission_event_payloads:
+            event_type = payload.get("event_type")
+            if not isinstance(event_type, str) or not event_type:
+                continue
+            await self._emit_fact(
+                TechnicalFactDraft(
+                    fact_type=event_type,
+                    payload={key: value for key, value in payload.items() if key != "event_type"},
+                    observed_at=datetime.now(UTC),
+                    source_fact_ids=[],
+                    session_id=session_id,
+                )
+            )
         if session.pending_input_message is not None:
             if self._active_prompt_task is not None and not self._active_prompt_task.done():
                 self._active_prompt_task.cancel()
@@ -496,7 +515,10 @@ class AcpAgentSessionRuntime:
                     payload={
                         "message": session.last_error,
                         "error_code": "agent_permission_rejected",
-                        "raw": {"payload": fact.payload},
+                        "raw": {
+                            "payload": fact.payload,
+                            "permission_events": list(session.permission_event_payloads),
+                        },
                     },
                     observed_at=datetime.now(UTC),
                     source_fact_ids=[],

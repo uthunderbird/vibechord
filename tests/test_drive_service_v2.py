@@ -126,14 +126,107 @@ class IncompleteSessionManager(StubSessionManager):
                 retryable=False,
                 raw={
                     "kind": "permission_escalation",
+                    "request": {
+                        "adapter_key": "codex_acp",
+                        "method": "session/request_permission",
+                        "interaction": "approval",
+                        "working_directory": "/tmp/repo",
+                        "session_id": "sess-1",
+                        "title": "Run operator e2e",
+                        "command": ["uv", "run", "operator"],
+                        "tool_kind": "execute",
+                        "skill_name": None,
+                    },
                     "signature": {
                         "adapter_key": "codex_acp",
                         "method": "session/request_permission",
                         "interaction": "approval",
+                        "title": "Run operator e2e",
+                        "tool_kind": "execute",
+                        "skill_name": None,
                         "command": ["uv", "run", "operator"],
                     },
+                    "rationale": "Need operator decision.",
+                    "suggested_options": ["Approve", "Reject"],
                 },
             ),
+        )
+
+
+class PermissionApprovedSessionManager(StubSessionManager):
+    async def collect(self, handle):
+        self.collected = True
+        return AgentResult(
+            session_id=handle.session_id,
+            status=AgentResultStatus.SUCCESS,
+            output_text="approved and completed",
+            completed_at=datetime.now(UTC),
+            raw={
+                "permission_events": [
+                    {
+                        "event_type": "permission.request.observed",
+                        "adapter_key": "codex_acp",
+                        "session_id": "sess-1",
+                        "request": {"method": "session/request_permission"},
+                        "signature": {"adapter_key": "codex_acp"},
+                    },
+                    {
+                        "event_type": "permission.request.decided",
+                        "adapter_key": "codex_acp",
+                        "session_id": "sess-1",
+                        "request": {"method": "session/request_permission"},
+                        "signature": {"adapter_key": "codex_acp"},
+                        "decision": "approve",
+                        "decision_source": "brain",
+                        "rationale": "Harness allows this e2e check.",
+                    },
+                ]
+            },
+        )
+
+
+class PermissionRejectedSessionManager(StubSessionManager):
+    async def collect(self, handle):
+        self.collected = True
+        return AgentResult(
+            session_id=handle.session_id,
+            status=AgentResultStatus.FAILED,
+            output_text="",
+            completed_at=datetime.now(UTC),
+            error=AgentError(
+                code="agent_permission_rejected",
+                message="Rejected by operator policy.",
+                retryable=False,
+            ),
+            raw={
+                "permission_events": [
+                    {
+                        "event_type": "permission.request.observed",
+                        "adapter_key": "codex_acp",
+                        "session_id": "sess-1",
+                        "request": {"method": "session/request_permission"},
+                        "signature": {"adapter_key": "codex_acp"},
+                    },
+                    {
+                        "event_type": "permission.request.decided",
+                        "adapter_key": "codex_acp",
+                        "session_id": "sess-1",
+                        "request": {"method": "session/request_permission"},
+                        "signature": {"adapter_key": "codex_acp"},
+                        "decision": "reject",
+                        "decision_source": "brain",
+                        "rationale": "Outside harness scope.",
+                    },
+                    {
+                        "event_type": "permission.request.followup_required",
+                        "adapter_key": "codex_acp",
+                        "session_id": "sess-1",
+                        "request": {"method": "session/request_permission"},
+                        "signature": {"adapter_key": "codex_acp"},
+                        "required_followup_reason": "Codex needs replacement instructions.",
+                    },
+                ]
+            },
         )
 
 
@@ -404,7 +497,137 @@ async def test_drive_service_materializes_permission_escalation_as_attention_req
     assert attention_event.payload["target_id"] == "sess-1"
     assert attention_event.payload["blocking"] is True
     assert attention_event.payload["metadata"]["kind"] == "permission_escalation"
+    permission_events = [
+        event for event in event_sink.events if event.event_type.startswith("permission.request.")
+    ]
+    assert [event.event_type for event in permission_events] == [
+        "permission.request.observed",
+        "permission.request.escalated",
+        "permission.request.followup_required",
+    ]
+    assert permission_events[0].payload["signature"]["adapter_key"] == "codex_acp"
+    assert permission_events[1].payload["rationale"] == "Need operator decision."
+    assert (
+        permission_events[2].payload["required_followup_reason"]
+        == "codex_acp requires explicit replacement instructions after a rejected "
+        "or escalated permission request."
+    )
     assert outcome.status is OperationStatus.NEEDS_HUMAN
+
+
+@pytest.mark.anyio
+async def test_drive_service_materializes_approved_permission_decision_events() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=PermissionApprovedSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    permission_events = [
+        event for event in event_sink.events if event.event_type.startswith("permission.request.")
+    ]
+    assert [event.event_type for event in permission_events] == [
+        "permission.request.observed",
+        "permission.request.decided",
+    ]
+    assert permission_events[1].payload["decision"] == "approve"
+    assert permission_events[1].payload["decision_source"] == "brain"
+
+
+@pytest.mark.anyio
+async def test_drive_service_materializes_rejected_codex_permission_followup_events() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=PermissionRejectedSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    permission_events = [
+        event for event in event_sink.events if event.event_type.startswith("permission.request.")
+    ]
+    assert [event.event_type for event in permission_events] == [
+        "permission.request.observed",
+        "permission.request.decided",
+        "permission.request.followup_required",
+    ]
+    assert permission_events[1].payload["decision"] == "reject"
+    assert permission_events[2].payload["required_followup_reason"] == (
+        "Codex needs replacement instructions."
+    )
 
 
 @pytest.mark.anyio

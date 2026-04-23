@@ -26,7 +26,12 @@ from agent_operator.domain.event_sourcing import (
     StoredOperationDomainEvent,
 )
 from agent_operator.domain.events import RunEvent
-from agent_operator.domain.operation import OperationGoal, OperationOutcome, RunOptions
+from agent_operator.domain.operation import (
+    OperationGoal,
+    OperationOutcome,
+    OperationState,
+    RunOptions,
+)
 from agent_operator.domain.read_model import DecisionRecord
 from agent_operator.protocols import EventSink, OperationEventStore
 from agent_operator.protocols.event_sourcing import OperationCheckpointStore
@@ -36,7 +41,7 @@ if TYPE_CHECKING:
 
 
 class HistoryLedger(Protocol):
-    async def append(self, operation_id: str, outcome: OperationOutcome) -> None: ...
+    async def append(self, state: OperationState, outcome: OperationOutcome) -> None: ...
 
 
 class ReplayService(Protocol):
@@ -239,7 +244,7 @@ class DriveService:
             OperationStatus.FAILED,
             OperationStatus.CANCELLED,
         }:
-            await self._history_ledger.append(operation_id, outcome)
+            await self._history_ledger.append(self._history_state_from_aggregate(agg), outcome)
 
         return outcome
 
@@ -338,6 +343,32 @@ class DriveService:
             status=agg.status,
             summary=agg.final_summary or "",
             ended_at=datetime.now(UTC),
+        )
+
+    def _history_state_from_aggregate(self, agg: OperationAggregate) -> OperationState:
+        return OperationState(
+            operation_id=agg.operation_id,
+            goal=agg.goal,
+            policy=agg.policy,
+            execution_budget=agg.execution_budget,
+            runtime_hints=agg.runtime_hints,
+            execution_profile_overrides=dict(agg.execution_profile_overrides),
+            status=agg.status,
+            objective=agg.objective,
+            tasks=list(agg.tasks),
+            sessions=list(agg.sessions),
+            executions=list(agg.executions),
+            artifacts=list(agg.artifacts),
+            memory_entries=list(agg.memory_entries),
+            current_focus=agg.current_focus,
+            attention_requests=list(agg.attention_requests),
+            involvement_level=agg.policy.involvement_level,
+            scheduler_state=agg.scheduler_state,
+            operator_messages=list(agg.operator_messages),
+            final_summary=agg.final_summary,
+            created_at=agg.created_at,
+            updated_at=agg.updated_at,
+            run_started_at=agg.created_at,
         )
 
     async def _emit_run_events(

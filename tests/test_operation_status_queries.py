@@ -8,6 +8,7 @@ from agent_operator.application import OperationProjectionService, OperationStat
 from agent_operator.domain import (
     AgentSessionHandle,
     ExecutionProfileStamp,
+    OperationCheckpoint,
     OperationGoal,
     OperationState,
     OperationStatus,
@@ -15,6 +16,7 @@ from agent_operator.domain import (
     SessionRecord,
     SessionRecordStatus,
 )
+from agent_operator.domain.operation import ObjectiveState
 from agent_operator.testing.operator_service_support import (
     MemoryStore,
     MemoryTraceStore,
@@ -25,6 +27,23 @@ from agent_operator.testing.operator_service_support import (
 class _BackgroundInspectionStore:
     async def list_runs(self, operation_id: str) -> list:
         return []
+
+
+class _ReplayState:
+    def __init__(self, checkpoint: OperationCheckpoint) -> None:
+        self.checkpoint = checkpoint
+        self.last_applied_sequence = 1
+        self.suffix_events = []
+        self.stored_checkpoint = object()
+
+
+class _ReplayService:
+    def __init__(self, checkpoint: OperationCheckpoint) -> None:
+        self._checkpoint = checkpoint
+
+    async def load(self, operation_id: str) -> _ReplayState:
+        assert operation_id == self._checkpoint.operation_id
+        return _ReplayState(self._checkpoint)
 
 
 @pytest.mark.anyio
@@ -172,3 +191,33 @@ async def test_build_live_snapshot_omits_active_session_execution_profile_withou
 
     assert "active_session_execution_profile" not in snapshot
     assert "session_execution_profile_known" not in snapshot
+
+
+@pytest.mark.anyio
+async def test_status_payload_falls_back_to_event_sourced_replay() -> None:
+    checkpoint = OperationCheckpoint.initial("op-status-v2")
+    checkpoint.objective = ObjectiveState(objective="Report v2 status.")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.final_summary = "v2 completed"
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    operation, outcome, _, _ = await service.build_status_payload("op-status-v2")
+
+    assert outcome is None
+    assert operation is not None
+    assert operation.canonical_persistence_mode.value == "event_sourced"
+    assert operation.goal.objective == "Report v2 status."
+    assert operation.status is OperationStatus.COMPLETED
