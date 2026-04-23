@@ -365,25 +365,113 @@ def session_timeline_events(
     if session_view is not None:
         raw_events = session_view.get("timeline")
         if isinstance(raw_events, list):
+            events = [
+                TimelineEventItem.from_payload(item)
+                for item in raw_events
+                if isinstance(item, dict)
+            ]
+            events.extend(_permission_timeline_events(payload, task))
             return sort_session_timeline_events(
-                [
-                    TimelineEventItem.from_payload(item)
-                    for item in raw_events
-                    if isinstance(item, dict)
-                ]
+                _dedupe_timeline_events(events)
             )
     if not isinstance(payload, dict):
         return []
     raw_events = payload.get("timeline_events")
     if not isinstance(raw_events, list):
-        return []
+        raw_events = []
     session_id = task.linked_session_id if task is not None else None
     task_id = task.task_id if task is not None else None
     events = [TimelineEventItem.from_payload(item) for item in raw_events if isinstance(item, dict)]
+    events.extend(_permission_timeline_events(payload, task))
     if session_id is None and task_id is None:
-        return sort_session_timeline_events(events)
+        return sort_session_timeline_events(_dedupe_timeline_events(events))
     filtered = [item for item in events if item.session_id == session_id or item.task_id == task_id]
-    return sort_session_timeline_events(filtered or events)
+    return sort_session_timeline_events(_dedupe_timeline_events(filtered or events))
+
+
+def _permission_timeline_events(
+    payload: dict[str, object] | None,
+    task: OperationTaskItem | None,
+) -> list[TimelineEventItem]:
+    if not isinstance(payload, dict):
+        return []
+    raw_events = payload.get("permission_events")
+    if not isinstance(raw_events, list):
+        durable_truth = payload.get("durable_truth")
+        raw_events = (
+            durable_truth.get("permission_events") if isinstance(durable_truth, dict) else []
+        )
+    if not isinstance(raw_events, list):
+        return []
+    task_session_id = task.linked_session_id if task is not None else None
+    events: list[TimelineEventItem] = []
+    for index, raw_event in enumerate(raw_events):
+        if not isinstance(raw_event, dict):
+            continue
+        payload_data = raw_event.get("payload")
+        payload_dict = payload_data if isinstance(payload_data, dict) else {}
+        session_id = optional_text(payload_dict.get("session_id"))
+        if task_session_id is not None and session_id not in {None, task_session_id}:
+            continue
+        event_type = optional_text(raw_event.get("event_type")) or "permission.request"
+        events.append(
+            TimelineEventItem(
+                event_type=event_type,
+                iteration=optional_int(raw_event.get("sequence")),
+                task_id=(
+                    task.task_id if task is not None else optional_text(payload_dict.get("task_id"))
+                ),
+                session_id=session_id,
+                summary=_permission_timeline_summary(
+                    event_type,
+                    payload_dict,
+                    fallback_index=index,
+                ),
+            )
+        )
+    return events
+
+
+def _permission_timeline_summary(
+    event_type: str,
+    payload: dict[object, object],
+    *,
+    fallback_index: int,
+) -> str:
+    adapter = optional_text(payload.get("adapter_key"))
+    session = optional_text(payload.get("session_id"))
+    prefix = "permission request"
+    if adapter is not None:
+        prefix += f" for {adapter}"
+    if session is not None:
+        prefix += f" session={session}"
+    if event_type == "permission.request.decided":
+        decision = optional_text(payload.get("decision")) or "decided"
+        source = optional_text(payload.get("decision_source"))
+        return f"{prefix} {decision}" + (f" via {source}" if source is not None else "")
+    if event_type == "permission.request.escalated":
+        rationale = optional_text(payload.get("rationale")) or optional_text(
+            payload.get("escalation_rationale")
+        )
+        return f"{prefix} escalated" + (f": {rationale}" if rationale is not None else "")
+    if event_type == "permission.request.followup_required":
+        reason = optional_text(payload.get("required_followup_reason"))
+        return f"{prefix} follow-up required" + (f": {reason}" if reason is not None else "")
+    if event_type == "permission.request.observed":
+        return f"{prefix} observed"
+    return f"{prefix} event {fallback_index + 1}"
+
+
+def _dedupe_timeline_events(events: list[TimelineEventItem]) -> list[TimelineEventItem]:
+    seen: set[tuple[str, int, str | None, str | None, str]] = set()
+    deduped: list[TimelineEventItem] = []
+    for event in events:
+        key = (event.event_type, event.iteration, event.task_id, event.session_id, event.summary)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(event)
+    return deduped
 
 
 def sort_session_timeline_events(events: list[TimelineEventItem]) -> list[TimelineEventItem]:

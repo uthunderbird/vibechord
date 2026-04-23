@@ -17,6 +17,7 @@ from agent_operator.cli.tui.models import (
     dashboard_tasks,
     session_brief,
     session_identity_text,
+    session_timeline_events,
     task_signal_text,
 )
 from agent_operator.cli.tui.rendering import (
@@ -998,6 +999,82 @@ def test_tui_session_views_prefer_runtime_alert_over_stale_waiting_reason() -> N
     assert identity == (
         "Session: codex_acp · session-1 · running · "
         "2 wakeup(s) are pending reconciliation."
+    )
+
+
+def test_tui_session_timeline_includes_replayed_permission_events() -> None:
+    payload = {
+        "tasks": [
+            {
+                "task_id": "task-1",
+                "task_short_id": "task-1",
+                "title": "Handle permission",
+                "linked_session_id": "session-1",
+            }
+        ],
+        "session_views": [
+            {
+                "task_id": "task-1",
+                "timeline": [],
+            }
+        ],
+        "permission_events": [
+            {
+                "event_type": "permission.request.followup_required",
+                "sequence": 12,
+                "payload": {
+                    "adapter_key": "codex_acp",
+                    "session_id": "session-1",
+                    "required_followup_reason": "Codex needs replacement instructions.",
+                },
+            }
+        ],
+    }
+    task = dashboard_tasks(payload)[0]
+
+    events = session_timeline_events(payload, task)
+
+    assert [event.event_type for event in events] == ["permission.request.followup_required"]
+    assert events[0].session_id == "session-1"
+    assert events[0].summary == (
+        "permission request for codex_acp session=session-1 follow-up required: "
+        "Codex needs replacement instructions."
+    )
+
+
+def test_tui_session_timeline_reads_permission_events_from_durable_truth() -> None:
+    payload = {
+        "tasks": [
+            {
+                "task_id": "task-1",
+                "task_short_id": "task-1",
+                "title": "Handle permission",
+                "linked_session_id": "session-1",
+            }
+        ],
+        "timeline_events": [],
+        "durable_truth": {
+            "permission_events": [
+                {
+                    "event_type": "permission.request.decided",
+                    "sequence": 8,
+                    "payload": {
+                        "adapter_key": "codex_acp",
+                        "session_id": "session-1",
+                        "decision": "reject",
+                        "decision_source": "brain",
+                    },
+                }
+            ]
+        },
+    }
+    task = dashboard_tasks(payload)[0]
+
+    events = session_timeline_events(payload, task)
+
+    assert [event.event_type for event in events] == ["permission.request.decided"]
+    assert events[0].summary == (
+        "permission request for codex_acp session=session-1 reject via brain"
     )
 
 

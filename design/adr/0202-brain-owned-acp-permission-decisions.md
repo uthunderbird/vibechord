@@ -40,8 +40,8 @@ Skim-safe status:
   wait, deterministic approval, active-policy replay, provider-backed brain decisions, v2 replay
   fallback, Codex explicit follow-up, Claude no-follow-up, OpenCode conservative follow-up,
   permission-event streaming, prompt-turn-scoped permission event accumulation, v2
-  materialization, status/inspect durable-truth replay, incompatible checkpoint replay, and
-  event-sourced operation id resolution
+  materialization, status/inspect durable-truth replay, TUI replay consumption, incompatible
+  checkpoint replay, and event-sourced operation id resolution
 
 ## Context
 
@@ -327,6 +327,11 @@ Current verification evidence on 2026-04-23:
   passed (`1 passed`)
 - `uv run ruff check src/agent_operator/domain/checkpoints.py src/agent_operator/domain/operation.py src/agent_operator/projectors/operation.py src/agent_operator/application/queries/operation_state_views.py src/agent_operator/application/queries/operation_projections.py src/agent_operator/application/queries/aggregate_query_adapter.py tests/test_operation_projector.py tests/test_operation_status_queries.py`
   passed
+- `uv run pytest tests/test_tui.py -q` passed (`77 passed`) after adding coverage for replayed
+  permission events in the TUI session timeline from both top-level dashboard payloads and
+  durable-truth payloads
+- `uv run ruff check src/agent_operator/cli/tui/models.py tests/test_tui.py` passed
+- `uv run pytest` passed (`925 passed, 11 skipped`) after the TUI replay-consumption slice
 
 ## Closure Criteria
 
