@@ -24,7 +24,14 @@ Implementation grounding on 2026-04-23:
   applied
 - `verified`: dedicated drive-loop, answer-resolution, legitimate-exit discriminator, and CLI
   regression tests cover the current repository truth
-- `verified`: full `pytest -q` passes at the repository state that accepts this ADR
+- `verified`: targeted closure tests passed on 2026-04-23:
+  `tests/test_decision_execution_service.py::test_request_clarification_creates_blocking_attention_request`,
+  `tests/test_operation_drive_service.py::test_attached_mode_inline_waits_on_blocking_attention_until_answered`,
+  `tests/test_operation_command_service.py::test_answer_attention_request_seeds_snapshot_only_attention_before_answering`,
+  `tests/test_agent_result_service.py::test_rate_limited_agent_blocks_operation_for_cooldown_without_retrying`,
+  and `tests/test_cli.py::test_run_streams_blocking_attention_wait_and_resume_messages`
+- `verified`: full `pytest -q` passed on 2026-04-23 at the repository state that accepts this ADR
+  (`892 passed, 11 skipped`)
 
 ## Context
 
@@ -117,4 +124,4 @@ Rejected: this recreates the exact "keep resuming it" anti-pattern ADR 0008 was 
 | Answering the blocking attention must unblock the loop and resolve the request | `src/agent_operator/application/commands/operation_commands.py:856-875`; `src/agent_operator/application/commands/operation_commands.py:504-552` | `tests/test_operation_command_service.py::test_answer_attention_request_seeds_snapshot_only_attention_before_answering` |
 | Non-attention `NEEDS_HUMAN` remains a legitimate attached-mode exit | `src/agent_operator/application/drive/operation_drive.py:416-420` | `tests/test_agent_result_service.py::test_rate_limited_agent_blocks_operation_for_cooldown_without_retrying` |
 | Attached CLI must show explicit wait/resume guidance | `src/agent_operator/cli/rendering/text.py:624-639` | `tests/test_cli.py::test_run_streams_blocking_attention_wait_and_resume_messages` |
-| Current repository state is verified, not inferred | this ADR document plus the implementation above | `uv run ruff check src/agent_operator/cli/rendering/text.py tests/test_cli.py`; `uv run mypy src/agent_operator/cli/rendering/text.py`; `pytest -q`; targeted ADR tests listed above |
+| Current repository state is verified, not inferred | this ADR document plus the implementation above | `pytest -q tests/test_decision_execution_service.py -k test_request_clarification_creates_blocking_attention_request`; `pytest -q tests/test_operation_drive_service.py -k test_attached_mode_inline_waits_on_blocking_attention_until_answered`; `pytest -q tests/test_operation_command_service.py -k test_answer_attention_request_seeds_snapshot_only_attention_before_answering`; `pytest -q tests/test_agent_result_service.py -k test_rate_limited_agent_blocks_operation_for_cooldown_without_retrying`; `pytest -q tests/test_cli.py -k test_run_streams_blocking_attention_wait_and_resume_messages`; `pytest -q` |
