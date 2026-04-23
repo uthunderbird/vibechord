@@ -4,11 +4,25 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Verified
+
+Skim-safe status on 2026-04-23:
+
+- `implemented`: `AgentRunSupervisorV2` is the centralized in-process background-task registry for
+  v2 drive/runtime code
+- `implemented`: supervisor state is keyed by operation/session identity, rejects new spawns while
+  draining, and exposes active-task plus tracked-session views needed by shutdown and orphan
+  detection
+- `implemented`: `OperatorServiceV2` now maintains `_drive_tasks`, requests drain on active drive
+  contexts first, then marks the supervisor draining, waits for drive tasks to finish, and only
+  then cancels remaining background tasks
+- `verified`: dedicated supervisor and `OperatorServiceV2` shutdown-order regression tests cover
+  spawn/track/cancel/drain behavior and the load-bearing shutdown sequence
+- `verified`: full repository suite passed on 2026-04-23 via `uv run pytest`
 
 ## Context
 
@@ -89,3 +103,24 @@ On SIGTERM, `OperatorServiceV2._on_sigterm()` executes the following steps in or
 - `InProcessAgentRunSupervisor` is a shared singleton across all concurrent operations on one operator process — thread-safety is a non-issue (single-threaded asyncio) but the task registry must be keyed by `(operation_id, session_id)` to avoid cross-operation collisions.
 - The v1 ad-hoc task management in `DecisionExecutionService` is deleted — see ADR 0194.
 - If future scaling requires multi-process agent execution, the `AgentRunStore` protocol (used by `RuntimeReconciler`) is the extension point — a new implementation of `AgentRunStore` backed by an external queue would satisfy the protocol without changing the drive loop.
+
+## Repository Implementation
+
+- `src/agent_operator/application/drive/agent_run_supervisor.py` implements the centralized
+  in-process task registry, drain gate, active-task query surface, and retained tracked-session
+  registry
+- `src/agent_operator/application/operator_service_v2.py` wires the supervisor into shutdown by
+  maintaining `_drive_tasks`, requesting drain on all active contexts, awaiting drive-loop exit,
+  then cancelling background tasks
+- `src/agent_operator/application/drive/policy_executor.py` registers background work with the v2
+  supervisor when available
+
+## Closure Evidence Matrix
+
+| ADR line / closure claim | Repository evidence | Verification |
+| --- | --- | --- |
+| Background runs are managed as centralized in-process asyncio tasks | `src/agent_operator/application/drive/agent_run_supervisor.py` | `tests/test_agent_run_supervisor.py` |
+| Supervisor tracks active tasks and retained session ids by operation/session identity | `src/agent_operator/application/drive/agent_run_supervisor.py` | `tests/test_agent_run_supervisor.py::test_get_tasks_for_operation_returns_active_only`; `tests/test_agent_run_supervisor.py::test_get_all_tracked_session_ids_persists_after_completion` |
+| Draining rejects new spawns and shutdown cancellation is explicit | `src/agent_operator/application/drive/agent_run_supervisor.py` | `tests/test_agent_run_supervisor.py::test_mark_draining_rejects_new_spawns`; `tests/test_agent_run_supervisor.py::test_cancel_all_cancels_active_tasks` |
+| `OperatorServiceV2` waits for drive-loop exit before cancelling background tasks | `src/agent_operator/application/operator_service_v2.py:217-230` | `tests/test_operator_service_v2.py::test_on_sigterm_requests_drain_before_cancelling_supervisor_tasks`; `tests/test_operator_service_v2.py::test_on_sigterm_waits_for_drive_exit_before_cancelling_background_tasks` |
+| Current repository state is verified, not inferred | this ADR plus the implementation above | `uv run pytest` |

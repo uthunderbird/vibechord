@@ -131,6 +131,16 @@ class RecordingSupervisor(AgentRunSupervisorV2):
         super().cancel_all()
 
 
+class OrderingSupervisor(RecordingSupervisor):
+    def __init__(self, *, drive_exited: asyncio.Event) -> None:
+        super().__init__()
+        self._drive_exited = drive_exited
+
+    def cancel_all(self) -> None:
+        assert self._drive_exited.is_set() is True
+        super().cancel_all()
+
+
 def _make_service(
     drive: StubDriveService | None = None,
     store: StubEventStore | None = None,
@@ -303,6 +313,37 @@ async def test_on_sigterm_requests_drain_before_cancelling_supervisor_tasks():
     assert supervisor.calls == ["mark_draining", "cancel_all"]
     assert background_task.cancelled() is True
     assert svc._drive_tasks == []
+
+
+@pytest.mark.anyio
+async def test_on_sigterm_waits_for_drive_exit_before_cancelling_background_tasks():
+    """Catches the mutation where shutdown cancels background tasks before drive loops exit."""
+    drive = ShutdownAwareDriveService()
+    store = StubEventStore()
+    supervisor = OrderingSupervisor(drive_exited=drive.exited)
+
+    async def _background() -> None:
+        await asyncio.sleep(3600)
+
+    background_task = supervisor.spawn(
+        _background(),
+        operation_id="op-shutdown",
+        session_id="session-1",
+    )
+    svc = OperatorServiceV2(
+        drive_service=drive,
+        event_store=store,
+        supervisor=supervisor,
+    )
+
+    resume_task = asyncio.create_task(svc.resume("op-shutdown"))
+    await drive.started.wait()
+
+    await svc._on_sigterm()
+    await asyncio.gather(resume_task, background_task, return_exceptions=True)
+
+    assert drive.exited.is_set() is True
+    assert background_task.cancelled() is True
 
 
 @pytest.mark.anyio
