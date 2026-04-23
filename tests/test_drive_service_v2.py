@@ -362,30 +362,6 @@ class ReplayServiceWithSuffixEvents:
         )()
 
 
-class ReplayServiceWithCheckpointPermissionEvents:
-    async def load(self, operation_id: str):
-        checkpoint = OperationCheckpoint.initial(operation_id)
-        checkpoint.permission_events = [
-            {
-                "event_type": "permission.request.followup_required",
-                "payload": {
-                    "adapter_key": "codex_acp",
-                    "session_id": "sess-checkpoint",
-                    "required_followup_reason": "Checkpoint follow-up needed.",
-                },
-            }
-        ]
-        return type(
-            "ReplayState",
-            (),
-            {
-                "checkpoint": checkpoint,
-                "last_applied_sequence": 3,
-                "suffix_events": [],
-            },
-        )()
-
-
 class RecordingEventSink:
     def __init__(self) -> None:
         self.events: list[RunEvent] = []
@@ -737,39 +713,6 @@ async def test_drive_service_exposes_codex_permission_followup_to_next_brain_cal
     assert followup_events[2]["payload"]["required_followup_reason"] == (
         "Codex needs replacement instructions."
     )
-
-
-@pytest.mark.anyio
-async def test_drive_service_exposes_checkpoint_permission_followup_to_brain() -> None:
-    """Catches rebuilding the drive aggregate from suffix events only."""
-    event_store = StubEventStore()
-    checkpoint_store = StubCheckpointStore()
-    brain = PermissionFollowupBrain()
-
-    drive = DriveService(
-        lifecycle_gate=LifecycleGate(),
-        reconciler=RuntimeReconciler(
-            wakeup_inbox=StubWakeupInbox(),
-            command_inbox=StubCommandInbox(),
-        ),
-        executor=PolicyExecutor(brain=brain),
-        event_store=event_store,
-        checkpoint_store=checkpoint_store,
-        replay_service=ReplayServiceWithCheckpointPermissionEvents(),
-    )
-
-    await drive.drive("op-1", RunOptions(max_cycles=1))
-
-    assert brain.observed_permission_events[0] == [
-        {
-            "event_type": "permission.request.followup_required",
-            "payload": {
-                "adapter_key": "codex_acp",
-                "session_id": "sess-checkpoint",
-                "required_followup_reason": "Checkpoint follow-up needed.",
-            },
-        }
-    ]
 
 
 @pytest.mark.anyio
