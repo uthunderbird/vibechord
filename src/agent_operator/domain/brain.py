@@ -17,6 +17,7 @@ from agent_operator.domain.operation import (
 
 class BrainDecision(BaseModel):
     action_type: BrainActionType
+    more_actions: bool = False
     target_agent: str | None = None
     session_id: str | None = None
     session_name: str | None = None

@@ -6280,6 +6280,94 @@ def test_run_json_streams_event_objects_and_outcome(tmp_path: Path, monkeypatch)
     assert lines[3]["outcome"]["summary"] == "Structured live run finished."
 
 
+def test_run_streams_blocking_attention_wait_and_resume_messages(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: project",
+                "default_objective: Close open cards",
+                "cwd: .",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.delenv("OPERATOR_DATA_DIR", raising=False)
+
+    class FakeService:
+        def __init__(self, event_sink) -> None:
+            self._event_sink = event_sink
+
+        async def run(
+            self,
+            goal,
+            options,
+            *,
+            operation_id=None,
+            attached_sessions=None,
+            policy=None,
+            budget=None,
+            runtime_hints=None,
+        ):
+            del goal, options, attached_sessions, policy, budget, runtime_hints
+            assert self._event_sink is not None
+            live_operation_id = operation_id or "op-live-attention"
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="attention.request.created",
+                    operation_id=live_operation_id,
+                    iteration=1,
+                    payload={
+                        "operation_id": live_operation_id,
+                        "attention_id": "attention-live-1",
+                        "attention_type": "approval_request",
+                        "title": "Agent requested approval",
+                        "blocking": True,
+                        "status": "open",
+                    },
+                    category="trace",
+                )
+            )
+            await self._event_sink.emit(
+                RunEvent(
+                    event_type="command.applied",
+                    operation_id=live_operation_id,
+                    iteration=1,
+                    payload={
+                        "command_id": "cmd-live-1",
+                        "command_type": "answer_attention_request",
+                        "status": "applied",
+                        "prior_status": "accepted",
+                    },
+                    category="trace",
+                )
+            )
+            return OperationOutcome(
+                operation_id=live_operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Structured live run finished.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(event_sink),
+    )
+
+    result = runner.invoke(app, ["run", "Close open cards"])
+
+    assert result.exit_code == 0
+    assert "[iter 1] Attention needed: Agent requested approval." in result.stdout
+    assert 'attention-live-1 --text "..."' in result.stdout
+    assert "Run: operator answer " in result.stdout
+    assert "[iter 1] Answer received. Resuming..." in result.stdout
+    assert "completed: Structured live run finished." in result.stdout
+
+
 def test_run_wait_brief_uses_semantic_exit_code_for_resumable_completion(
     tmp_path: Path, monkeypatch
 ) -> None:

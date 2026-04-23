@@ -6,6 +6,7 @@ from agent_operator.domain import (
     AgentTurnBrief,
     AttentionRequest,
     InvolvementLevel,
+    IterationBrief,
     OperationState,
     RunEvent,
     SchedulerState,
@@ -459,8 +460,8 @@ def render_inspect_summary(
     *,
     summary: dict[str, object],
     brief: object,
-    recent_iteration_briefs: Callable[[object], list],
-    recent_agent_turn_briefs: Callable[[object], list],
+    recent_iteration_briefs: Callable[[object], list[IterationBrief]],
+    recent_agent_turn_briefs: Callable[[object], list[AgentTurnBrief]],
     shorten_paragraph_text: Callable[[str | None], str | None],
     turn_work_summary: Callable[[AgentTurnBrief | None], str | None],
     turn_verification_summary: Callable[[AgentTurnBrief | None], str | None],
@@ -620,8 +621,22 @@ def format_live_event(
         if summary is not None:
             rendered += f" | {summary}"
         return rendered
+    if event.event_type == "attention.request.created":
+        attention_id = str(payload.get("attention_id", "")).strip() or None
+        operation_id = (
+            str(payload.get("operation_id", "")).strip() or event.operation_id or None
+        )
+        title = shorten_live_text(str(payload.get("title", "")).strip()) or "attention request"
+        if bool(payload.get("blocking")) and attention_id is not None and operation_id is not None:
+            return (
+                f'{prefix}Attention needed: {title}. Run: operator answer '
+                f'{operation_id} {attention_id} --text "..."'
+            )
+        return f"{prefix}attention created: {title}"
     if event.event_type == "command.applied":
         command_type = str(payload.get("command_type", "")).strip() or "unknown"
+        if command_type == "answer_attention_request":
+            return f"{prefix}Answer received. Resuming..."
         if command_type == "set_execution_profile":
             adapter_key = str(payload.get("adapter_key", "")).strip() or "agent"
             previous_model = str(payload.get("previous_model", "")).strip() or "unknown"
