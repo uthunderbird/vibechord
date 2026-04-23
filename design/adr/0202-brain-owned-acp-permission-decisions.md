@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Verified
+Implemented
 
 Skim-safe status:
 
@@ -39,12 +39,14 @@ Skim-safe status:
   not need raw event-log access to see permission follow-up evidence
 - `implemented`: OpenCode post-rejection behavior remains intentionally conservative; until it is
   characterized, `opencode_acp` is treated as requiring explicit follow-up like Codex
-- `verified`: unit and integration coverage exercises approval, rejection, escalation, user-input
+- `verified`: local unit and integration coverage exercises approval, rejection, escalation, user-input
   wait, deterministic approval, active-policy replay, provider-backed brain decisions, v2 replay
   fallback, Codex explicit follow-up, Claude no-follow-up, OpenCode conservative follow-up,
   permission-event streaming, prompt-turn-scoped permission event accumulation, v2
   materialization, status/inspect durable-truth replay, TUI replay consumption, incompatible
   checkpoint replay, and event-sourced operation id resolution
+- `blocked`: full `Verified` status still requires the `../erdosreshala/problems/625` e2e smoke
+  named in this ADR's closure criteria
 
 ## Context
 
@@ -347,6 +349,15 @@ Current verification evidence on 2026-04-23:
 - `uv run ruff check src/agent_operator/domain/aggregate.py src/agent_operator/application/drive/policy_executor.py src/agent_operator/application/drive/drive_service.py src/agent_operator/application/event_sourcing/event_sourced_replay.py tests/test_drive_service_v2.py`
   passed
 - `uv run pytest` passed (`927 passed, 11 skipped`) after the v2 drive brain-bridge slice
+- `uv run pytest tests/test_drive_service_v2.py::test_drive_service_exposes_checkpoint_permission_followup_to_brain -q`
+  passed (`1 passed`) after closing a gap where `DriveService` rebuilt the aggregate from suffix
+  events only and could drop checkpoint-stored permission follow-up evidence before the next brain
+  decision
+- `uv run pytest tests/test_acp_permissions.py tests/test_agent_session_runtime.py tests/test_drive_service_v2.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_permission_evaluator.py tests/test_tui.py -q`
+  passed (`145 passed`)
+- `uv run pytest` passed (`928 passed, 11 skipped`)
+- `blocked`: the external `../erdosreshala/problems/625` e2e smoke has not been run in this
+  evidence wave, so Implementation Status remains `Implemented` rather than `Verified`
 
 ## Closure Criteria
 
