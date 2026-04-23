@@ -41,6 +41,9 @@ def test_create_initialises_defaults() -> None:
     assert agg.pending_attention_resolution_ids == []
     assert agg.current_focus is None
     assert agg.final_summary is None
+    assert not hasattr(agg, "active_policies")
+    assert not hasattr(agg, "policy_coverage")
+    assert not hasattr(agg, "involvement_level")
 
 
 def test_create_sets_objective_from_goal() -> None:
@@ -109,6 +112,16 @@ def test_allowed_agents_updated_via_event() -> None:
     result = agg.apply_events([event])
 
     assert result.allowed_agents == ["claude", "codex"]
+
+
+def test_involvement_level_update_rewrites_policy_not_aggregate_shadow() -> None:
+    agg = OperationAggregate.create(_goal(), policy=OperationPolicy(involvement_level="auto"))
+    event = _event("operation.involvement_level.updated", {"involvement_level": "unattended"})
+
+    result = agg.apply_events([event])
+
+    assert result.policy.involvement_level.value == "unattended"
+    assert not hasattr(result, "involvement_level")
 
 
 def test_operation_created_updates_policy_budget_and_runtime_hints() -> None:
@@ -253,3 +266,18 @@ def test_operator_messages_capped_at_50() -> None:
     assert len(result.operator_messages) == 50
     # Should keep the most recent 50
     assert result.operator_messages[-1].message_id == "msg-54"
+
+
+def test_policy_cache_events_are_ignored_by_aggregate() -> None:
+    agg = OperationAggregate.create(_goal())
+
+    result = agg.apply_events(
+        [
+            _event("policy.coverage.updated", {"status": "covered"}),
+            _event("policy.active_set.updated", {"policies": [{"policy_id": "p-1"}]}),
+        ]
+    )
+
+    assert result == agg
+    assert not hasattr(result, "policy_coverage")
+    assert not hasattr(result, "active_policies")

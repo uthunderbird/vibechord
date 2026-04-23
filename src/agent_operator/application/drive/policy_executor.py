@@ -28,6 +28,7 @@ from agent_operator.domain.enums import (
 )
 from agent_operator.domain.event_sourcing import OperationDomainEventDraft
 from agent_operator.domain.operation import OperationState, RunOptions
+from agent_operator.domain.policy import PolicyCoverage
 from agent_operator.domain.read_model import DecisionRecord
 from agent_operator.dtos.requests import AgentRunRequest
 from agent_operator.protocols import OperatorBrain
@@ -399,9 +400,9 @@ class PolicyExecutor:
             memory_entries=list(agg.memory_entries),
             current_focus=agg.current_focus,
             attention_requests=list(agg.attention_requests),
-            active_policies=list(agg.active_policies),
-            policy_coverage=ctx.policy_context or agg.policy_coverage,
-            involvement_level=agg.involvement_level,
+            active_policies=[],
+            policy_coverage=ctx.policy_context or PolicyCoverage(),
+            involvement_level=agg.policy.involvement_level,
             scheduler_state=agg.scheduler_state,
             operator_messages=list(agg.operator_messages),
         )

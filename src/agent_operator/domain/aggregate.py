@@ -38,7 +38,6 @@ from agent_operator.domain.operation import (
     SessionState,
     TaskState,
 )
-from agent_operator.domain.policy import PolicyCoverage, PolicyEntry
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,7 +67,6 @@ class OperationAggregate:
     external_ticket: ExternalTicketLink | None
     final_summary: str | None
     allowed_agents: list[str]
-    involvement_level: InvolvementLevel
     created_at: datetime
     updated_at: datetime
 
@@ -77,8 +75,6 @@ class OperationAggregate:
     scheduler_state: SchedulerState
     operator_messages: list[OperatorMessage]
     attention_requests: list[AttentionRequest]
-    active_policies: list[PolicyEntry]
-    policy_coverage: PolicyCoverage
     processed_command_ids: list[str]
     pending_replan_command_ids: list[str]
     pending_attention_resolution_ids: list[str]
@@ -117,15 +113,12 @@ class OperationAggregate:
             external_ticket=None,
             final_summary=None,
             allowed_agents=list(resolved_policy.allowed_agents),
-            involvement_level=resolved_policy.involvement_level,
             created_at=now,
             updated_at=now,
             current_focus=None,
             scheduler_state=SchedulerState.ACTIVE,
             operator_messages=[],
             attention_requests=[],
-            active_policies=[],
-            policy_coverage=PolicyCoverage(),
             processed_command_ids=[],
             pending_replan_command_ids=[],
             pending_attention_resolution_ids=[],
@@ -165,12 +158,7 @@ class OperationAggregate:
             else:
                 new_objective = self.objective
             allowed = payload.get("allowed_agents", list(self.allowed_agents))
-            involvement_raw = payload.get("involvement_level", self.involvement_level.value)
-            involvement = (
-                InvolvementLevel(involvement_raw)
-                if isinstance(involvement_raw, str)
-                else self.involvement_level
-            )
+            involvement_raw = payload.get("involvement_level", self.policy.involvement_level.value)
             policy_payload = payload.get("policy")
             if isinstance(policy_payload, dict):
                 new_policy = OperationPolicy(**policy_payload)
@@ -178,7 +166,7 @@ class OperationAggregate:
                 new_policy = self.policy.model_copy(
                     update={
                         "allowed_agents": list(allowed),
-                        "involvement_level": involvement,
+                        "involvement_level": involvement_raw,
                     }
                 )
             execution_budget_payload = payload.get("execution_budget")
@@ -200,7 +188,6 @@ class OperationAggregate:
                 runtime_hints=new_runtime_hints,
                 objective=new_objective,
                 allowed_agents=allowed,
-                involvement_level=involvement,
                 updated_at=now,
             )
 
@@ -232,9 +219,16 @@ class OperationAggregate:
             )
 
         if event_type == "operation.involvement_level.updated":
-            raw = payload.get("involvement_level", self.involvement_level.value)
-            level = InvolvementLevel(raw) if isinstance(raw, str) else self.involvement_level
-            return dataclasses.replace(self, involvement_level=level, updated_at=now)
+            raw = payload.get("involvement_level", self.policy.involvement_level.value)
+            if isinstance(raw, str):
+                return dataclasses.replace(
+                    self,
+                    policy=self.policy.model_copy(
+                        update={"involvement_level": InvolvementLevel(raw)}
+                    ),
+                    updated_at=now,
+                )
+            return self
 
         if event_type == "operation.execution_profile.updated":
             overrides = dict(self.execution_profile_overrides)
@@ -379,15 +373,6 @@ class OperationAggregate:
                     m = m.model_copy(update={"dropped_from_context": True})
                 updated_msgs.append(m)
             return dataclasses.replace(self, operator_messages=updated_msgs, updated_at=now)
-
-        # ── Policy slice ──────────────────────────────────────────────────────
-        if event_type == "policy.coverage.updated":
-            new_coverage = PolicyCoverage(**payload)
-            return dataclasses.replace(self, policy_coverage=new_coverage, updated_at=now)
-
-        if event_type == "policy.active_set.updated":
-            new_policies = [PolicyEntry(**p) for p in payload.get("policies", [])]
-            return dataclasses.replace(self, active_policies=new_policies, updated_at=now)
 
         # ── Focus slice ───────────────────────────────────────────────────────
         if event_type == "operation.focus.updated":

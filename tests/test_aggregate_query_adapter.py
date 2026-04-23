@@ -15,6 +15,7 @@ from agent_operator.domain.enums import (
     SchedulerState,
 )
 from agent_operator.domain.operation import AttentionRequest, OperationGoal
+from agent_operator.domain.policy import PolicyCoverageStatus
 
 
 def _make_agg(**kwargs) -> OperationAggregate:
@@ -64,6 +65,20 @@ def test_aggregate_to_state_preserves_operation_id():
     agg = _make_agg()
     state = aggregate_to_state(agg)
     assert state.operation_id == "op-test"
+
+
+def test_aggregate_to_state_derives_policy_context_from_policy_and_goal_metadata() -> None:
+    agg = OperationAggregate.create(
+        goal=OperationGoal(objective="test", metadata={"policy_scope": "profile:test"}),
+        operation_id="op-test",
+    )
+
+    state = aggregate_to_state(agg)
+
+    assert state.involvement_level is agg.policy.involvement_level
+    assert state.policy_coverage.project_scope == "profile:test"
+    assert state.policy_coverage.status is PolicyCoverageStatus.NO_SCOPE
+    assert state.active_policies == []
 
 
 def test_adapter_build_status_action_hint_open_attention():

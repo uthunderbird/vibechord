@@ -127,7 +127,7 @@ def _policy_match_state(agg: OperationAggregate) -> OperationState:
         attention_requests=list(agg.attention_requests),
         active_policies=[],
         policy_coverage=PolicyCoverage(),
-        involvement_level=agg.involvement_level,
+        involvement_level=agg.policy.involvement_level,
         scheduler_state=agg.scheduler_state,
         operator_messages=list(agg.operator_messages),
     )

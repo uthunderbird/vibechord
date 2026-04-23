@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 ## Context
 
@@ -104,27 +104,32 @@ This is a breaking change from v1 where these fields lived in `OperationState`.
 ## Repository Evidence
 
 - `src/agent_operator/domain/aggregate.py` implements immutable `OperationAggregate.create()` and
-  `apply_events()`, covering canonical and coordination-state event application.
+  `apply_events()`, and no longer stores `active_policies`, `policy_coverage`, or
+  `involvement_level` on the aggregate itself.
 - `src/agent_operator/domain/read_model.py` defines the separate `OperationReadModel` and
   `DecisionRecord` types outside the aggregate.
 - `src/agent_operator/application/queries/operation_read_model_projector.py` now projects
   `operation.created`, `brain.decision.made`, `agent.turn.completed`, and
   `operation.status.changed` into the read model without using `OperationState`.
+- `src/agent_operator/application/drive/process_manager_context.py` rebuilds policy coverage as
+  per-drive-call ephemeral state, and `src/agent_operator/application/drive/policy_executor.py`
+  now seeds brain-facing `OperationState` bridges from that ephemeral policy context plus
+  `agg.policy.involvement_level`.
 - `src/agent_operator/application/queries/aggregate_query_adapter.py` provides the temporary
-  aggregate-to-v1 query bridge while the remaining projection surfaces are still on the v1 model.
+  aggregate-to-v1 query bridge with defaulted policy-cache fields rather than aggregate-owned
+  runtime-policy truth.
 
-## Remaining Blockers
+## Residual Follow-On Work
 
-- `OperationAggregate` still carries `active_policies`, `policy_coverage`, and
-  `involvement_level`; those runtime/policy-context fields must move out to
-  `ProcessManagerContext` before ADR 0196 can close and before this ADR can reach `Verified`.
-- The wider query and brain-entry surfaces still bridge back through `OperationState`, so the v2
-  aggregate boundary is not yet the sole application truth.
-- The v1 runtime and service shell remain live beside the v2 tranche, so ADR 0194 and ADR 0195
-  are still open dependencies for full closure.
+- The wider query and brain-entry surfaces still use temporary `OperationState` bridges in some
+  places, so this ADR is verified for aggregate boundary classification rather than for full
+  repository-wide v2 cutover.
+- The v1 runtime and service shell remain live beside the v2 tranche; that is tracked by ADR 0194
+  and does not block this ADR's aggregate-boundary closure.
 
 ## Verification
 
-Verified locally on 2026-04-23 with targeted unit coverage:
+Verified locally on 2026-04-23 with targeted unit coverage plus the full repository suite:
 
 - `pytest -q tests/test_operation_aggregate.py tests/test_operation_read_model_projector.py tests/test_aggregate_query_adapter.py tests/test_lifecycle_gate.py tests/test_runtime_reconciler.py tests/test_drive_service_v2.py tests/test_operator_service_v2.py`
+- `uv run pytest`

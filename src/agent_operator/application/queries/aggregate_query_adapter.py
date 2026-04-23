@@ -10,6 +10,7 @@ from typing import Protocol
 from agent_operator.domain.aggregate import OperationAggregate
 from agent_operator.domain.enums import AttentionStatus, SchedulerState
 from agent_operator.domain.operation import OperationOutcome, OperationState
+from agent_operator.domain.policy import PolicyCoverage
 
 
 class ProjectionService(Protocol):
@@ -54,9 +55,9 @@ def aggregate_to_state(agg: OperationAggregate) -> OperationState:
         memory_entries=list(agg.memory_entries),
         current_focus=agg.current_focus,
         attention_requests=list(agg.attention_requests),
-        active_policies=list(agg.active_policies),
-        policy_coverage=agg.policy_coverage,
-        involvement_level=agg.involvement_level,
+        active_policies=[],
+        policy_coverage=PolicyCoverage(),
+        involvement_level=agg.policy.involvement_level,
         scheduler_state=agg.scheduler_state,
         operator_messages=list(agg.operator_messages),
         final_summary=agg.final_summary,

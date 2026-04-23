@@ -8,9 +8,9 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
-Skim-safe status on 2026-04-15:
+Skim-safe status on 2026-04-23:
 
 - `implemented`: project profiles now carry typed per-adapter `allowed_models` allowlists alongside
   adapter defaults
@@ -20,6 +20,8 @@ Skim-safe status on 2026-04-15:
   from launch defaults and project profile data
 - `implemented`: event-sourced command handling, attached-turn reuse compatibility, and operation
   query/status surfaces now expose requested vs effective execution-profile truth
+- `verified`: targeted execution-profile regression slices and the full repository test suite pass
+  at the repository state that closes this ADR
 - `not allowed`: this feature must not permit adapter switching at runtime
 
 ## Context
@@ -639,7 +641,7 @@ Current repository truth that grounds this ADR:
 
 ## Verification
 
-Verified locally on 2026-04-18 with targeted evidence plus full `pytest`.
+Verified locally on 2026-04-23 with targeted evidence plus full `pytest -q`.
 
 Repository evidence for the closure criteria:
 
@@ -677,10 +679,10 @@ Repository evidence for the closure criteria:
   and
   [test_operation_command_service.py](/Users/thunderbird/Projects/operator/tests/test_operation_command_service.py:2592)
 
-This wave also ran:
+This closure wave ran:
 
 - `pytest -q tests/test_operation_command_service.py tests/test_attached_turn_service.py tests/test_operation_projections.py tests/test_operation_status_queries.py`
-- `uv run pytest`
+- `pytest -q`
 
 Verification notes:
 

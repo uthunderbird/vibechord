@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 Skim-safe status on 2026-04-23:
 
@@ -18,8 +18,9 @@ Skim-safe status on 2026-04-23:
   drive-call start instead of reusing stale aggregate policy coverage
 - `implemented`: the v2 brain bridge now prefers per-call `ctx.policy_context` when seeding
   `OperationState.policy_coverage`
-- `partial`: `OperationAggregate` still carries `policy_coverage`, `active_policies`, and
-  `involvement_level`, so the aggregate/ephemeral split is not yet complete
+- `implemented`: `OperationAggregate` no longer carries `policy_coverage`, `active_policies`, or
+  `involvement_level`; the runtime-only policy fields now live only in ephemeral bridge state or
+  durable `OperationPolicy`
 - `verified`: targeted regression coverage now exists for policy-context reconstruction and the
   brain-context wiring in the v2 drive path
 
@@ -102,16 +103,20 @@ class ProcessManagerContext:
 - `src/agent_operator/application/drive/process_manager_context.py` rebuilds per-drive-call policy
   coverage from replayed operation metadata plus `PolicyStore`
 - `src/agent_operator/application/drive/policy_executor.py` now seeds the brain bridge from
-  `ctx.policy_context` instead of relying only on aggregate-carried policy coverage
+  `ctx.policy_context` and `agg.policy.involvement_level` instead of aggregate-carried runtime
+  policy fields
+- `src/agent_operator/domain/aggregate.py` now treats `operation.involvement_level.updated` as a
+  durable `OperationPolicy` change and ignores runtime-policy cache events rather than persisting
+  them in aggregate truth
 - `src/agent_operator/application/drive/drive_service.py` remains the construction boundary for
   one ephemeral `ProcessManagerContext` per drive call
 
-## Remaining Blockers
+## Residual Follow-On Work
 
-- `OperationAggregate` still owns `policy_coverage`, `active_policies`, and `involvement_level`,
-  so the runtime-only fields are not fully evicted from aggregate truth yet
 - The v1 service shell and command path still refresh and persist policy context on `OperationState`
-- Query/projection surfaces still read involvement and policy state from aggregate-backed views
+- Some query/projection surfaces still read involvement and policy state through temporary
+  `OperationState` bridges, but those bridges no longer promote runtime-policy caches into
+  aggregate truth
 
 ## Verification
 
@@ -120,3 +125,4 @@ Verified locally on 2026-04-23 with:
 - `pytest -q tests/test_lifecycle_gate.py tests/test_drive_service_v2.py tests/test_operator_service_v2.py`
 - `ruff check src/agent_operator/application/drive/process_manager_context.py src/agent_operator/application/drive/policy_executor.py tests/test_lifecycle_gate.py tests/test_drive_service_v2.py`
 - `mypy src/agent_operator/application/drive/process_manager_context.py src/agent_operator/application/drive/policy_executor.py`
+- `uv run pytest`
