@@ -4,11 +4,25 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Verified
+
+Skim-safe status on 2026-04-23:
+
+- `implemented`: the v2 drive loop is now decomposed into explicit `LifecycleGate`,
+  `RuntimeReconciler`, `PolicyExecutor`, and `DriveService` classes under
+  `src/agent_operator/application/drive/`
+- `implemented`: `DriveService` owns the loop, checkpoint writes, wake-cycle continuation, and
+  aggregate event application; sub-services communicate only through returned domain-event drafts
+- `implemented`: `LifecycleGate` is pure/stateless, `RuntimeReconciler` is event-returning over
+  runtime inputs, and `PolicyExecutor` records and executes brain decisions without directly
+  mutating the aggregate
+- `verified`: dedicated unit slices exist for `LifecycleGate`, `RuntimeReconciler`,
+  `PolicyExecutor`, and `DriveService`
+- `verified`: full repository suite passed on 2026-04-23 via `uv run pytest`
 
 ## Context
 
@@ -83,3 +97,26 @@ This is enforceable: `OperationAggregate` exposes no public setters.
 - `DriveService` integration tests can use real sub-services with in-memory implementations
 - v1 mixin services (`OperationDriveRuntimeService`, `OperationDriveControlService`, etc.) are deleted — see ADR 0194
 - The `OperationDriveService` class is deleted; replaced by `DriveService` with a different constructor surface (see ARCHITECTURE_v2.md §11.3)
+
+## Repository Implementation
+
+- `src/agent_operator/application/drive/lifecycle_gate.py` is the pure predicate boundary for
+  continuation, pause materialization, timeout, budget, and background-wait gating
+- `src/agent_operator/application/drive/runtime_reconciler.py` drains wakeups/commands, polls
+  runtime state, and returns domain-event drafts without mutating the aggregate
+- `src/agent_operator/application/drive/policy_executor.py` calls the brain, emits
+  `brain.decision.made`, and translates execution into domain-event drafts
+- `src/agent_operator/application/drive/drive_service.py` is the orchestration shell that applies
+  events, appends them to the event log, writes checkpoints, and enforces `more_actions`
+  continuation bounds
+
+## Closure Evidence Matrix
+
+| ADR line / closure claim | Repository evidence | Verification |
+| --- | --- | --- |
+| Drive loop is decomposed into four explicit services | `src/agent_operator/application/drive/lifecycle_gate.py`; `src/agent_operator/application/drive/runtime_reconciler.py`; `src/agent_operator/application/drive/policy_executor.py`; `src/agent_operator/application/drive/drive_service.py` | `tests/test_lifecycle_gate.py`; `tests/test_runtime_reconciler.py`; `tests/test_policy_executor.py`; `tests/test_drive_service_v2.py` |
+| `LifecycleGate` is pure/stateless and independently testable | `src/agent_operator/application/drive/lifecycle_gate.py` | `tests/test_lifecycle_gate.py` |
+| `RuntimeReconciler` reads runtime state and returns domain events without direct aggregate mutation | `src/agent_operator/application/drive/runtime_reconciler.py` | `tests/test_runtime_reconciler.py` |
+| `PolicyExecutor` records and executes brain decisions via returned events | `src/agent_operator/application/drive/policy_executor.py` | `tests/test_policy_executor.py` |
+| `DriveService` owns the loop, applies events, persists them, and handles bounded `more_actions` continuation | `src/agent_operator/application/drive/drive_service.py` | `tests/test_drive_service_v2.py::test_drive_service_reuses_wake_cycle_and_skips_intermediate_checkpoint_for_more_actions`; `tests/test_drive_service_v2.py::test_drive_service_uses_epoch_loaded_from_checkpoint_store` |
+| Current repository state is verified, not inferred | this ADR plus the implementation above | `uv run pytest` |
