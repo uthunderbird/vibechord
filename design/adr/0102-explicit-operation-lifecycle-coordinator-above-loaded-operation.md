@@ -1,6 +1,6 @@
 # ADR 0102: Explicit operation lifecycle coordinator above LoadedOperation
 
-## Status
+## Decision Status
 
 Accepted
 
@@ -241,7 +241,7 @@ context object.
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Skim-safe current truth on 2026-04-14:
 
