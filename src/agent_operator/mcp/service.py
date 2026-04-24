@@ -12,7 +12,10 @@ from agent_operator.application import (
     OperationDeliveryCommandService,
     OperationStatusQueryService,
 )
-from agent_operator.application.queries.operation_resolution import OperationResolutionService
+from agent_operator.application.queries.operation_resolution import (
+    OperationResolutionService,
+    OperationStoreLike,
+)
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.bootstrap import (
     build_event_sink,
@@ -57,13 +60,6 @@ class McpToolError(RuntimeError):
         self.message = message
         self.operation_id = operation_id
 
-
-class OperationStoreLike(Protocol):
-    async def list_operations(self) -> list[OperationSummaryLike]: ...
-
-    async def load_operation(self, operation_id: str) -> OperationState | None: ...
-
-
 class OperationSummaryLike(Protocol):
     operation_id: str
     status: OperationStatus
@@ -104,10 +100,10 @@ class OperatorMcpService:
         store = self.store_builder(settings)
         items: list[dict[str, object]] = []
         for summary in await store.list_operations():
-            if status_filter is not None and summary.status is not status_filter:
-                continue
             operation = await store.load_operation(summary.operation_id)
             if operation is None:
+                continue
+            if status_filter is not None and operation.status is not status_filter:
                 continue
             items.append(self._list_item(operation))
         return items

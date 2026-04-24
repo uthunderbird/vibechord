@@ -190,6 +190,46 @@ class EventSourcedCommandApplicationService:
             )
             return [self._rejected_event(command, reason)], reason
 
+        if command.command_type is OperationCommandType.STOP_OPERATION:
+            if command.target_scope is not CommandTargetScope.OPERATION:
+                reason = "STOP_OPERATION requires operation target scope."
+                return [self._rejected_event(command, reason)], reason
+            if command.target_id not in {"", checkpoint.operation_id}:
+                reason = "STOP_OPERATION target does not match the current operation."
+                return [self._rejected_event(command, reason)], reason
+            if checkpoint.status in {
+                OperationStatus.COMPLETED,
+                OperationStatus.FAILED,
+                OperationStatus.CANCELLED,
+            }:
+                reason = (
+                    "operation_terminal: operation is already "
+                    f"{checkpoint.status.value}."
+                )
+                return [self._rejected_event(command, reason)], reason
+            summary = str(command.payload.get("reason", "")).strip()
+            final_summary = (
+                f"Operation cancelled: {summary}." if summary else "Operation cancelled."
+            )
+            return [
+                accepted,
+                OperationDomainEventDraft(
+                    event_type="operation.status.changed",
+                    payload={
+                        "status": OperationStatus.CANCELLED.value,
+                        "final_summary": final_summary,
+                    },
+                ),
+                OperationDomainEventDraft(
+                    event_type="operation.focus.updated",
+                    payload={"focus": None},
+                ),
+                OperationDomainEventDraft(
+                    event_type="scheduler.state.changed",
+                    payload={"scheduler_state": SchedulerState.ACTIVE.value},
+                ),
+            ], None
+
         if command.command_type is OperationCommandType.PATCH_OBJECTIVE:
             text = str(command.payload.get("text", "")).strip()
             if not text:

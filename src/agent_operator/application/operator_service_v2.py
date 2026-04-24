@@ -13,10 +13,14 @@ from uuid import uuid4
 from agent_operator.application.drive.agent_run_supervisor import AgentRunSupervisorV2
 from agent_operator.application.drive.drive_service import DriveService
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
+from agent_operator.application.event_sourcing.event_sourced_commands import (
+    EventSourcedCommandApplicationService,
+)
 from agent_operator.application.operation_lifecycle_entrypoints import (
     OperationLifecycleEntrypointGuard,
 )
-from agent_operator.domain.enums import OperationStatus
+from agent_operator.domain import OperationCommand
+from agent_operator.domain.enums import CommandTargetScope, OperationCommandType, OperationStatus
 from agent_operator.domain.event_sourcing import (
     OperationDomainEventDraft,
     StoredOperationDomainEvent,
@@ -47,6 +51,7 @@ class OperatorServiceV2:
         event_sink: EventSink | None = None,
         supervisor: AgentRunSupervisorV2 | None = None,
         lifecycle_guard: OperationLifecycleEntrypointGuard | None = None,
+        event_sourced_command_service: EventSourcedCommandApplicationService | None = None,
     ) -> None:
         self._drive_service = drive_service
         self._event_store = event_store
@@ -55,6 +60,7 @@ class OperatorServiceV2:
         self._lifecycle_guard = lifecycle_guard or OperationLifecycleEntrypointGuard(
             event_store=event_store
         )
+        self._event_sourced_command_service = event_sourced_command_service
         self._drive_tasks: list[asyncio.Task[OperationOutcome]] = []
         self._active_contexts: dict[str, ProcessManagerContext] = {}
         self._accepting = True
@@ -150,29 +156,31 @@ class OperatorServiceV2:
         reason: str | None = None,
     ) -> OperationOutcome:
         """Cancel a running operation by writing a terminal cancel event."""
-        last_sequence = await self._event_store.load_last_sequence(operation_id)
-        summary = (
-            f"Operation cancelled: {reason.strip()}."
-            if isinstance(reason, str) and reason.strip()
-            else "Operation cancelled."
-        )
-        cancel_events = [
-            OperationDomainEventDraft(
-                event_type="operation.status.changed",
-                payload={
-                    "status": OperationStatus.CANCELLED.value,
-                    "final_summary": summary,
-                },
+        await self._lifecycle_guard.ensure_existing_operation_id(operation_id)
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "OperatorServiceV2.cancel requires EventSourcedCommandApplicationService."
             )
-        ]
-        stored = await self._event_store.append(operation_id, last_sequence, cancel_events)
-        await self._emit_run_events(stored)
-        now = datetime.now(UTC)
+        command = OperationCommand(
+            operation_id=operation_id,
+            command_type=OperationCommandType.STOP_OPERATION,
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+            payload=(
+                {"reason": reason.strip()}
+                if isinstance(reason, str) and reason.strip()
+                else {}
+            ),
+        )
+        result = await self._event_sourced_command_service.apply(command)
+        await self._emit_run_events(result.stored_events)
+        if not result.applied:
+            raise RuntimeError(result.rejection_reason or "Operation cancel was rejected.")
         return OperationOutcome(
             operation_id=operation_id,
             status=OperationStatus.CANCELLED,
-            summary=summary,
-            ended_at=now,
+            summary=result.checkpoint.final_summary or "Operation cancelled.",
+            ended_at=result.checkpoint.updated_at,
         )
 
     async def _emit_run_events(

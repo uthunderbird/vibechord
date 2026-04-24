@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Implementation grounding on 2026-04-24:
 
@@ -32,12 +32,13 @@ Implementation grounding on 2026-04-24:
   `tests/test_client.py`, and `tests/test_mcp_server.py`
 - `verified`: targeted lifecycle regressions now exist in `tests/test_operation_entrypoints.py`
   and `tests/test_operator_service_v2.py`
+- `verified`: `uv run mypy src/agent_operator/client.py src/agent_operator/mcp/service.py
+  src/agent_operator/application/queries/operation_resolution.py
+  src/agent_operator/application/operation_lifecycle_entrypoints.py
+  src/agent_operator/cli/helpers/resolution.py tests/test_operation_entrypoints.py
+  tests/test_operator_service_v2.py` passes at this repository state
 - `verified`: `uv run pytest` passes at the repository state for this implementation update
   (`944 passed, 11 skipped` on 2026-04-24)
-- `not verified`: `uv run mypy` on the touched Python files still reports pre-existing strict
-  typing failures in `src/agent_operator/acp/session_runtime.py` and broader existing typing debt
-  in `tests/test_operation_entrypoints.py` and `tests/test_operator_service_v2.py`, so this ADR
-  remains `Implemented` rather than `Verified`
 
 ## Context
 

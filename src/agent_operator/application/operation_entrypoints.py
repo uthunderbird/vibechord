@@ -143,9 +143,7 @@ class OperationEntrypointService:
         Returns:
             Loaded operation state with merged runtime flags.
         """
-        state = await self._load_existing(operation_id)
-        if self._event_sourced_replay_service is not None:
-            state = await self._load_event_sourced(operation_id, fallback_state=state)
+        state = await self._load_resume_ready_state(operation_id)
         state.execution_budget = merge_runtime_flags(
             budget_override or state.execution_budget,
             options,
@@ -173,9 +171,7 @@ class OperationEntrypointService:
         Returns:
             Loaded operation state after recovery reconciliation preparation.
         """
-        state = await self._load_existing(operation_id)
-        if self._event_sourced_replay_service is not None:
-            state = await self._load_event_sourced(operation_id, fallback_state=state)
+        state = await self._load_resume_ready_state(operation_id)
         state.execution_budget = merge_runtime_flags(
             budget_override or state.execution_budget,
             options,
@@ -202,6 +198,25 @@ class OperationEntrypointService:
         if state is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         return state
+
+    async def _load_resume_ready_state(self, operation_id: str) -> OperationState:
+        """Load canonical state for continue-only entrypoints with snapshot fallback.
+
+        For event-sourced-only operations, canonical replay is the only authoritative source.
+        For mixed-mode operations that still persist extra ephemeral fields in snapshot state,
+        replay remains the authority while the snapshot supplies fallback-only runtime details.
+        """
+
+        await self._lifecycle_guard.ensure_existing_operation_id(operation_id)
+        fallback_state = await self._store.load_operation(operation_id)
+        if self._event_sourced_replay_service is None:
+            if fallback_state is None:
+                raise RuntimeError(f"Operation {operation_id!r} was not found.")
+            return fallback_state
+        if fallback_state is None:
+            replay_state = await self._event_sourced_replay_service.load(operation_id)
+            return self._operation_state_view_service.from_checkpoint(replay_state.checkpoint)
+        return await self._load_event_sourced(operation_id, fallback_state=fallback_state)
 
     async def _load_event_sourced(
         self,

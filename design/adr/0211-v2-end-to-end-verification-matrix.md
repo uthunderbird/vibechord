@@ -22,6 +22,10 @@ Implementation grounding on 2026-04-24:
 - `blocked`: this evidence wave did not run a fresh operator-on-operator v2 smoke
 - `blocked`: this evidence wave did not run a fresh external-project v2 smoke against
   `../erdosreshala/problems/625`
+- `blocked`: the current verification wave observed a replay/query crash where public surfaces such
+  as `operator status`, `operator answer`, and operation resolution can fail with projector
+  validation errors while materializing canonical `operation.created` payloads; this is a real
+  blocker for truthful v2 verification, not just a docs gap
 - `noted`: `../erdosreshala/problems/625` exists locally and already contains `.operator/`,
   including `.operator/runs/`; that existing directory is not itself proof of v2 dependency, so
   the no-`.operator/runs` matrix row still requires outcome-based verification rather than simple
@@ -46,6 +50,13 @@ Current repository truth also shows that parts of the live verification workflow
 
 What is still missing is a single in-repo procedure that says exactly how to run the bounded live
 checks, what evidence to capture, and what currently blocks closure.
+
+Current repository truth also includes one newly observed verification blocker: replay-backed public
+surfaces are not yet schema-stable for all canonical v2 event payloads. During this wave,
+`operator status`, `operator answer`, and operation-resolution paths were observed failing in replay
+with projector validation errors while materializing `operation.created`. That failure belongs to
+the ADR 0206 closure scope, but it must also be recorded here because it blocks honest end-to-end
+verification.
 
 ## Decision
 
@@ -82,6 +93,8 @@ needed to do so later without guessing.
 - e2e evidence records command, date, repository state, operation id, result, and known
   environmental assumptions
 - failures produce an autopsy and either a fix or a named blocker
+- replay/query crashes on canonical persisted events are blocker evidence and must be recorded as
+  failed verification rows until fixed
 - existing `.operator/` artifacts in the target workspace do not count as positive verification
   unless the recorded run proves the required property
 

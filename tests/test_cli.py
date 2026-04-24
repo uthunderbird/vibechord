@@ -15,9 +15,13 @@ import agent_operator.cli.commands as cli_commands_pkg
 import agent_operator.cli.commands.operation_detail as commands_operation_detail
 import agent_operator.cli.helpers as cli_helpers_pkg
 import agent_operator.cli.workflows as cli_workflows
+from agent_operator.application.event_sourcing.event_sourced_birth import (
+    EventSourcedOperationBirthService,
+)
+from agent_operator.bootstrap import build_replay_service
 from agent_operator.cli.helpers.rendering import render_watch_snapshot
 from agent_operator.cli.main import _format_live_snapshot, app
-from agent_operator.config import load_global_config
+from agent_operator.config import OperatorSettings, load_global_config
 from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,
@@ -80,8 +84,11 @@ from agent_operator.domain import (
     TraceRecord,
 )
 from agent_operator.dtos import ConverseTurnDTO
+from agent_operator.projectors import DefaultOperationProjector
 from agent_operator.runtime import (
+    FileOperationCheckpointStore,
     FileOperationCommandInbox,
+    FileOperationEventStore,
     FileOperationStore,
     FilePolicyStore,
     FileTraceStore,
@@ -7030,6 +7037,137 @@ def test_resume_restores_effective_adapter_settings_from_operation_metadata(
     assert captured["codex_command"] == "npx @zed-industries/codex-acp --"
     assert captured["codex_model"] == "gpt-5.4"
     assert captured["codex_effort"] == "high"
+
+
+def test_resume_restores_effective_adapter_settings_from_event_sourced_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-resume-es-settings"
+
+    async def _seed() -> None:
+        settings = OperatorSettings(data_dir=tmp_path)
+        goal = OperationGoal(
+            objective="Resume v2-only with restored settings",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "command": "npx @zed-industries/codex-acp --",
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "high",
+                    }
+                }
+            },
+        )
+        service = build_replay_service(settings)
+        birth = EventSourcedOperationBirthService(
+            event_store=FileOperationEventStore(tmp_path / "operation_events"),
+            checkpoint_store=FileOperationCheckpointStore(tmp_path / "operation_checkpoints"),
+            projector=DefaultOperationProjector(),
+        )
+        state = OperationState(
+            operation_id=operation_id,
+            goal=goal,
+            **state_settings(),
+        )
+        await birth.birth(state)
+        await service.load(operation_id)
+
+    anyio.run(_seed)
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Resumed.",
+            )
+
+    def _build_service(settings, event_sink=None):
+        del event_sink
+        captured["codex_command"] = settings.codex_acp.command
+        captured["codex_model"] = settings.codex_acp.model
+        captured["codex_effort"] = settings.codex_acp.reasoning_effort
+        return FakeService()
+
+    monkeypatch.setattr("agent_operator.cli.main.build_service", _build_service)
+
+    result = runner.invoke(app, ["resume", operation_id])
+
+    assert result.exit_code == 0
+    assert captured["codex_command"] == "npx @zed-industries/codex-acp --"
+    assert captured["codex_model"] == "gpt-5.4"
+    assert captured["codex_effort"] == "high"
+
+
+def test_tick_restores_effective_adapter_settings_from_event_sourced_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-tick-es-settings"
+
+    async def _seed() -> None:
+        settings = OperatorSettings(data_dir=tmp_path)
+        goal = OperationGoal(
+            objective="Tick v2-only with restored settings",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "command": "npx @zed-industries/codex-acp --",
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                    }
+                }
+            },
+        )
+        service = build_replay_service(settings)
+        birth = EventSourcedOperationBirthService(
+            event_store=FileOperationEventStore(tmp_path / "operation_events"),
+            checkpoint_store=FileOperationCheckpointStore(tmp_path / "operation_checkpoints"),
+            projector=DefaultOperationProjector(),
+        )
+        state = OperationState(
+            operation_id=operation_id,
+            goal=goal,
+            **state_settings(),
+        )
+        await birth.birth(state)
+        await service.load(operation_id)
+
+    anyio.run(_seed)
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def tick(self, operation_id: str) -> OperationOutcome:
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Ticked.",
+            )
+
+    def _build_delivery(settings, *, operation_id: str, projector=None):
+        del projector
+        captured["operation_id"] = operation_id
+        captured["codex_command"] = settings.codex_acp.command
+        captured["codex_model"] = settings.codex_acp.model
+        captured["codex_effort"] = settings.codex_acp.reasoning_effort
+        return FakeService()
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control_runtime.build_projecting_delivery_commands_service",
+        _build_delivery,
+    )
+
+    result = runner.invoke(app, ["tick", operation_id])
+
+    assert result.exit_code == 0
+    assert captured["operation_id"] == operation_id
+    assert captured["codex_command"] == "npx @zed-industries/codex-acp --"
+    assert captured["codex_model"] == "gpt-5.4"
+    assert captured["codex_effort"] == "low"
 
 
 def test_resume_surfaces_connect_error_honestly(tmp_path: Path, monkeypatch) -> None:

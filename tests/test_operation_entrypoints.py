@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import pytest
 
@@ -18,6 +19,7 @@ from agent_operator.application.event_sourcing.event_sourced_birth import (
 from agent_operator.application.event_sourcing.event_sourced_replay import (
     EventSourcedReplayService,
 )
+from agent_operator.application.operation_entrypoints import RecoverReconciler
 from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,
@@ -44,6 +46,7 @@ from agent_operator.domain import (
     SessionStatus,
 )
 from agent_operator.projectors import DefaultOperationProjector
+from agent_operator.protocols import AgentRunSupervisor, EventSink
 from agent_operator.runtime import (
     FileOperationCheckpointStore,
     FileOperationEventStore,
@@ -56,24 +59,24 @@ class MemoryStore:
 
     def __init__(self) -> None:
         self.operations: dict[str, OperationState] = {}
-        self.outcomes = {}
+        self.outcomes: dict[str, Any] = {}
 
-    async def save_operation(self, state) -> None:
+    async def save_operation(self, state: OperationState) -> None:
         self.operations[state.operation_id] = state
 
-    async def save_outcome(self, outcome) -> None:
+    async def save_outcome(self, outcome: Any) -> None:
         self.outcomes[outcome.operation_id] = outcome
 
-    async def load_operation(self, operation_id: str):
+    async def load_operation(self, operation_id: str) -> OperationState | None:
         return self.operations.get(operation_id)
 
-    async def load_outcome(self, operation_id: str):
+    async def load_outcome(self, operation_id: str) -> Any:
         return self.outcomes.get(operation_id)
 
     async def list_operation_ids(self) -> list[str]:
         return list(self.operations)
 
-    async def list_operations(self) -> list:
+    async def list_operations(self) -> list[Any]:
         return []
 
 
@@ -85,6 +88,46 @@ class FakeSupervisor:
 
     async def cancel_background_turn(self, run_id: str) -> None:
         self.cancelled.append(run_id)
+
+
+def _make_running_session(
+    handle: AgentSessionHandle,
+    *,
+    execution_id: str,
+) -> SessionState:
+    session = SessionState(handle=handle, current_execution_id=execution_id)
+    session.status = SessionStatus.RUNNING
+    return session
+
+
+def _make_running_execution(
+    *,
+    operation_id: str,
+    run_id: str,
+    session_id: str,
+    adapter_key: str = "claude_acp",
+) -> ExecutionState:
+    execution = ExecutionState(
+        execution_id=run_id,
+        operation_id=operation_id,
+        adapter_key=adapter_key,
+        session_id=session_id,
+    )
+    execution.status = BackgroundRunStatus.RUNNING
+    return execution
+
+
+async def _noop_emit(
+    event_type: str,
+    state: OperationState,
+    iteration: int,
+    payload: dict[str, object],
+    *,
+    task_id: str | None = None,
+    session_id: str | None = None,
+    kind: RunEventKind = RunEventKind.TRACE,
+) -> None:
+    del event_type, state, iteration, payload, task_id, session_id, kind
 
 
 @pytest.mark.anyio
@@ -166,7 +209,7 @@ async def test_operation_entrypoint_service_loads_recover_state_with_reconciliat
         operation_id="op-1",
         options=RunOptions(),
         merge_runtime_flags=lambda budget, _options: budget,
-        reconcile_orphaned_recoverable_background_runs=reconcile,
+        reconcile_orphaned_recoverable_background_runs=cast(RecoverReconciler, reconcile),
     )
 
     assert called is True
@@ -241,7 +284,9 @@ async def test_resume_preserves_continuity_runtime_modes_for_legacy_operation() 
 
 
 @pytest.mark.anyio
-async def test_operation_entrypoint_service_replays_event_sourced_run_state(tmp_path) -> None:
+async def test_operation_entrypoint_service_replays_event_sourced_run_state(
+    tmp_path: Any,
+) -> None:
     store = MemoryStore()
     event_store = FileOperationEventStore(tmp_path / "operation_events")
     checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
@@ -279,7 +324,9 @@ async def test_operation_entrypoint_service_replays_event_sourced_run_state(tmp_
 
 
 @pytest.mark.anyio
-async def test_operation_entrypoint_service_replays_event_sourced_resume_state(tmp_path) -> None:
+async def test_operation_entrypoint_service_replays_event_sourced_resume_state(
+    tmp_path: Any,
+) -> None:
     store = MemoryStore()
     event_store = FileOperationEventStore(tmp_path / "operation_events")
     checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
@@ -323,7 +370,99 @@ async def test_operation_entrypoint_service_replays_event_sourced_resume_state(t
 
 
 @pytest.mark.anyio
-async def test_prepare_run_replays_event_sourced_attached_initial_session(tmp_path) -> None:
+async def test_operation_entrypoint_service_resumes_event_sourced_only_operation(
+    tmp_path: Any,
+) -> None:
+    store = MemoryStore()
+    event_store = FileOperationEventStore(tmp_path / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    service = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth,
+        event_sourced_replay_service=replay,
+    )
+
+    state = OperationState(
+        operation_id="op-es-resume-only",
+        goal=OperationGoal(objective="Resume event-sourced only operation."),
+    )
+    await birth.birth(state)
+
+    loaded = await service.load_for_resume(
+        operation_id="op-es-resume-only",
+        options=RunOptions(),
+        merge_runtime_flags=lambda budget, _options: budget,
+    )
+
+    assert loaded.operation_id == "op-es-resume-only"
+    assert loaded.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
+    assert loaded.goal.objective == "Resume event-sourced only operation."
+
+
+@pytest.mark.anyio
+async def test_operation_entrypoint_service_recovers_event_sourced_only_operation(
+    tmp_path: Any,
+) -> None:
+    store = MemoryStore()
+    event_store = FileOperationEventStore(tmp_path / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    service = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth,
+        event_sourced_replay_service=replay,
+    )
+    called = False
+
+    async def reconcile(operation: OperationState) -> None:
+        nonlocal called
+        called = True
+        operation.updated_at = datetime.now(UTC)
+
+    state = OperationState(
+        operation_id="op-es-recover-only",
+        goal=OperationGoal(objective="Recover event-sourced only operation."),
+    )
+    await birth.birth(state)
+
+    loaded = await service.load_for_recover(
+        operation_id="op-es-recover-only",
+        options=RunOptions(),
+        merge_runtime_flags=lambda budget, _options: budget,
+        reconcile_orphaned_recoverable_background_runs=cast(RecoverReconciler, reconcile),
+    )
+
+    assert called is True
+    assert loaded.operation_id == "op-es-recover-only"
+    assert loaded.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
+    assert loaded.goal.objective == "Recover event-sourced only operation."
+
+
+@pytest.mark.anyio
+async def test_prepare_run_replays_event_sourced_attached_initial_session(
+    tmp_path: Any,
+) -> None:
     store = MemoryStore()
     event_store = FileOperationEventStore(tmp_path / "operation_events")
     checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
@@ -370,7 +509,11 @@ async def test_operation_cancellation_service_cancels_targeted_run() -> None:
     """Cancellation semantics are owned outside the public OperatorService facade."""
     store = MemoryStore()
     supervisor = FakeSupervisor()
-    service = OperationCancellationService(store=store, event_sink=None, supervisor=supervisor)
+    service = OperationCancellationService(
+        store=store,
+        event_sink=cast(EventSink, None),
+        supervisor=cast(AgentRunSupervisor, supervisor),
+    )
     session = AgentSessionHandle(adapter_key="claude_acp", session_id="session-1")
     state = OperationState(
         operation_id="op-1",
@@ -378,34 +521,29 @@ async def test_operation_cancellation_service_cancels_targeted_run() -> None:
         policy=OperationPolicy(),
     )
     state.sessions.append(
-        SessionState(
-            handle=session,
-            status=SessionStatus.RUNNING,
-            current_execution_id="run-1",
-        )
+        _make_running_session(session, execution_id="run-1")
     )
     state.executions.append(
-        ExecutionState(
-            run_id="run-1",
+        _make_running_execution(
             operation_id="op-1",
-            adapter_key="claude_acp",
+            run_id="run-1",
             session_id="session-1",
-            status=BackgroundRunStatus.RUNNING,
         )
     )
     await store.save_operation(state)
     emitted: list[tuple[str, str, RunEventKind]] = []
 
     async def emit(
-        event_type,
-        state,
-        iteration,
-        payload,
+        event_type: str,
+        state: OperationState,
+        iteration: int,
+        payload: dict[str, object],
         *,
-        task_id=None,
-        session_id=None,
-        kind=RunEventKind.TRACE,
-    ):
+        task_id: str | None = None,
+        session_id: str | None = None,
+        kind: RunEventKind = RunEventKind.TRACE,
+    ) -> None:
+        del state, iteration, payload, task_id
         emitted.append((event_type, session_id or "", kind))
 
     outcome = await service.cancel(
@@ -439,7 +577,7 @@ async def test_operation_cancellation_service_cancels_targeted_run() -> None:
 
 @pytest.mark.anyio
 async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced_replay(
-    tmp_path,
+    tmp_path: Any,
 ) -> None:
     store = FileOperationStore(tmp_path / "operations")
     event_store = FileOperationEventStore(tmp_path / "operation_events")
@@ -463,8 +601,8 @@ async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced
     )
     cancellation = OperationCancellationService(
         store=store,
-        event_sink=None,
-        supervisor=supervisor,
+        event_sink=cast(EventSink, None),
+        supervisor=cast(AgentRunSupervisor, supervisor),
         lifecycle_coordinator=lifecycle,
     )
     entrypoints = OperationEntrypointService(
@@ -478,35 +616,29 @@ async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced
         policy=OperationPolicy(),
     )
     state.sessions.append(
-        SessionState(
-            handle=session,
-            status=SessionStatus.RUNNING,
-            current_execution_id="run-1",
-        )
+        _make_running_session(session, execution_id="run-1")
     )
     state.executions.append(
-        ExecutionState(
-            run_id="run-1",
+        _make_running_execution(
             operation_id="op-es-cancel",
-            adapter_key="claude_acp",
+            run_id="run-1",
             session_id="session-1",
-            status=BackgroundRunStatus.RUNNING,
         )
     )
     await birth.birth(state)
     await store.save_operation(state)
 
     async def emit(
-        event_type,
-        state,
-        iteration,
-        payload,
+        event_type: str,
+        state: OperationState,
+        iteration: int,
+        payload: dict[str, object],
         *,
-        task_id=None,
-        session_id=None,
-        kind=RunEventKind.TRACE,
-    ):
-        return None
+        task_id: str | None = None,
+        session_id: str | None = None,
+        kind: RunEventKind = RunEventKind.TRACE,
+    ) -> None:
+        del event_type, state, iteration, payload, task_id, session_id, kind
 
     outcome = await cancellation.cancel(
         operation_id="op-es-cancel",
@@ -555,7 +687,7 @@ async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced
 
 @pytest.mark.anyio
 async def test_targeted_cancel_seeds_snapshot_only_session_before_replay_persistence(
-    tmp_path,
+    tmp_path: Any,
 ) -> None:
     store = FileOperationStore(tmp_path / "operations")
     event_store = FileOperationEventStore(tmp_path / "operation_events")
@@ -579,8 +711,8 @@ async def test_targeted_cancel_seeds_snapshot_only_session_before_replay_persist
     )
     cancellation = OperationCancellationService(
         store=store,
-        event_sink=None,
-        supervisor=supervisor,
+        event_sink=cast(EventSink, None),
+        supervisor=cast(AgentRunSupervisor, supervisor),
         lifecycle_coordinator=lifecycle,
     )
     entrypoints = OperationEntrypointService(
@@ -595,25 +727,21 @@ async def test_targeted_cancel_seeds_snapshot_only_session_before_replay_persist
     await birth.birth(state)
     session = AgentSessionHandle(adapter_key="claude_acp", session_id="session-1")
     state.sessions.append(
-        SessionState(
-            handle=session,
-            status=SessionStatus.RUNNING,
-            current_execution_id="run-1",
-        )
+        _make_running_session(session, execution_id="run-1")
     )
     await store.save_operation(state)
 
     async def emit(
-        event_type,
-        state,
-        iteration,
-        payload,
+        event_type: str,
+        state: OperationState,
+        iteration: int,
+        payload: dict[str, object],
         *,
-        task_id=None,
-        session_id=None,
-        kind=RunEventKind.TRACE,
-    ):
-        return None
+        task_id: str | None = None,
+        session_id: str | None = None,
+        kind: RunEventKind = RunEventKind.TRACE,
+    ) -> None:
+        del event_type, state, iteration, payload, task_id, session_id, kind
 
     outcome = await cancellation.cancel(
         operation_id="op-es-snapshot-session-cancel",
@@ -658,7 +786,7 @@ async def test_targeted_cancel_seeds_snapshot_only_session_before_replay_persist
 
 @pytest.mark.anyio
 async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced_replay(
-    tmp_path,
+    tmp_path: Any,
 ) -> None:
     store = FileOperationStore(tmp_path / "operations")
     event_store = FileOperationEventStore(tmp_path / "operation_events")
@@ -682,8 +810,8 @@ async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced
     )
     cancellation = OperationCancellationService(
         store=store,
-        event_sink=None,
-        supervisor=supervisor,
+        event_sink=cast(EventSink, None),
+        supervisor=cast(AgentRunSupervisor, supervisor),
         lifecycle_coordinator=lifecycle,
     )
     entrypoints = OperationEntrypointService(
@@ -706,19 +834,13 @@ async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced
         ),
     )
     state.sessions.append(
-        SessionState(
-            handle=session,
-            status=SessionStatus.RUNNING,
-            current_execution_id="run-1",
-        )
+        _make_running_session(session, execution_id="run-1")
     )
     state.executions.append(
-        ExecutionState(
-            run_id="run-1",
+        _make_running_execution(
             operation_id=state.operation_id,
-            adapter_key="claude_acp",
+            run_id="run-1",
             session_id="session-1",
-            status=BackgroundRunStatus.RUNNING,
         )
     )
     await birth.birth(state)
@@ -742,7 +864,7 @@ async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced
             output_text="",
             completed_at=datetime.now(UTC),
         ),
-        emit=lambda *args, **kwargs: None,
+        emit=_noop_emit,
     )
 
     resumed = await entrypoints.load_for_resume(
@@ -771,7 +893,7 @@ async def test_whole_operation_cancel_persists_canonical_state_via_event_sourced
 
 @pytest.mark.anyio
 async def test_finalize_outcome_persists_terminal_status_via_event_sourced_replay(
-    tmp_path,
+    tmp_path: Any,
 ) -> None:
     store = FileOperationStore(tmp_path / "operations")
     event_store = FileOperationEventStore(tmp_path / "operation_events")
@@ -831,7 +953,11 @@ async def test_finalize_outcome_persists_terminal_status_via_event_sourced_repla
 async def test_operation_cancellation_service_cancels_whole_operation() -> None:
     """Whole-operation cancellation persists terminal outcome outside the facade."""
     store = MemoryStore()
-    service = OperationCancellationService(store=store, event_sink=None, supervisor=None)
+    service = OperationCancellationService(
+        store=store,
+        event_sink=cast(EventSink, None),
+        supervisor=None,
+    )
     state = OperationState(
         operation_id="op-1",
         goal=OperationGoal(objective="Cancel me completely."),
@@ -846,7 +972,7 @@ async def test_operation_cancellation_service_cancels_whole_operation() -> None:
         find_background_run=lambda state, run_id: None,
         find_session_record=lambda state, session_id: None,
         find_latest_result=lambda _state: None,
-        emit=lambda *args, **kwargs: None,
+        emit=_noop_emit,
     )
 
     assert outcome.status is OperationStatus.CANCELLED

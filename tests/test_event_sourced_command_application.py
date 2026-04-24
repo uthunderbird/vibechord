@@ -213,6 +213,80 @@ async def test_event_sourced_command_application_rejects_patch_command_for_termi
 
 
 @pytest.mark.anyio
+async def test_event_sourced_command_application_cancels_operation_via_stop_command(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-stop"
+    await _seed_created_operation(service, operation_id)
+    command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.STOP_OPERATION,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id=operation_id,
+        payload={"reason": "user requested"},
+    )
+
+    result = await service.apply(command)
+
+    assert result.applied is True
+    assert [event.event_type for event in result.stored_events] == [
+        "command.accepted",
+        "operation.status.changed",
+        "operation.focus.updated",
+        "scheduler.state.changed",
+    ]
+    assert result.checkpoint.status is OperationStatus.CANCELLED
+    assert result.checkpoint.final_summary == "Operation cancelled: user requested."
+
+    persisted = await checkpoint_store.load_latest(operation_id)
+    assert persisted is not None
+    assert persisted.last_applied_sequence == 5
+
+
+@pytest.mark.anyio
+async def test_event_sourced_command_application_rejects_stop_command_for_terminal_operation(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-terminal-stop"
+    await _seed_created_operation(service, operation_id)
+    await _append_operation_status(
+        service,
+        operation_id,
+        OperationStatus.CANCELLED,
+        final_summary="already cancelled",
+    )
+    command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.STOP_OPERATION,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id=operation_id,
+    )
+
+    result = await service.apply(command)
+
+    assert result.applied is False
+    assert result.rejection_reason == "operation_terminal: operation is already cancelled."
+    assert [event.event_type for event in result.stored_events] == ["command.rejected"]
+    assert result.checkpoint.status is OperationStatus.CANCELLED
+
+
+@pytest.mark.anyio
 async def test_event_sourced_command_application_projects_operator_message_into_checkpoint(
     tmp_path: Path,
 ) -> None:

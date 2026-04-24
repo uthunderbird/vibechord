@@ -9,7 +9,12 @@ import typer
 from rich.console import Console as RichConsole
 from rich.live import Live
 
-from agent_operator.bootstrap import build_event_sink, build_store, build_wakeup_inbox
+from agent_operator.bootstrap import (
+    build_event_sink,
+    build_replay_service,
+    build_store,
+    build_wakeup_inbox,
+)
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -340,7 +345,13 @@ async def status_async(operation_id: str, json_mode: bool, brief: bool) -> None:
 
 
 async def tick_async(operation_id: str) -> None:
-    service = delivery_commands_service()
+    settings = load_settings()
+    await _restore_operation_scoped_runtime_settings(settings, operation_id)
+    service = build_projecting_delivery_commands_service(
+        settings,
+        operation_id=operation_id,
+        projector=CliEventProjector(json_mode=False),
+    )
     outcome = await service.tick(operation_id)
     typer.echo(f"{outcome.status.value}: {outcome.summary}")
     typer.echo(f"operation_id={outcome.operation_id}", err=True)
@@ -434,9 +445,14 @@ async def _restore_operation_scoped_runtime_settings(
     """Restore per-operation adapter settings from persisted goal metadata when present."""
 
     operation = await build_store(settings).load_operation(operation_id)
-    if operation is None:
-        return
-    metadata = operation.goal.metadata if operation.goal is not None else {}
+    metadata: dict[str, object] = {}
+    if operation is not None:
+        metadata = operation.goal.metadata if operation.goal is not None else {}
+    else:
+        replay_state = await build_replay_service(settings).load(operation_id)
+        objective = replay_state.checkpoint.objective
+        if objective is not None:
+            metadata = objective.metadata
     snapshot = metadata.get("effective_adapter_settings")
     if isinstance(snapshot, dict):
         apply_effective_adapter_settings_snapshot(settings, snapshot)

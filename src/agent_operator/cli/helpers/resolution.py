@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 import typer
@@ -16,6 +17,9 @@ from agent_operator.runtime import (
     prepare_operator_settings,
     profile_path,
 )
+
+if TYPE_CHECKING:
+    from agent_operator.application.queries.operation_resolution import ReplayServiceLike
 
 
 def _load_settings() -> OperatorSettings:
@@ -51,7 +55,7 @@ def _list_event_sourced_operation_ids(settings: OperatorSettings) -> list[str]:
 async def _load_event_sourced_operation_state(
     operation_id: str,
     *,
-    replay_service,
+    replay_service: ReplayServiceLike,
     state_view_service: OperationStateViewService,
 ) -> OperationState | None:
     service = OperationResolutionService(

@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast
 
 import pytest
 
 from agent_operator.application.drive.agent_run_supervisor import AgentRunSupervisorV2
+from agent_operator.application.drive.drive_service import DriveService
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
+from agent_operator.application.event_sourcing.event_sourced_commands import (
+    EventSourcedCommandApplicationService,
+)
 from agent_operator.application.operator_service_v2 import OperatorServiceV2
 from agent_operator.domain.enums import OperationStatus
 from agent_operator.domain.event_sourcing import (
@@ -19,6 +26,9 @@ from agent_operator.domain.operation import (
     OperationOutcome,
     RunOptions,
 )
+from agent_operator.projectors import DefaultOperationProjector
+from agent_operator.protocols import OperationEventStore
+from agent_operator.runtime import FileOperationCheckpointStore, FileOperationEventStore
 from agent_operator.testing.operator_service_support import MemoryEventSink
 
 
@@ -51,7 +61,8 @@ class StubEventStore:
     async def load_after(
         self,
         operation_id: str,
-        after_sequence: int,
+        *,
+        after_sequence: int = 0,
     ) -> list[StoredOperationDomainEvent]:
         return [e for e in self._streams.get(operation_id, []) if e.sequence > after_sequence]
 
@@ -71,7 +82,7 @@ class StubDriveService:
         operation_id: str,
         options: RunOptions,
         *,
-        context_ready=None,
+        context_ready: Callable[[ProcessManagerContext], None] | None = None,
     ) -> OperationOutcome:
         del context_ready
         self.calls.append((operation_id, options))
@@ -97,7 +108,7 @@ class ShutdownAwareDriveService:
         operation_id: str,
         options: RunOptions,
         *,
-        context_ready=None,
+        context_ready: Callable[[ProcessManagerContext], None] | None = None,
     ) -> OperationOutcome:
         del operation_id, options
         ctx = ProcessManagerContext()
@@ -141,6 +152,29 @@ class OrderingSupervisor(RecordingSupervisor):
         super().cancel_all()
 
 
+async def _seed_created_operation(
+    command_service: EventSourcedCommandApplicationService,
+    operation_id: str,
+) -> None:
+    await command_service.append_domain_events(
+        operation_id,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "Initial objective",
+                    "harness_instructions": None,
+                    "success_criteria": [],
+                    "metadata": {},
+                    "allowed_agents": [],
+                    "involvement_level": "auto",
+                    "created_at": "2026-04-24T00:00:00+00:00",
+                },
+            )
+        ],
+    )
+
+
 def _make_service(
     drive: StubDriveService | None = None,
     store: StubEventStore | None = None,
@@ -149,15 +183,15 @@ def _make_service(
     drive = drive or StubDriveService()
     store = store or StubEventStore()
     svc = OperatorServiceV2(
-        drive_service=drive,
-        event_store=store,
+        drive_service=cast(DriveService, drive),
+        event_store=cast(OperationEventStore, store),
         event_sink=event_sink,
     )
     return svc, drive, store
 
 
 @pytest.mark.anyio
-async def test_run_writes_birth_event_then_drives():
+async def test_run_writes_birth_event_then_drives() -> None:
     svc, drive, store = _make_service()
     goal = OperationGoal(objective="do something")
     outcome = await svc.run(goal, operation_id="op-1")
@@ -174,7 +208,7 @@ async def test_run_writes_birth_event_then_drives():
 
 
 @pytest.mark.anyio
-async def test_run_birth_event_carries_policy_budget_and_runtime_hints():
+async def test_run_birth_event_carries_policy_budget_and_runtime_hints() -> None:
     svc, drive, store = _make_service()
     goal = OperationGoal(objective="do something")
     await svc.run(
@@ -191,7 +225,7 @@ async def test_run_birth_event_carries_policy_budget_and_runtime_hints():
 
 
 @pytest.mark.anyio
-async def test_run_emits_birth_event_to_run_event_sink():
+async def test_run_emits_birth_event_to_run_event_sink() -> None:
     event_sink = MemoryEventSink()
     svc, _, _ = _make_service(event_sink=event_sink)
 
@@ -202,7 +236,7 @@ async def test_run_emits_birth_event_to_run_event_sink():
     assert event_sink.events[0].category == "domain"
 
 @pytest.mark.anyio
-async def test_run_generates_operation_id_when_not_provided():
+async def test_run_generates_operation_id_when_not_provided() -> None:
     svc, drive, store = _make_service()
     goal = OperationGoal(objective="test")
     await svc.run(goal)
@@ -214,7 +248,7 @@ async def test_run_generates_operation_id_when_not_provided():
 
 
 @pytest.mark.anyio
-async def test_run_passes_budget_as_max_cycles():
+async def test_run_passes_budget_as_max_cycles() -> None:
     svc, drive, store = _make_service()
     del store
     goal = OperationGoal(objective="test")
@@ -226,7 +260,7 @@ async def test_run_passes_budget_as_max_cycles():
 
 
 @pytest.mark.anyio
-async def test_resume_calls_drive_without_writing_events():
+async def test_resume_calls_drive_without_writing_events() -> None:
     svc, drive, store = _make_service()
     await store.append(
         "op-existing",
@@ -242,7 +276,7 @@ async def test_resume_calls_drive_without_writing_events():
 
 
 @pytest.mark.anyio
-async def test_resume_passes_budget_as_max_cycles():
+async def test_resume_passes_budget_as_max_cycles() -> None:
     svc, drive, store = _make_service()
     await store.append(
         "op-1",
@@ -257,7 +291,7 @@ async def test_resume_passes_budget_as_max_cycles():
 
 
 @pytest.mark.anyio
-async def test_run_rejects_existing_operation_id():
+async def test_run_rejects_existing_operation_id() -> None:
     svc, drive, store = _make_service()
     await store.append(
         "op-1",
@@ -272,7 +306,7 @@ async def test_run_rejects_existing_operation_id():
 
 
 @pytest.mark.anyio
-async def test_resume_rejects_missing_operation_id():
+async def test_resume_rejects_missing_operation_id() -> None:
     svc, drive, store = _make_service()
     del store
 
@@ -283,13 +317,21 @@ async def test_resume_rejects_missing_operation_id():
 
 
 @pytest.mark.anyio
-async def test_cancel_writes_cancelled_event():
-    svc, drive, store = _make_service()
-    # Pre-populate stream so load_last_sequence returns non-zero
-    await store.append(
-        "op-1",
-        0,
-        [OperationDomainEventDraft(event_type="operation.created", payload={})],
+async def test_cancel_writes_cancelled_event(tmp_path: Path) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    command_service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    await _seed_created_operation(command_service, "op-1")
+    drive = StubDriveService()
+    svc = OperatorServiceV2(
+        drive_service=cast(DriveService, drive),
+        event_store=cast(OperationEventStore, event_store),
+        event_sourced_command_service=command_service,
     )
 
     outcome = await svc.cancel("op-1", reason="user requested")
@@ -298,20 +340,35 @@ async def test_cancel_writes_cancelled_event():
     assert "user requested" in outcome.summary
 
     cancel_events = [
-        e for e in store._streams["op-1"]
+        e for e in await event_store.load_after("op-1")
         if e.event_type == "operation.status.changed"
         and e.payload.get("status") == OperationStatus.CANCELLED.value
     ]
     assert len(cancel_events) == 1
+    accepted_events = [
+        e for e in await event_store.load_after("op-1") if e.event_type == "command.accepted"
+    ]
+    assert len(accepted_events) == 1
+    persisted = await checkpoint_store.load_latest("op-1")
+    assert persisted is not None
+    assert persisted.checkpoint_payload["status"] == OperationStatus.CANCELLED.value
 
 
 @pytest.mark.anyio
-async def test_cancel_without_reason_uses_default_summary():
-    svc, drive, store = _make_service()
-    await store.append(
-        "op-1",
-        0,
-        [OperationDomainEventDraft(event_type="operation.created", payload={})],
+async def test_cancel_without_reason_uses_default_summary(tmp_path: Path) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    command_service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    await _seed_created_operation(command_service, "op-1")
+    svc = OperatorServiceV2(
+        drive_service=cast(DriveService, StubDriveService()),
+        event_store=cast(OperationEventStore, event_store),
+        event_sourced_command_service=command_service,
     )
 
     outcome = await svc.cancel("op-1")
@@ -319,7 +376,40 @@ async def test_cancel_without_reason_uses_default_summary():
 
 
 @pytest.mark.anyio
-async def test_on_sigterm_requests_drain_before_cancelling_supervisor_tasks():
+async def test_cancel_rejects_terminal_operation(tmp_path: Path) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    command_service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    await _seed_created_operation(command_service, "op-1")
+    await command_service.append_domain_events(
+        "op-1",
+        [
+            OperationDomainEventDraft(
+                event_type="operation.status.changed",
+                payload={
+                    "status": OperationStatus.CANCELLED.value,
+                    "final_summary": "Operation cancelled.",
+                },
+            ),
+        ],
+    )
+    svc = OperatorServiceV2(
+        drive_service=cast(DriveService, StubDriveService()),
+        event_store=cast(OperationEventStore, event_store),
+        event_sourced_command_service=command_service,
+    )
+
+    with pytest.raises(RuntimeError, match="operation_terminal: operation is already cancelled."):
+        await svc.cancel("op-1")
+
+
+@pytest.mark.anyio
+async def test_on_sigterm_requests_drain_before_cancelling_supervisor_tasks() -> None:
     drive = ShutdownAwareDriveService()
     store = StubEventStore()
     supervisor = RecordingSupervisor()
@@ -338,8 +428,8 @@ async def test_on_sigterm_requests_drain_before_cancelling_supervisor_tasks():
         session_id="session-1",
     )
     svc = OperatorServiceV2(
-        drive_service=drive,
-        event_store=store,
+        drive_service=cast(DriveService, drive),
+        event_store=cast(OperationEventStore, store),
         supervisor=supervisor,
     )
 
@@ -357,7 +447,7 @@ async def test_on_sigterm_requests_drain_before_cancelling_supervisor_tasks():
 
 
 @pytest.mark.anyio
-async def test_on_sigterm_waits_for_drive_exit_before_cancelling_background_tasks():
+async def test_on_sigterm_waits_for_drive_exit_before_cancelling_background_tasks() -> None:
     """Catches the mutation where shutdown cancels background tasks before drive loops exit."""
     drive = ShutdownAwareDriveService()
     store = StubEventStore()
@@ -377,8 +467,8 @@ async def test_on_sigterm_waits_for_drive_exit_before_cancelling_background_task
         session_id="session-1",
     )
     svc = OperatorServiceV2(
-        drive_service=drive,
-        event_store=store,
+        drive_service=cast(DriveService, drive),
+        event_store=cast(OperationEventStore, store),
         supervisor=supervisor,
     )
 
@@ -393,7 +483,7 @@ async def test_on_sigterm_waits_for_drive_exit_before_cancelling_background_task
 
 
 @pytest.mark.anyio
-async def test_run_rejects_new_work_while_service_is_draining():
+async def test_run_rejects_new_work_while_service_is_draining() -> None:
     svc, _, _ = _make_service()
     svc._accepting = False
 

@@ -773,12 +773,14 @@ class V2Provider(_BootstrapProviderBase):
         event_store: FileOperationEventStore,
         event_sink: EventSink,
         supervisor_v2: AgentRunSupervisorV2,
+        event_sourced_command_service: EventSourcedCommandApplicationService,
     ) -> OperatorServiceV2:
         return OperatorServiceV2(
             drive_service=drive_service,
             event_store=event_store,
             event_sink=event_sink,
             supervisor=supervisor_v2,
+            event_sourced_command_service=event_sourced_command_service,
         )
 
 

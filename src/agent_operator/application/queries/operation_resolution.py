@@ -1,23 +1,33 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.domain import OperationState
-from agent_operator.protocols import OperationStore
 
 
 class ReplayServiceLike(Protocol):
-    async def load(self, operation_id: str): ...
+    async def load(self, operation_id: str) -> object: ...
+
+
+class OperationSummaryLike(Protocol):
+    operation_id: str
+
+
+class OperationStoreLike(Protocol):
+    async def list_operations(self) -> Sequence[OperationSummaryLike]: ...
+
+    async def load_operation(self, operation_id: str) -> OperationState | None: ...
 
 
 @dataclass(slots=True)
 class OperationResolutionService:
     """Resolve operation references against legacy and event-sourced truth."""
 
-    store: OperationStore
+    store: OperationStoreLike
     replay_service: ReplayServiceLike
     event_root: Path
     state_view_service: OperationStateViewService = field(
