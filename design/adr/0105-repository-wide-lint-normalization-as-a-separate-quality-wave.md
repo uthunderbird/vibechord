@@ -6,7 +6,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 ## Context
 
@@ -118,14 +118,14 @@ That would normalize drift between local hygiene expectations and repo-wide qual
 - Repo-wide lint debt becomes visible and schedulable instead of ambient background noise.
 - The repository can continue requiring touched-file cleanliness without pretending that the whole
   baseline is already normalized.
-- `partial`: the repository-wide lint normalization wave remains an active quality workstream rather
-  than a closed repository-wide gate.
+- `verified`: the repository-wide lint normalization wave is now a closed repository-wide gate for
+  `ruff check src tests`.
 
 Skim-safe current truth on 2026-04-14:
 
 - `implemented`: `ruff` is configured and enforced in pre-commit hooks
 - `implemented`: repository lint policy exists in `pyproject.toml` and `.pre-commit-config.yaml`
-- `partial`: `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` still reports live findings
-  in the current repository state, so the repo-wide always-green gate is not yet achieved
-- `partial`: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` is not currently green, so ADR 0105
-  cannot claim verified repository-wide closure from this repo state
+- `verified`: `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` is green in the current
+  repository state
+- `verified`: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` is green in the current repository
+  state (`944 passed, 11 skipped`)

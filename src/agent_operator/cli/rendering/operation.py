@@ -67,9 +67,12 @@ def render_dashboard(
         runtime_alert = payload.get("runtime_alert")
     if isinstance(runtime_alert, str) and runtime_alert.strip():
         header_lines.append(f"alert: {runtime_alert.strip()}")
-    elif isinstance(active_session, dict):
-        if isinstance(waiting_reason, str) and waiting_reason.strip():
-            header_lines.append(f"waiting: {waiting_reason.strip()}")
+    elif (
+        isinstance(active_session, dict)
+        and isinstance(waiting_reason, str)
+        and waiting_reason.strip()
+    ):
+        header_lines.append(f"waiting: {waiting_reason.strip()}")
     context_lines = []
     if isinstance(project_context, dict):
         context_lines.append(f"profile: {project_context.get('profile_name') or '-'}")
