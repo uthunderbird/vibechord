@@ -9,12 +9,15 @@ from agent_operator.application import (
     OperationCancellationService,
     OperationEntrypointService,
     OperationLifecycleCoordinator,
+    OperationLifecycleEntrypointGuard,
 )
 from agent_operator.application.attached_session_registry import AttachedSessionManager
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
-from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
+from agent_operator.application.event_sourcing.event_sourced_replay import (
+    EventSourcedReplayService,
+)
 from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,
@@ -110,6 +113,35 @@ async def test_operation_entrypoint_service_prepares_run_state() -> None:
     assert state.sessions[0].session_id == "session-1"
     assert state.active_session_record is not None
     assert state.active_session_record.session_id == "session-1"
+
+
+@pytest.mark.anyio
+async def test_operation_entrypoint_service_rejects_existing_operation_id() -> None:
+    store = MemoryStore()
+    await store.save_operation(
+        OperationState(
+            operation_id="op-1",
+            goal=OperationGoal(objective="Existing operation"),
+            policy=OperationPolicy(),
+        )
+    )
+    service = OperationEntrypointService(
+        store=store,
+        lifecycle_guard=OperationLifecycleEntrypointGuard(store=store),
+    )
+
+    with pytest.raises(RuntimeError, match="already exists"):
+        await service.prepare_run(
+            goal=OperationGoal(objective="Do not overwrite"),
+            policy=OperationPolicy(),
+            budget=ExecutionBudget(),
+            runtime_hints=RuntimeHints(),
+            options=RunOptions(),
+            operation_id="op-1",
+            attached_sessions=None,
+            merge_runtime_flags=lambda budget, _options: budget,
+            attach_initial_sessions=lambda _state, _sessions: None,
+        )
 
 
 @pytest.mark.anyio

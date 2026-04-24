@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
 Implementation grounding on 2026-04-24:
 
@@ -19,11 +19,25 @@ Implementation grounding on 2026-04-24:
   `src/agent_operator/cli/helpers/resolution.py`
 - `implemented`: Python SDK and MCP now use the same shared resolver through
   `src/agent_operator/client.py` and `src/agent_operator/mcp/service.py`
+- `implemented`: lifecycle entrypoint enforcement now lives in
+  `src/agent_operator/application/operation_lifecycle_entrypoints.py`, giving both
+  `OperationEntrypointService` and `OperatorServiceV2` one shared create-only vs continue-only
+  contract
+- `implemented`: `OperationEntrypointService.prepare_run()` now rejects caller-supplied existing
+  ids instead of silently overwriting/resuming them, and continue-only loading paths now fail fast
+  on missing ids before deeper runtime work starts
+- `implemented`: `OperatorServiceV2.run()` and `OperatorServiceV2.resume()` now enforce the same
+  lifecycle rule against canonical event-stream presence
 - `verified`: cross-surface regression coverage exists in `tests/test_cli.py`,
   `tests/test_client.py`, and `tests/test_mcp_server.py`
-- `partial`: lifecycle entrypoint semantics (`run` create-only vs `resume`/`recover`/`tick`
-  continue-only across all public surfaces) are not yet unified under one shared application
-  contract
+- `verified`: targeted lifecycle regressions now exist in `tests/test_operation_entrypoints.py`
+  and `tests/test_operator_service_v2.py`
+- `verified`: `uv run pytest` passes at the repository state for this implementation update
+  (`944 passed, 11 skipped` on 2026-04-24)
+- `not verified`: `uv run mypy` on the touched Python files still reports pre-existing strict
+  typing failures in `src/agent_operator/acp/session_runtime.py` and broader existing typing debt
+  in `tests/test_operation_entrypoints.py` and `tests/test_operator_service_v2.py`, so this ADR
+  remains `Implemented` rather than `Verified`
 
 ## Context
 

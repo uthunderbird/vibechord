@@ -8,6 +8,9 @@ from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
+from agent_operator.application.operation_lifecycle_entrypoints import (
+    OperationLifecycleEntrypointGuard,
+)
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -60,12 +63,17 @@ class OperationEntrypointService:
         event_sourced_operation_birth_service: EventSourcedOperationBirthService | None = None,
         event_sourced_replay_service: EventSourcedReplayService | None = None,
         operation_state_view_service: OperationStateViewService | None = None,
+        lifecycle_guard: OperationLifecycleEntrypointGuard | None = None,
     ) -> None:
         self._store = store
         self._event_sourced_operation_birth_service = event_sourced_operation_birth_service
         self._event_sourced_replay_service = event_sourced_replay_service
         self._operation_state_view_service = (
             operation_state_view_service or OperationStateViewService()
+        )
+        self._lifecycle_guard = lifecycle_guard or OperationLifecycleEntrypointGuard(
+            store=store,
+            replay_service=event_sourced_replay_service,
         )
 
     async def prepare_run(
@@ -97,6 +105,8 @@ class OperationEntrypointService:
         Returns:
             Prepared operation state ready for shell-side emission and drive.
         """
+        if operation_id is not None:
+            await self._lifecycle_guard.ensure_new_operation_id(operation_id)
         state = OperationState(
             operation_id=operation_id or str(uuid4()),
             goal=goal,
@@ -187,6 +197,7 @@ class OperationEntrypointService:
         return opts.model_copy(update={"max_cycles": 1})
 
     async def _load_existing(self, operation_id: str) -> OperationState:
+        await self._lifecycle_guard.ensure_existing_operation_id(operation_id)
         state = await self._store.load_operation(operation_id)
         if state is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
@@ -253,7 +264,8 @@ class OperationEntrypointService:
             state.current_focus = fallback_state.current_focus.model_copy(deep=True)
         if not replay_state.checkpoint.tasks and fallback_state.tasks:
             state.tasks = [item.model_copy(deep=True) for item in fallback_state.tasks]
-            state.objective.root_task_id = fallback_state.objective.root_task_id
+            if state.objective is not None and fallback_state.objective is not None:
+                state.objective.root_task_id = fallback_state.objective.root_task_id
         if not state.sessions and fallback_state.sessions:
             state.sessions = [item.model_copy(deep=True) for item in fallback_state.sessions]
         return state

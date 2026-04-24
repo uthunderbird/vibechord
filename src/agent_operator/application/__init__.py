@@ -37,6 +37,9 @@ from agent_operator.application.event_sourcing.event_sourced_replay import (
 from agent_operator.application.loaded_operation import LoadedOperation
 from agent_operator.application.operation_entrypoints import OperationEntrypointService
 from agent_operator.application.operation_lifecycle import OperationLifecycleCoordinator
+from agent_operator.application.operation_lifecycle_entrypoints import (
+    OperationLifecycleEntrypointGuard,
+)
 from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
 from agent_operator.application.operator_policy import LlmFirstOperatorPolicy
 from agent_operator.application.operator_service_v2 import OperatorServiceV2
@@ -108,6 +111,7 @@ __all__ = [
     "OperationFleetWorkbenchQueryService",
     "OperationDriveService",
     "OperationEntrypointService",
+    "OperationLifecycleEntrypointGuard",
     "OperationLifecycleCoordinator",
     "OperationRuntimeReconciliationService",
     "OperationTraceabilityService",

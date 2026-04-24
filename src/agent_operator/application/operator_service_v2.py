@@ -13,6 +13,9 @@ from uuid import uuid4
 from agent_operator.application.drive.agent_run_supervisor import AgentRunSupervisorV2
 from agent_operator.application.drive.drive_service import DriveService
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
+from agent_operator.application.operation_lifecycle_entrypoints import (
+    OperationLifecycleEntrypointGuard,
+)
 from agent_operator.domain.enums import OperationStatus
 from agent_operator.domain.event_sourcing import (
     OperationDomainEventDraft,
@@ -43,11 +46,15 @@ class OperatorServiceV2:
         event_store: OperationEventStore,
         event_sink: EventSink | None = None,
         supervisor: AgentRunSupervisorV2 | None = None,
+        lifecycle_guard: OperationLifecycleEntrypointGuard | None = None,
     ) -> None:
         self._drive_service = drive_service
         self._event_store = event_store
         self._event_sink = event_sink
         self._supervisor = supervisor
+        self._lifecycle_guard = lifecycle_guard or OperationLifecycleEntrypointGuard(
+            event_store=event_store
+        )
         self._drive_tasks: list[asyncio.Task[OperationOutcome]] = []
         self._active_contexts: dict[str, ProcessManagerContext] = {}
         self._accepting = True
@@ -71,6 +78,7 @@ class OperatorServiceV2:
                 **{**opts.model_dump(), "max_cycles": budget.max_iterations}
             )
         oid = operation_id or str(uuid4())
+        await self._lifecycle_guard.ensure_new_operation_id(oid)
         now = datetime.now(UTC)
 
         birth_payload: dict[str, object] = {
@@ -132,6 +140,7 @@ class OperatorServiceV2:
             opts = RunOptions(
                 **{**opts.model_dump(), "max_cycles": budget.max_iterations}
             )
+        await self._lifecycle_guard.ensure_existing_operation_id(operation_id)
         return await self._drive_operation(operation_id, opts)
 
     async def cancel(

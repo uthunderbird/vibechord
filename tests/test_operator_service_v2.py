@@ -228,22 +228,58 @@ async def test_run_passes_budget_as_max_cycles():
 @pytest.mark.anyio
 async def test_resume_calls_drive_without_writing_events():
     svc, drive, store = _make_service()
+    await store.append(
+        "op-existing",
+        0,
+        [OperationDomainEventDraft(event_type="operation.created", payload={})],
+    )
     await svc.resume("op-existing")
 
     assert len(drive.calls) == 1
     assert drive.calls[0][0] == "op-existing"
-    # No events written for resume
-    assert "op-existing" not in store._streams
+    # Resume does not append new lifecycle events.
+    assert len(store._streams["op-existing"]) == 1
 
 
 @pytest.mark.anyio
 async def test_resume_passes_budget_as_max_cycles():
     svc, drive, store = _make_service()
+    await store.append(
+        "op-1",
+        0,
+        [OperationDomainEventDraft(event_type="operation.created", payload={})],
+    )
     budget = ExecutionBudget(max_iterations=42)
     await svc.resume("op-1", budget=budget)
 
     opts = drive.calls[0][1]
     assert opts.max_cycles == 42
+
+
+@pytest.mark.anyio
+async def test_run_rejects_existing_operation_id():
+    svc, drive, store = _make_service()
+    await store.append(
+        "op-1",
+        0,
+        [OperationDomainEventDraft(event_type="operation.created", payload={})],
+    )
+
+    with pytest.raises(RuntimeError, match="already exists"):
+        await svc.run(OperationGoal(objective="duplicate"), operation_id="op-1")
+
+    assert drive.calls == []
+
+
+@pytest.mark.anyio
+async def test_resume_rejects_missing_operation_id():
+    svc, drive, store = _make_service()
+    del store
+
+    with pytest.raises(RuntimeError, match="was not found"):
+        await svc.resume("op-missing")
+
+    assert drive.calls == []
 
 
 @pytest.mark.anyio
@@ -287,6 +323,11 @@ async def test_on_sigterm_requests_drain_before_cancelling_supervisor_tasks():
     drive = ShutdownAwareDriveService()
     store = StubEventStore()
     supervisor = RecordingSupervisor()
+    await store.append(
+        "op-shutdown",
+        0,
+        [OperationDomainEventDraft(event_type="operation.created", payload={})],
+    )
 
     async def _background() -> None:
         await asyncio.sleep(3600)
@@ -321,6 +362,11 @@ async def test_on_sigterm_waits_for_drive_exit_before_cancelling_background_task
     drive = ShutdownAwareDriveService()
     store = StubEventStore()
     supervisor = OrderingSupervisor(drive_exited=drive.exited)
+    await store.append(
+        "op-shutdown",
+        0,
+        [OperationDomainEventDraft(event_type="operation.created", payload={})],
+    )
 
     async def _background() -> None:
         await asyncio.sleep(3600)
