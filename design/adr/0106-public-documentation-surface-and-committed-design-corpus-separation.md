@@ -1,8 +1,12 @@
 # ADR 0106: Public documentation surface and committed design corpus separation
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Verified
 
 ## Context
 
@@ -175,14 +179,12 @@ It is explanation-heavy and design-history-heavy instead.
 - `partial`: some historical design-process artifacts still mention old `docs/` paths in prose,
   but active repository guidance has been rewired to the new structure.
 
-## Implementation Status
-
-Implemented
-
-Skim-safe current truth on 2026-04-12:
+Skim-safe current truth on 2026-04-24:
 
 - `implemented`: `docs/` contains only public-facing documentation (quickstart, reference, how-to,
   TUI guides, integrations)
 - `implemented`: `design/` contains ADRs, RFCs, and internal corpus — not surfaced as product docs
 - `implemented`: no design-process artifacts in `docs/` polluting the public surface
+- `verified`: `pyproject.toml` points package metadata at root `README.md`
 - `verified`: directory structure confirmed; `docs/` and `design/` are cleanly separated
+- `verified`: `tests/test_documentation_layout.py` locks the public-docs vs design-corpus split
