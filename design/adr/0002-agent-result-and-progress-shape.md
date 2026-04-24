@@ -1,8 +1,27 @@
 # ADR 0002: Agent Progress And Result Have A Minimal Structured Core
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Implemented
+
+## Evidence
+
+- `src/agent_operator/domain/agent.py` defines `AgentProgress` with the ADR core
+  (`session_id`, `state`, `message`, `updated_at`) plus normalized optional fields
+  (`progress_text`, `partial_output`, `usage`, `artifacts`, `raw`).
+- `src/agent_operator/domain/agent.py` defines `AgentResult` with the ADR core
+  (`session_id`, `status`, `output_text`, `artifacts`, `error`, `completed_at`) plus
+  optional normalized extensions (`structured_output`, `usage`, `transcript`, `raw`).
+- `src/agent_operator/domain/enums.py` provides normalized `AgentProgressState` and
+  `AgentResultStatus` enums used across adapters and runtime code.
+- `tests/test_acp_session_runner.py`, `tests/test_codex_acp_adapter.py`, and
+  `tests/test_claude_acp_adapter.py` assert normalized progress and result behavior across
+  ACP-backed adapters, including `running`, `waiting_input`, `success`, `incomplete`, and
+  disconnected/failure paths.
 
 ## Context
 
