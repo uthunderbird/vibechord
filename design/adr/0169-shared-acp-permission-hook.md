@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Repository-truth evidence for implementation:
 
@@ -23,6 +23,9 @@ Repository-truth evidence for implementation:
 - `tests/test_agent_session_runtime.py` now exercises live session-runtime forwarding through
   the real `opencode_acp` hook rather than a test stub, giving direct evidence that the runtime
   path reaches the shared helper
+- local verification on 2026-04-24 passed for:
+  - `uv run pytest tests/test_acp_permissions.py tests/test_agent_session_runtime.py tests/test_claude_acp_adapter.py tests/test_opencode_acp_adapter.py tests/test_runtime_bindings.py`
+  - `uv run pytest`
 
 ## Context
 
