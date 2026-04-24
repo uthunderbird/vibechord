@@ -6,7 +6,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 ## Evidence
 
@@ -18,6 +18,9 @@ Implemented
   optional normalized extensions (`structured_output`, `usage`, `transcript`, `raw`).
 - `src/agent_operator/domain/enums.py` provides normalized `AgentProgressState` and
   `AgentResultStatus` enums used across adapters and runtime code.
+- `tests/test_agent_domain_contracts.py` verifies the minimal structured core and optional
+  normalized extensions for both `AgentProgress` and `AgentResult`, including
+  `usage`, `artifacts`, `structured_output`, `transcript`, and `raw`.
 - `tests/test_acp_session_runner.py`, `tests/test_codex_acp_adapter.py`, and
   `tests/test_claude_acp_adapter.py` assert normalized progress and result behavior across
   ACP-backed adapters, including `running`, `waiting_input`, `success`, `incomplete`, and
