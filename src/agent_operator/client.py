@@ -6,10 +6,13 @@ from uuid import uuid4
 
 import anyio
 
+from agent_operator.application.queries.operation_resolution import OperationResolutionService
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.application.service import OperatorService
 from agent_operator.bootstrap import (
     build_command_inbox,
     build_event_sink,
+    build_replay_service,
     build_service,
     build_store,
 )
@@ -98,6 +101,7 @@ class OperatorClient:
         self._store: OperationStore | None = None
         self._command_inbox: OperationCommandInbox | None = None
         self._service: OperatorService | None = None
+        self._resolution_service: OperationResolutionService | None = None
 
     async def __aenter__(self) -> OperatorClient:
         """Load settings and initialize backing services.
@@ -121,6 +125,12 @@ class OperatorClient:
         self._store = build_store(self._settings)
         self._command_inbox = build_command_inbox(self._settings)
         self._service = build_service(self._settings)
+        self._resolution_service = OperationResolutionService(
+            store=self._store,
+            replay_service=build_replay_service(self._settings),
+            event_root=self._settings.data_dir / "operation_events",
+            state_view_service=OperationStateViewService(),
+        )
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -137,6 +147,7 @@ class OperatorClient:
         self._service = None
         self._command_inbox = None
         self._store = None
+        self._resolution_service = None
         self._settings = None
 
     async def list_operations(
@@ -240,8 +251,10 @@ class OperatorClient:
         """
 
         resolved_operation_id = await self._resolve_operation_id(operation_id)
+        operation = await self._require_resolution_service().load_canonical_operation_state(
+            resolved_operation_id
+        )
         store = self._require_store()
-        operation = await store.load_operation(resolved_operation_id)
         outcome = await store.load_outcome(resolved_operation_id)
         if operation is None and outcome is None:
             raise RuntimeError(f"Operation {resolved_operation_id!r} was not found.")
@@ -500,42 +513,15 @@ class OperatorClient:
 
     async def _load_operation(self, operation_id: str) -> OperationState:
         resolved_operation_id = await self._resolve_operation_id(operation_id)
-        operation = await self._require_store().load_operation(resolved_operation_id)
+        operation = await self._require_resolution_service().load_canonical_operation_state(
+            resolved_operation_id
+        )
         if operation is None:
             raise RuntimeError(f"Operation {resolved_operation_id!r} was not found.")
         return operation
 
     async def _resolve_operation_id(self, operation_ref: str) -> str:
-        store = self._require_store()
-        summaries = await store.list_operations()
-        if operation_ref == "last":
-            states = [
-                operation
-                for summary in summaries
-                if (operation := await store.load_operation(summary.operation_id)) is not None
-            ]
-            if not states:
-                raise RuntimeError("No persisted operations were found.")
-            latest = max(states, key=lambda item: item.created_at)
-            return latest.operation_id
-        exact = next(
-            (item.operation_id for item in summaries if item.operation_id == operation_ref),
-            None,
-        )
-        if exact is not None:
-            return exact
-        matches = [
-            item.operation_id for item in summaries if item.operation_id.startswith(operation_ref)
-        ]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            rendered_matches = ", ".join(sorted(matches))
-            raise RuntimeError(
-                f"Operation reference {operation_ref!r} is ambiguous. Matches: "
-                f"{rendered_matches}"
-            )
-        raise RuntimeError(f"Operation {operation_ref!r} was not found.")
+        return await self._require_resolution_service().resolve_operation_id(operation_ref)
 
     def _resolve_attention_id(self, operation: OperationState, attention_ref: str) -> str:
         exact = next(
@@ -588,8 +574,15 @@ class OperatorClient:
 
     async def _is_terminal_operation(self, operation_id: str) -> bool:
         store = self._require_store()
-        operation = await store.load_operation(operation_id)
+        operation = await self._require_resolution_service().load_canonical_operation_state(
+            operation_id
+        )
         if operation is not None and operation.status in self._TERMINAL_STATUSES:
             return True
         outcome = await store.load_outcome(operation_id)
         return outcome is not None and outcome.status in self._TERMINAL_STATUSES
+
+    def _require_resolution_service(self) -> OperationResolutionService:
+        if self._resolution_service is None:
+            raise RuntimeError("OperatorClient must be entered with 'async with' before use.")
+        return self._resolution_service

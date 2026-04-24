@@ -17,6 +17,9 @@ from agent_operator.domain import (
     CommandTargetScope,
     ExecutionBudget,
     InvolvementLevel,
+    ObjectiveState,
+    OperationCheckpoint,
+    OperationCheckpointRecord,
     OperationGoal,
     OperationOutcome,
     OperationPolicy,
@@ -423,3 +426,42 @@ async def test_operator_mcp_service_answer_cancel_interrupt_and_timeout_validati
             wait=False,
             timeout_seconds=5,
         )
+
+
+@pytest.mark.anyio
+async def test_operator_mcp_service_resolves_v2_only_operation_reference(tmp_path: Path) -> None:
+    settings_loader = _settings_loader_factory(tmp_path)
+    store = FileOperationStore(tmp_path / "runs")
+    checkpoint = OperationCheckpoint.initial("op-mcp-v2")
+    checkpoint.objective = ObjectiveState(objective="Canonical MCP operation")
+    checkpoint.created_at = datetime(2026, 4, 24, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id="op-mcp-v2",
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / "op-mcp-v2.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / "op-mcp-v2.jsonl").write_text("", encoding="utf-8")
+
+    service = OperatorMcpService(
+        status_service_factory=lambda settings: None,
+        delivery_service_factory=lambda settings: None,
+        settings_loader=settings_loader,
+        settings_loader_with_data_dir=lambda: (settings_loader(), "env"),
+        service_builder=lambda settings, event_sink=None: None,
+        store_builder=lambda settings: store,
+        event_sink_builder=lambda settings, operation_id: None,
+    )
+
+    resolved = await service._resolve_operation_id("op-mcp")  # noqa: SLF001
+
+    assert resolved == "op-mcp-v2"

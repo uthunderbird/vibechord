@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from agent_operator import OperatorClient
 from agent_operator.domain import (
     ExecutionBudget,
     InvolvementLevel,
+    ObjectiveState,
+    OperationCheckpoint,
+    OperationCheckpointRecord,
     OperationGoal,
     OperationOutcome,
     OperationPolicy,
@@ -178,3 +182,32 @@ async def test_operator_client_resolves_last_operation_reference(tmp_path: Path)
         brief = await client.get_status("last")
 
     assert brief.operation_id == "op-sdk-newer"
+
+
+@pytest.mark.anyio
+async def test_operator_client_resolves_v2_only_operation_reference(tmp_path: Path) -> None:
+    checkpoint = OperationCheckpoint.initial("op-sdk-v2")
+    checkpoint.objective = ObjectiveState(objective="Canonical event-sourced SDK operation")
+    checkpoint.created_at = datetime(2026, 4, 24, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id="op-sdk-v2",
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / "op-sdk-v2.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / "op-sdk-v2.jsonl").write_text("", encoding="utf-8")
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        brief = await client.get_status("op-sdk")
+
+    assert brief.operation_id == "op-sdk-v2"
+    assert brief.objective_brief == "Canonical event-sourced SDK operation"

@@ -12,8 +12,11 @@ from agent_operator.application import (
     OperationDeliveryCommandService,
     OperationStatusQueryService,
 )
+from agent_operator.application.queries.operation_resolution import OperationResolutionService
+from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.bootstrap import (
     build_event_sink,
+    build_replay_service,
     build_service,
     build_store,
 )
@@ -296,44 +299,18 @@ class OperatorMcpService:
 
     async def _resolve_operation_id(self, operation_ref: str) -> str:
         settings = self.settings_loader()
-        store = self.store_builder(settings)
-        summaries = await store.list_operations()
-        if operation_ref == "last":
-            states = [
-                operation
-                for summary in summaries
-                if isinstance(getattr(summary, "operation_id", None), str)
-                and (operation := await store.load_operation(summary.operation_id)) is not None
-            ]
-            if not states:
-                raise McpToolError("not_found", "No persisted operations were found.")
-            latest = max(states, key=lambda item: item.created_at)
-            return latest.operation_id
-        exact = next(
-            (
-                item.operation_id
-                for item in summaries
-                if isinstance(getattr(item, "operation_id", None), str)
-                and item.operation_id == operation_ref
-            ),
-            None,
+        resolver = OperationResolutionService(
+            store=self.store_builder(settings),
+            replay_service=build_replay_service(settings),
+            event_root=settings.data_dir / "operation_events",
+            state_view_service=OperationStateViewService(),
         )
-        if exact is not None:
-            return exact
-        matches = [
-            item.operation_id
-            for item in summaries
-            if isinstance(getattr(item, "operation_id", None), str)
-            and item.operation_id.startswith(operation_ref)
-        ]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            raise McpToolError(
-                "invalid_state",
-                f"Operation reference {operation_ref!r} is ambiguous: {', '.join(sorted(matches))}",
-            )
-        raise McpToolError("not_found", f"Operation {operation_ref!r} was not found.")
+        try:
+            return await resolver.resolve_operation_id(operation_ref)
+        except RuntimeError as exc:
+            message = str(exc)
+            code = "invalid_state" if "ambiguous" in message else "not_found"
+            raise McpToolError(code, message) from exc
 
     async def _build_status_payload(
         self,

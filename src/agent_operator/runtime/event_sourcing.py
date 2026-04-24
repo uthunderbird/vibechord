@@ -81,6 +81,7 @@ class FileOperationEventStore:
                     timestamp=event.timestamp,
                     causation_id=event.causation_id,
                     correlation_id=event.correlation_id,
+                    metadata=event.metadata,
                 )
                 for index, event in enumerate(events)
             ]

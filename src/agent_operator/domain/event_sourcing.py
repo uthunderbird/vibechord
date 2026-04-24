@@ -30,6 +30,7 @@ class OperationDomainEventDraft(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     causation_id: str | None = None
     correlation_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class StoredOperationDomainEvent(BaseModel):
@@ -62,6 +63,7 @@ class StoredOperationDomainEvent(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     causation_id: str | None = None
     correlation_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("sequence")
     @classmethod

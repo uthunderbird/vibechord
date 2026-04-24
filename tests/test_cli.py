@@ -3836,6 +3836,203 @@ def test_debug_namespace_surfaces_recovery_runtime_and_forensic_commands(
     assert '"events"' in trace_result.stdout
 
 
+def test_debug_event_append_dry_run_previews_v2_repair(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    checkpoint = OperationCheckpoint.initial("op-debug-repair")
+    checkpoint.objective = ObjectiveState(objective="Repair canonical state")
+    checkpoint.created_at = datetime(2026, 4, 24, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id="op-debug-repair",
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / "op-debug-repair.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / "op-debug-repair.jsonl").write_text("", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "debug",
+            "event",
+            "append",
+            "op-debug",
+            "--event-type",
+            "operation.status.changed",
+            "--payload-json",
+            '{"status":"cancelled","final_summary":"Manual repair."}',
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["dry_run"] is True
+    assert payload["operation_id"] == "op-debug-repair"
+    assert payload["projected_status"] == "cancelled"
+
+
+def test_debug_event_append_applies_event_and_updates_checkpoint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    checkpoint = OperationCheckpoint.initial("op-debug-repair-apply")
+    checkpoint.objective = ObjectiveState(objective="Repair canonical state")
+    checkpoint.created_at = datetime(2026, 4, 24, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id="op-debug-repair-apply",
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / "op-debug-repair-apply.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / "op-debug-repair-apply.jsonl").write_text("", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "debug",
+            "event",
+            "append",
+            "op-debug-repair-apply",
+            "--event-type",
+            "operation.status.changed",
+            "--payload-json",
+            '{"status":"cancelled","final_summary":"Manual repair."}',
+            "--reason",
+            "manual test repair",
+            "--yes",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["dry_run"] is False
+    assert payload["projected_status"] == "cancelled"
+    assert payload["stored_events"][0]["metadata"]["repair_reason"] == "manual test repair"
+
+    status_result = runner.invoke(app, ["status", "op-debug-repair-apply", "--json"])
+    assert status_result.exit_code == 0
+    status_payload = json.loads(status_result.stdout)
+    assert status_payload["status"] == "cancelled"
+
+
+def test_debug_event_append_rejects_invalid_json_payload(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    result = runner.invoke(
+        app,
+        [
+            "debug",
+            "event",
+            "append",
+            "missing-op",
+            "--event-type",
+            "operation.status.changed",
+            "--payload-json",
+            "{not-json}",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid JSON payload" in result.output
+
+
+def test_debug_event_append_requires_reason_for_non_dry_run(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    checkpoint = OperationCheckpoint.initial("op-debug-reason")
+    checkpoint.objective = ObjectiveState(objective="Repair canonical state")
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id="op-debug-reason",
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / "op-debug-reason.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / "op-debug-reason.jsonl").write_text("", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "debug",
+            "event",
+            "append",
+            "op-debug-reason",
+            "--event-type",
+            "operation.status.changed",
+            "--payload-json",
+            '{"status":"cancelled"}',
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--reason is required" in result.output
+
+
+def test_debug_event_append_rejects_unsupported_event_type(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    checkpoint = OperationCheckpoint.initial("op-debug-unsupported")
+    checkpoint.objective = ObjectiveState(objective="Repair canonical state")
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id="op-debug-unsupported",
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / "op-debug-unsupported.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / "op-debug-unsupported.jsonl").write_text("", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "debug",
+            "event",
+            "append",
+            "op-debug-unsupported",
+            "--event-type",
+            "operation.created",
+            "--payload-json",
+            '{"status":"running"}',
+            "--json",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Unsupported repair event type" in result.output
+
+
 def test_pause_command_enqueues_pause_operator(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
