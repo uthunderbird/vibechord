@@ -24,7 +24,15 @@ from agent_operator.bootstrap import (
 )
 from agent_operator.cli.tui import build_fleet_workbench_controller, run_fleet_workbench
 from agent_operator.config import OperatorSettings, load_global_config
-from agent_operator.domain import CommandTargetScope, OperationCommandType, OperationStatus
+from agent_operator.domain import (
+    CommandTargetScope,
+    OperationCommandType,
+    OperationState,
+    OperationStatus,
+    OperationSummary,
+    SessionStatus,
+    TaskStatus,
+)
 from agent_operator.runtime import (
     AgendaSnapshot,
     add_project_root_parents,
@@ -62,6 +70,7 @@ from ..helpers.rendering import (
     shorten_live_text,
 )
 from ..helpers.resolution import (
+    list_canonical_operation_states_async,
     resolve_history_entry,
     resolve_operation_id,
     resolve_project_profile_selection,
@@ -147,25 +156,22 @@ async def _load_multi_project_agenda_snapshot(
         settings=settings
     ):
         project_settings = _settings_for_data_dir(settings, data_dir)
-        store = build_store(project_settings)
         trace_store = build_trace_store(project_settings)
         inbox = build_wakeup_inbox(project_settings)
         supervisor = build_background_run_inspection_store(project_settings)
-        for summary in await store.list_operations():
-            wakeups = inbox.read_all(summary.operation_id)
+        for operation in await list_canonical_operation_states_async(project_settings):
+            summary = _operation_summary(operation)
+            wakeups = inbox.read_all(operation.operation_id)
             background_runs = [
                 PROJECTIONS._execution_payload(item)
-                for item in await supervisor.list_runs(summary.operation_id)
+                for item in await supervisor.list_runs(operation.operation_id)
             ]
             runtime_alert = build_runtime_alert(
-                status=summary.status,
+                status=operation.status,
                 wakeups=wakeups,
                 background_runs=background_runs,
             )
-            operation = await store.load_operation(summary.operation_id)
-            if operation is None:
-                continue
-            brief_bundle = await trace_store.load_brief_bundle(summary.operation_id)
+            brief_bundle = await trace_store.load_brief_bundle(operation.operation_id)
             brief = brief_bundle.operation_brief if brief_bundle is not None else None
             item = build_agenda_item(
                 operation,
@@ -189,22 +195,22 @@ async def _iter_list_payloads() -> list[tuple[dict[str, object], str]]:
     rows: list[tuple[dict[str, object], str, datetime]] = []
     for _, data_dir, discovered_project_name in _iter_fleet_project_scopes(settings=settings):
         project_settings = _settings_for_data_dir(settings, data_dir)
-        store = build_store(project_settings)
         trace_store = build_trace_store(project_settings)
         inbox = build_wakeup_inbox(project_settings)
         supervisor = build_background_run_inspection_store(project_settings)
-        for summary in await store.list_operations():
-            wakeups = inbox.read_all(summary.operation_id)
+        for operation in await list_canonical_operation_states_async(project_settings):
+            summary = _operation_summary(operation)
+            wakeups = inbox.read_all(operation.operation_id)
             background_runs = [
                 PROJECTIONS._execution_payload(item)
-                for item in await supervisor.list_runs(summary.operation_id)
+                for item in await supervisor.list_runs(operation.operation_id)
             ]
             runtime_alert = build_runtime_alert(
-                status=summary.status,
+                status=operation.status,
                 wakeups=wakeups,
                 background_runs=background_runs,
             )
-            brief_bundle = await trace_store.load_brief_bundle(summary.operation_id)
+            brief_bundle = await trace_store.load_brief_bundle(operation.operation_id)
             if brief_bundle is not None and brief_bundle.operation_brief is not None:
                 payload = PROJECTIONS.operation_brief_payload(brief_bundle.operation_brief)
                 payload["project"] = (
@@ -213,9 +219,6 @@ async def _iter_list_payloads() -> list[tuple[dict[str, object], str]]:
                 if runtime_alert is not None:
                     payload["runtime_alert"] = runtime_alert
                 rows.append((payload, str(payload["project"] or ""), summary.updated_at))
-                continue
-            operation = await store.load_operation(summary.operation_id)
-            if operation is None:
                 continue
             payload = PROJECTIONS._agenda_item_payload(
                 build_agenda_item(operation, summary, runtime_alert=runtime_alert)
@@ -230,6 +233,31 @@ async def _load_agenda_snapshot(
     *, project: str | None, include_all: bool
 ) -> AgendaSnapshot:
     return await _load_multi_project_agenda_snapshot(project=project, include_all=include_all)
+
+
+def _operation_summary(operation: OperationState) -> OperationSummary:
+    runnable_task_count = sum(
+        1 for task in operation.tasks if task.status in {TaskStatus.READY, TaskStatus.RUNNING}
+    )
+    reusable_session_count = sum(
+        1
+        for session in operation.sessions
+        if not session.handle.one_shot
+        and session.status in {SessionStatus.IDLE, SessionStatus.RUNNING, SessionStatus.WAITING}
+    )
+    focus = None
+    if operation.current_focus is not None:
+        focus = f"{operation.current_focus.kind.value}:{operation.current_focus.target_id}"
+    return OperationSummary(
+        operation_id=operation.operation_id,
+        status=operation.status,
+        objective_prompt=operation.objective_state.objective,
+        final_summary=operation.final_summary,
+        focus=focus,
+        runnable_task_count=runnable_task_count,
+        reusable_session_count=reusable_session_count,
+        updated_at=operation.updated_at,
+    )
 
 
 async def _load_fleet_workbench_payload(
@@ -628,7 +656,10 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
                 recent_events=None,
             )
         else:
-            operations = await _load_converse_fleet_operations(active_project)
+            operations = await _load_converse_fleet_operations(
+                active_project,
+                store=build_store(settings),
+            )
             prompt = build_converse_fleet_prompt(
                 operations,
                 user_message=scoped_message,

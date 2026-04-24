@@ -46,6 +46,7 @@ from agent_operator.domain import (
     MemoryFreshness,
     MemoryScope,
     MemorySourceRef,
+    ObjectiveState,
     OperationBrief,
     OperationCheckpoint,
     OperationCheckpointRecord,
@@ -800,6 +801,38 @@ def test_resolution_accepts_event_sourced_operation_id(tmp_path: Path, monkeypat
 
     assert resolve_operation_id(operation_id) == operation_id
     assert resolve_operation_id("op-v2") == operation_id
+
+
+def test_resolution_last_accepts_event_sourced_operation_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_operator.cli.helpers.resolution import resolve_operation_id
+
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-v2-last"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(
+        objective="Resume canonical v2 truth.",
+        metadata={"project_profile_name": "demo"},
+    )
+    checkpoint.created_at = datetime(2026, 4, 23, tzinfo=UTC)
+    checkpoint.updated_at = datetime(2026, 4, 23, tzinfo=UTC)
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    (tmp_path / "operation_events").mkdir()
+    (tmp_path / "operation_events" / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
+
+    assert resolve_operation_id("last") == operation_id
 
 
 def test_converse_cli_read_only_query_renders_answer_without_executing_commands(
@@ -1891,6 +1924,44 @@ def test_list_json_emits_machine_readable_objects(tmp_path: Path, monkeypatch) -
     assert payload["operation_id"] == "op-list-fallback"
     assert payload["status"] == "completed"
     assert payload["objective_brief"] == "Fallback list objective"
+
+
+def test_list_json_emits_event_sourced_objects_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = "op-list-v2"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(
+        objective="Canonical event-sourced listing",
+        summary="Checkpoint-only listing works.",
+    )
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.final_summary = "Checkpoint-only listing works."
+    checkpoint.created_at = datetime(2026, 4, 23, tzinfo=UTC)
+    checkpoint.updated_at = datetime(2026, 4, 23, tzinfo=UTC)
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    (tmp_path / "operation_events").mkdir()
+    (tmp_path / "operation_events" / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["list", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["status"] == "completed"
+    assert payload["objective_brief"] == "Canonical event-sourced listing"
 
 
 def test_history_default_reads_committed_ledger(tmp_path: Path, monkeypatch) -> None:
