@@ -37,6 +37,9 @@ from agent_operator.domain import (
     DecisionMemo,
     ExecutionBudget,
     ExternalTicketLink,
+    FeatureDraft,
+    FeaturePatch,
+    FeatureStatus,
     FocusKind,
     FocusState,
     InvolvementLevel,
@@ -67,9 +70,11 @@ from agent_operator.domain import (
     RunMode,
     RuntimeHints,
     SchedulerState,
+    SessionPolicy,
     SessionRecord,
     SessionRecordStatus,
     StoredControlIntent,
+    TaskPatch,
     TaskState,
     TaskStatus,
     TraceRecord,
@@ -4361,6 +4366,40 @@ def test_converse_command_full_context_derives_recent_events_and_iteration_paylo
                 target_agent="codex_acp",
                 instruction="Inspect the working tree.",
                 rationale="Need current repository truth.",
+                new_features=[
+                    FeatureDraft(
+                        title="Repository audit",
+                        acceptance_criteria="Capture the current working-tree state.",
+                        notes=["Include staged and unstaged changes."],
+                    )
+                ],
+                feature_updates=[
+                    FeaturePatch(
+                        feature_id="feature-1",
+                        title="Repository audit",
+                        acceptance_criteria="Record the audit in the operation context.",
+                        status=FeatureStatus.IN_PROGRESS,
+                        append_notes=["Audit started from converse full-context mode."],
+                    )
+                ],
+                task_updates=[
+                    TaskPatch(
+                        task_id="task-1",
+                        title="Inspect the repository",
+                        goal="Capture the current repository state.",
+                        definition_of_done="The prompt shows the current repository truth.",
+                        brain_priority=60,
+                        assigned_agent="codex_acp",
+                        linked_session_id="session-1",
+                        session_policy=SessionPolicy.PREFER_REUSE,
+                        append_notes=["Started through full-context converse."],
+                        add_memory_refs=["memory-1"],
+                        add_artifact_refs=["artifact-1"],
+                        add_dependencies=["task-0"],
+                        remove_dependencies=["task-old"],
+                        dependency_removal_reason="Replaced by the newer audit prerequisite.",
+                    )
+                ],
             ),
             session=AgentSessionHandle(
                 adapter_key="codex_acp",
@@ -4437,6 +4476,9 @@ def test_converse_command_full_context_derives_recent_events_and_iteration_paylo
             assert '"event_id": "evt-converse-1"' in prompt
             assert '"action_type": "start_agent"' in prompt
             assert '"session_id": "session-1"' in prompt
+            assert '"acceptance_criteria": "Capture the current working-tree state."' in prompt
+            assert '"append_notes": ["Started through full-context converse."]' in prompt
+            assert '"add_memory_refs": ["memory-1"]' in prompt
             assert '"status": "success"' in prompt
             assert '"declared_goal": "Inspect the repository"' in prompt
             return SimpleNamespace(

@@ -515,8 +515,8 @@ def _serialize_decision(decision) -> dict[str, object]:
         "new_features": [
             {
                 "title": item.title,
-                "goal": item.goal,
-                "description": item.description,
+                "acceptance_criteria": item.acceptance_criteria,
+                "notes": list(item.notes),
             }
             for item in decision.new_features
         ],
@@ -524,7 +524,9 @@ def _serialize_decision(decision) -> dict[str, object]:
             {
                 "feature_id": item.feature_id,
                 "status": item.status.value if item.status is not None else None,
-                "summary": item.summary,
+                "title": item.title,
+                "acceptance_criteria": item.acceptance_criteria,
+                "append_notes": list(item.append_notes),
             }
             for item in decision.feature_updates
         ],
@@ -544,10 +546,21 @@ def _serialize_decision(decision) -> dict[str, object]:
             {
                 "task_id": item.task_id,
                 "status": item.status.value if item.status is not None else None,
+                "title": item.title,
+                "goal": item.goal,
+                "definition_of_done": item.definition_of_done,
+                "brain_priority": item.brain_priority,
                 "assigned_agent": item.assigned_agent,
                 "append_notes": list(item.append_notes),
-                "artifact_refs": list(item.artifact_refs),
-                "memory_refs": list(item.memory_refs),
+                "linked_session_id": item.linked_session_id,
+                "session_policy": (
+                    item.session_policy.value if item.session_policy is not None else None
+                ),
+                "add_memory_refs": list(item.add_memory_refs),
+                "add_artifact_refs": list(item.add_artifact_refs),
+                "add_dependencies": list(item.add_dependencies),
+                "remove_dependencies": list(item.remove_dependencies),
+                "dependency_removal_reason": item.dependency_removal_reason,
             }
             for item in decision.task_updates
         ],

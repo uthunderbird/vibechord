@@ -1,8 +1,33 @@
 # ADR 0003: Brain Decisions Must Resolve To Structured Actions
 
-## Status
+## Decision Status
 
 Accepted
+
+## Implementation Status
+
+Verified
+
+## Evidence
+
+- `src/agent_operator/domain/brain.py` defines `BrainDecision` as the structured execution
+  contract with explicit `action_type`, `target_agent`, `session_id`, `instruction`,
+  `rationale`, `confidence`, and structured follow-on metadata.
+- `src/agent_operator/dtos/brain.py` defines `StructuredDecisionDTO` as the provider-facing
+  structured output schema, and `src/agent_operator/mappers/brain.py` maps that DTO into the
+  domain `BrainDecision` instead of routing execution through free-form prose.
+- `src/agent_operator/application/decision_execution.py` executes by branching on
+  `decision.action_type` and uses `decision.rationale` only as explanatory summary text when
+  marking completion, failure, or attention.
+- `src/agent_operator/application/queries/operation_projections.py` and
+  `src/agent_operator/cli/workflows/converse.py` serialize both `action_type` and `rationale`
+  separately for observability, preserving the ADR rule that reasoning is visible but not the
+  executable source of truth. The converse serializer now also stays aligned with the current
+  structured feature/task mutation fields instead of relying on stale attribute names.
+- `tests/test_decision_execution_service.py`, `tests/test_prompting.py`,
+  `tests/test_operation_projections.py`, and `tests/test_cli.py` exercise structured decision
+  execution, prompting for structured outputs, and read-model/CLI serialization of decision data,
+  including full-context converse serialization for structured feature/task mutation payloads.
 
 ## Context
 
