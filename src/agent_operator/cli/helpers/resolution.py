@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING
 import anyio
 import typer
 
-from agent_operator.application.queries.operation_resolution import OperationResolutionService
+from agent_operator.application.queries.operation_resolution import (
+    OperationResolutionError,
+    OperationResolutionService,
+)
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
 from agent_operator.bootstrap import build_replay_service, build_store
 from agent_operator.config import OperatorSettings
@@ -30,7 +33,7 @@ async def resolve_operation_id_async(operation_ref: str) -> str:
     settings = _load_settings()
     try:
         return await _build_resolution_service(settings).resolve_operation_id(operation_ref)
-    except RuntimeError as exc:
+    except OperationResolutionError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
 

@@ -10,7 +10,7 @@ Accepted
 
 Verified
 
-Implementation grounding on 2026-04-24:
+Implementation grounding on 2026-04-25:
 
 - `implemented`: a shared `OperationResolutionService` now lives under
   `src/agent_operator/application/queries/operation_resolution.py` and resolves exact ids,
@@ -32,13 +32,34 @@ Implementation grounding on 2026-04-24:
   `tests/test_client.py`, and `tests/test_mcp_server.py`
 - `verified`: targeted lifecycle regressions now exist in `tests/test_operation_entrypoints.py`
   and `tests/test_operator_service_v2.py`
-- `verified`: `uv run mypy src/agent_operator/client.py src/agent_operator/mcp/service.py
-  src/agent_operator/application/queries/operation_resolution.py
-  src/agent_operator/application/operation_lifecycle_entrypoints.py
-  src/agent_operator/cli/helpers/resolution.py tests/test_operation_entrypoints.py
-  tests/test_operator_service_v2.py` passes at this repository state
-- `verified`: `uv run pytest` passes at the repository state for this implementation update
-  (`944 passed, 11 skipped` on 2026-04-24)
+- `verified`: targeted pytest passed for resolver, lifecycle, SDK, MCP, and CLI coverage:
+  `uv run pytest tests/test_operation_resolution.py tests/test_operation_entrypoints.py
+  tests/test_operator_service_v2.py tests/test_client.py tests/test_mcp_server.py
+  tests/test_cli.py` (`254 passed` on 2026-04-25)
+- `verified`: full suite passed at this repository state:
+  `uv run pytest` (`963 passed, 11 skipped` on 2026-04-25)
+
+Implementation evidence:
+
+- shared resolver behavior: `OperationResolutionService.resolve_operation_id()` and
+  `list_canonical_operation_states()` in
+  `src/agent_operator/application/queries/operation_resolution.py`
+- CLI delegation: `resolve_operation_id_async()` and canonical load/list helpers in
+  `src/agent_operator/cli/helpers/resolution.py`
+- SDK delegation: `OperatorClient.__aenter__()`, `list_operations()`, and `_resolve_operation_id()`
+  in `src/agent_operator/client.py`
+- MCP delegation: `OperatorMcpService.list_operations()` and `_resolve_operation_id()` in
+  `src/agent_operator/mcp/service.py`
+- lifecycle guard: `OperationLifecycleEntrypointGuard` in
+  `src/agent_operator/application/operation_lifecycle_entrypoints.py`
+- lifecycle entrypoints: `OperationEntrypointService.prepare_run()` and
+  `_load_resume_ready_state()` in `src/agent_operator/application/operation_entrypoints.py`
+- v2 service entrypoints: `OperatorServiceV2.run()`, `resume()`, and `cancel()` in
+  `src/agent_operator/application/operator_service_v2.py`
+- resolver regressions: `tests/test_operation_resolution.py`, `tests/test_cli.py`,
+  `tests/test_client.py`, and `tests/test_mcp_server.py`
+- lifecycle regressions: `tests/test_operation_entrypoints.py` and
+  `tests/test_operator_service_v2.py`
 
 ## Context
 

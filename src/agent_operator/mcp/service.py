@@ -13,6 +13,7 @@ from agent_operator.application import (
     OperationStatusQueryService,
 )
 from agent_operator.application.queries.operation_resolution import (
+    OperationResolutionError,
     OperationResolutionService,
     OperationStoreLike,
 )
@@ -306,10 +307,9 @@ class OperatorMcpService:
         )
         try:
             return await resolver.resolve_operation_id(operation_ref)
-        except RuntimeError as exc:
-            message = str(exc)
-            code = "invalid_state" if "ambiguous" in message else "not_found"
-            raise McpToolError(code, message) from exc
+        except OperationResolutionError as exc:
+            code = "invalid_state" if exc.code == "ambiguous" else "not_found"
+            raise McpToolError(code, str(exc)) from exc
 
     async def _build_status_payload(
         self,

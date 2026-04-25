@@ -9,6 +9,30 @@ from agent_operator.application.queries.operation_state_views import OperationSt
 from agent_operator.domain import OperationState
 
 
+@dataclass(frozen=True, slots=True)
+class OperationResolutionError(RuntimeError):
+    """Failure to resolve an operation reference.
+
+    Args:
+        code: Stable machine-readable resolution failure code.
+        message: Human-readable failure message.
+
+    Examples:
+        ```python
+        raise OperationResolutionError(
+            code="ambiguous",
+            message="Operation reference 'op' is ambiguous.",
+        )
+        ```
+    """
+
+    code: str
+    message: str
+
+    def __str__(self) -> str:
+        return self.message
+
+
 class ReplayServiceLike(Protocol):
     async def load(self, operation_id: str) -> object: ...
 
@@ -39,7 +63,10 @@ class OperationResolutionService:
         event_sourced_ids = self.list_event_sourced_operation_ids()
         if operation_ref == "last":
             if not states:
-                raise RuntimeError("No persisted operations were found.")
+                raise OperationResolutionError(
+                    code="not_found",
+                    message="No persisted operations were found.",
+                )
             latest = max(states, key=lambda item: item.created_at)
             return latest.operation_id
         exact = next(
@@ -63,18 +90,17 @@ class OperationResolutionService:
             return deduped[0]
         if len(deduped) > 1:
             rendered_matches = ", ".join(deduped)
-            raise RuntimeError(
-                f"Operation reference {operation_ref!r} is ambiguous. Matches: "
-                f"{rendered_matches}"
+            raise OperationResolutionError(
+                code="ambiguous",
+                message=(
+                    f"Operation reference {operation_ref!r} is ambiguous. Matches: "
+                    f"{rendered_matches}"
+                ),
             )
-        profile_matches = [
-            item
-            for item in states
-            if item.goal.metadata.get("project_profile_name") == operation_ref
-        ]
-        if profile_matches:
-            return max(profile_matches, key=lambda item: item.created_at).operation_id
-        raise RuntimeError(f"Operation {operation_ref!r} was not found.")
+        raise OperationResolutionError(
+            code="not_found",
+            message=f"Operation {operation_ref!r} was not found.",
+        )
 
     async def load_canonical_operation_state(self, operation_id: str) -> OperationState | None:
         operation = await self._load_event_sourced_operation_state(operation_id)

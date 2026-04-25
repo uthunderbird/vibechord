@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import anyio
 import httpx
+import typer
 from typer.testing import CliRunner
 
 import agent_operator.cli.commands as cli_commands_pkg
@@ -736,7 +737,9 @@ def test_ask_cli_json_output_contract(tmp_path: Path, monkeypatch) -> None:
     }
 
 
-def test_ask_cli_resolves_profile_name_to_latest_operation(tmp_path: Path, monkeypatch) -> None:
+def test_ask_cli_does_not_implicitly_resolve_profile_name(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
     store = FileOperationStore(tmp_path / "runs")
 
@@ -765,23 +768,10 @@ def test_ask_cli_resolves_profile_name_to_latest_operation(tmp_path: Path, monke
         )
 
     anyio.run(_seed)
-    captured: list[str] = []
-
-    class _Service:
-        async def answer_question(self, resolved_operation_id: str, question: str) -> str:
-            captured.append(resolved_operation_id)
-            return "Newest profile operation."
-
-    monkeypatch.setattr(
-        "agent_operator.cli.workflows.control._build_cli_service",
-        lambda settings: _Service(),
-    )
-
     result = runner.invoke(app, ["ask", "femtobot", "Which operation is current?"])
 
-    assert result.exit_code == 0
-    assert captured == ["op-profile-new"]
-    assert "Newest profile operation." in result.stdout
+    assert result.exit_code == 4
+    assert "Operation 'femtobot' was not found." in result.output
 
 
 def test_ask_cli_missing_operation_exits_code_4(tmp_path: Path, monkeypatch) -> None:
@@ -845,6 +835,33 @@ def test_resolution_last_accepts_event_sourced_operation_without_runs_dir(
     (tmp_path / "operation_events" / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
 
     assert resolve_operation_id("last") == operation_id
+
+
+def test_resolution_ambiguous_prefix_reports_stable_cli_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_operator.cli.helpers.resolution import resolve_operation_id
+
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        "op-shared-alpha",
+        objective="First matching operation",
+    )
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        "op-shared-beta",
+        objective="Second matching operation",
+    )
+
+    try:
+        resolve_operation_id("op-shared")
+    except typer.BadParameter as exc:
+        assert "Operation reference 'op-shared' is ambiguous." in str(exc)
+        assert "op-shared-alpha" in str(exc)
+        assert "op-shared-beta" in str(exc)
+    else:
+        raise AssertionError("ambiguous operation prefix resolved unexpectedly")
 
 
 def _seed_event_sourced_checkpoint(
