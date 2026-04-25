@@ -178,6 +178,11 @@ class DriveService:
                 await self._emit_run_events(stored)
                 agg = agg.apply_events(stored)
                 last_sequence = stored[-1].sequence if stored else last_sequence
+            if ctx.canonical_replay_advanced:
+                agg, last_sequence, epoch_id, suffix_events = await self._load_aggregate(
+                    operation_id
+                )
+                ctx.canonical_replay_advanced = False
 
             # Re-check after reconciliation
             if self._gate.should_break_for_status(agg) and not (

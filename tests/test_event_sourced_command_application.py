@@ -213,6 +213,38 @@ async def test_event_sourced_command_application_rejects_patch_command_for_termi
 
 
 @pytest.mark.anyio
+async def test_event_sourced_command_application_updates_success_criteria(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-success-criteria"
+    await _seed_created_operation(service, operation_id)
+    command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.PATCH_SUCCESS_CRITERIA,
+        target_scope=CommandTargetScope.OPERATION,
+        payload={"success_criteria": ["Ship it", "", "Verify it"]},
+    )
+
+    result = await service.apply(command)
+
+    assert result.applied is True
+    assert [event.event_type for event in result.stored_events] == [
+        "command.accepted",
+        "objective.updated",
+    ]
+    assert result.checkpoint.objective is not None
+    assert result.checkpoint.objective.success_criteria == ["Ship it", "Verify it"]
+
+
+@pytest.mark.anyio
 async def test_event_sourced_command_application_cancels_operation_via_stop_command(
     tmp_path: Path,
 ) -> None:
@@ -395,6 +427,70 @@ async def test_event_sourced_command_application_updates_involvement_level(
 
 
 @pytest.mark.anyio
+async def test_event_sourced_command_application_updates_allowed_agents(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-allowed-agents"
+    await _seed_created_operation(service, operation_id)
+    command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.SET_ALLOWED_AGENTS,
+        target_scope=CommandTargetScope.OPERATION,
+        payload={"allowed_agents": ["claude_acp", "", "codex_acp"]},
+    )
+
+    result = await service.apply(command)
+
+    assert result.applied is True
+    assert [event.event_type for event in result.stored_events] == [
+        "command.accepted",
+        "operation.allowed_agents.updated",
+    ]
+    assert result.checkpoint.allowed_agents == ["claude_acp", "codex_acp"]
+
+
+@pytest.mark.anyio
+async def test_event_sourced_command_application_updates_execution_profile(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-execution-profile"
+    await _seed_created_operation(service, operation_id)
+    command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.SET_EXECUTION_PROFILE,
+        target_scope=CommandTargetScope.OPERATION,
+        payload={"adapter_key": "codex_acp", "model": "gpt-5.4", "effort": "low"},
+    )
+
+    result = await service.apply(command)
+
+    assert result.applied is True
+    assert [event.event_type for event in result.stored_events] == [
+        "command.accepted",
+        "operation.execution_profile.updated",
+    ]
+    profile = result.checkpoint.execution_profile_overrides["codex_acp"]
+    assert profile.model == "gpt-5.4"
+    assert profile.reasoning_effort == "low"
+
+
+@pytest.mark.anyio
 async def test_event_sourced_command_application_pauses_scheduler(
     tmp_path: Path,
 ) -> None:
@@ -450,3 +546,40 @@ async def test_event_sourced_command_application_rejects_resume_when_not_paused(
     assert result.rejection_reason == "Operator is not paused."
     assert [event.event_type for event in result.stored_events] == ["command.rejected"]
     assert result.checkpoint.scheduler_state.value == "active"
+
+
+@pytest.mark.anyio
+async def test_event_sourced_command_application_is_idempotent_by_command_id(
+    tmp_path: Path,
+) -> None:
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    operation_id = "op-duplicate-command"
+    await _seed_created_operation(service, operation_id)
+    command = OperationCommand(
+        command_id="cmd-duplicate",
+        operation_id=operation_id,
+        command_type=OperationCommandType.INJECT_OPERATOR_MESSAGE,
+        target_scope=CommandTargetScope.OPERATION,
+        payload={"text": "Only apply once."},
+    )
+
+    first = await service.apply(command)
+    second = await service.apply(command)
+
+    assert first.applied is True
+    assert [event.event_type for event in first.stored_events] == [
+        "command.accepted",
+        "operator_message.received",
+    ]
+    assert second.applied is True
+    assert second.stored_events == []
+    assert [message.text for message in second.checkpoint.operator_messages] == [
+        "Only apply once."
+    ]

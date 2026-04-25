@@ -84,6 +84,13 @@ class EventSourcedCommandApplicationService:
             Canonical application result after append and projection.
         """
         replay_state = await self._replay.load(command.operation_id)
+        if command.command_id in replay_state.checkpoint.processed_command_ids:
+            return EventSourcedCommandApplicationResult(
+                applied=True,
+                checkpoint=replay_state.checkpoint,
+                stored_events=[],
+                rejection_reason=None,
+            )
         drafts, rejection_reason = self._build_domain_event_drafts(command, replay_state.checkpoint)
         stored_events = await self._event_store.append(
             command.operation_id,

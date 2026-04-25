@@ -710,11 +710,13 @@ class V2Provider(_BootstrapProviderBase):
         self,
         wakeup_inbox: FileWakeupInbox,
         command_inbox: FileOperationCommandInbox,
+        event_sourced_command_service: EventSourcedCommandApplicationService,
         supervisor_v2: AgentRunSupervisorV2,
     ) -> RuntimeReconciler:
         return RuntimeReconciler(
             wakeup_inbox=wakeup_inbox,
             command_inbox=command_inbox,
+            event_sourced_command_service=event_sourced_command_service,
             supervisor=supervisor_v2,
         )
 

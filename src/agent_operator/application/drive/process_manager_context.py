@@ -41,6 +41,7 @@ class ProcessManagerContext:
     pending_replan_command_ids: list[str] = field(default_factory=list)
     orphan_check_completed: bool = False
     draining: bool = False
+    canonical_replay_advanced: bool = False
 
     def request_drain(self) -> None:
         """Mark this drive-call context as draining.

@@ -10,7 +10,7 @@ from agent_operator.application.drive.agent_run_supervisor import AgentRunSuperv
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
 from agent_operator.application.drive.runtime_reconciler import RuntimeReconciler
 from agent_operator.domain.aggregate import OperationAggregate
-from agent_operator.domain.enums import BackgroundRunStatus, OperationCommandType
+from agent_operator.domain.enums import BackgroundRunStatus, CommandStatus, OperationCommandType
 from agent_operator.domain.operation import OperationGoal
 
 # ── In-memory stubs ────────────────────────────────────────────────────────────
@@ -46,6 +46,7 @@ class StubWakeupInbox:
 class StubCommandInbox:
     def __init__(self, commands: list[Any] | None = None) -> None:
         self._commands = commands or []
+        self.status_updates: list[tuple[str, CommandStatus, dict[str, Any]]] = []
 
     async def enqueue(self, command: Any) -> None:
         self._commands.append(command)
@@ -57,13 +58,42 @@ class StubCommandInbox:
         return list(self._commands)
 
     async def update_status(self, command_id: str, status: Any, **kwargs: Any) -> Any:
+        self.status_updates.append((command_id, status, kwargs))
         return None
 
 
 class StubCommand:
     def __init__(self, command_id: str) -> None:
         self.command_id = command_id
+        self.operation_id = "op-1"
         self.command_type = OperationCommandType.INJECT_OPERATOR_MESSAGE
+
+
+class StubCommandApplyResult:
+    def __init__(
+        self,
+        *,
+        applied: bool,
+        stored_events: list[Any],
+        rejection_reason: str | None = None,
+    ) -> None:
+        self.applied = applied
+        self.stored_events = stored_events
+        self.rejection_reason = rejection_reason
+
+
+class StubEventSourcedCommandService:
+    def __init__(self, results: list[StubCommandApplyResult] | None = None) -> None:
+        self.results = results or [
+            StubCommandApplyResult(applied=True, stored_events=[object()])
+        ]
+        self.applied_command_ids: list[str] = []
+
+    async def apply(self, command: Any) -> StubCommandApplyResult:
+        self.applied_command_ids.append(command.command_id)
+        if len(self.applied_command_ids) <= len(self.results):
+            return self.results[len(self.applied_command_ids) - 1]
+        return self.results[-1]
 
 
 class StubRunEvent:
@@ -112,7 +142,10 @@ class StubSupervisor:
 
 
 def _agg(**kwargs: Any) -> OperationAggregate:
-    return OperationAggregate.create(OperationGoal(objective="test"))
+    return OperationAggregate.create(
+        OperationGoal(objective="test"),
+        operation_id=kwargs.get("operation_id"),
+    )
 
 
 def _ctx() -> ProcessManagerContext:
@@ -123,17 +156,59 @@ def _ctx() -> ProcessManagerContext:
 
 
 @pytest.mark.anyio
-async def test_drain_commands_returns_events_for_pending() -> None:
+async def test_drain_commands_applies_pending_through_event_sourced_service() -> None:
     inbox = StubCommandInbox([StubCommand("cmd-1"), StubCommand("cmd-2")])
+    command_service = StubEventSourcedCommandService(
+        [
+            StubCommandApplyResult(applied=True, stored_events=[object()]),
+            StubCommandApplyResult(applied=True, stored_events=[object()]),
+        ]
+    )
     reconciler = RuntimeReconciler(
         wakeup_inbox=StubWakeupInbox(),
         command_inbox=inbox,
+        event_sourced_command_service=command_service,  # type: ignore[arg-type]
     )
-    events = await reconciler.drain_commands(_agg(), _ctx())
-    assert len(events) == 2
-    assert events[0].event_type == "command.processed"
-    assert events[0].payload["command_id"] == "cmd-1"
-    assert events[1].payload["command_id"] == "cmd-2"
+    ctx = _ctx()
+
+    events = await reconciler.drain_commands(_agg(operation_id="op-1"), ctx)
+
+    assert events == []
+    assert command_service.applied_command_ids == ["cmd-1", "cmd-2"]
+    assert [update[:2] for update in inbox.status_updates] == [
+        ("cmd-1", CommandStatus.APPLIED),
+        ("cmd-2", CommandStatus.APPLIED),
+    ]
+    assert ctx.canonical_replay_advanced is True
+
+
+@pytest.mark.anyio
+async def test_drain_commands_updates_rejected_intent_status() -> None:
+    inbox = StubCommandInbox([StubCommand("cmd-1")])
+    command_service = StubEventSourcedCommandService(
+        [
+            StubCommandApplyResult(
+                applied=False,
+                stored_events=[object()],
+                rejection_reason="invalid command",
+            )
+        ]
+    )
+    reconciler = RuntimeReconciler(
+        wakeup_inbox=StubWakeupInbox(),
+        command_inbox=inbox,
+        event_sourced_command_service=command_service,  # type: ignore[arg-type]
+    )
+    ctx = _ctx()
+
+    events = await reconciler.drain_commands(_agg(operation_id="op-1"), ctx)
+
+    assert events == []
+    assert command_service.applied_command_ids == ["cmd-1"]
+    assert inbox.status_updates[0][0] == "cmd-1"
+    assert inbox.status_updates[0][1] is CommandStatus.REJECTED
+    assert inbox.status_updates[0][2]["rejection_reason"] == "invalid command"
+    assert ctx.canonical_replay_advanced is True
 
 
 @pytest.mark.anyio
@@ -141,13 +216,19 @@ async def test_drain_commands_skips_already_processed() -> None:
     import dataclasses
     agg = dataclasses.replace(_agg(), processed_command_ids=["cmd-1"])
     inbox = StubCommandInbox([StubCommand("cmd-1"), StubCommand("cmd-2")])
+    command_service = StubEventSourcedCommandService()
     reconciler = RuntimeReconciler(
         wakeup_inbox=StubWakeupInbox(),
         command_inbox=inbox,
+        event_sourced_command_service=command_service,  # type: ignore[arg-type]
     )
     events = await reconciler.drain_commands(agg, _ctx())
-    assert len(events) == 1
-    assert events[0].payload["command_id"] == "cmd-2"
+    assert events == []
+    assert command_service.applied_command_ids == ["cmd-2"]
+    assert [update[:2] for update in inbox.status_updates] == [
+        ("cmd-1", CommandStatus.APPLIED),
+        ("cmd-2", CommandStatus.APPLIED),
+    ]
 
 
 @pytest.mark.anyio
@@ -227,13 +308,17 @@ async def test_detect_orphaned_sessions_no_orphans_when_supervisor_knows_run() -
 @pytest.mark.anyio
 async def test_reconcile_combines_all_steps() -> None:
     inbox = StubCommandInbox([StubCommand("cmd-1")])
+    command_service = StubEventSourcedCommandService()
     reconciler = RuntimeReconciler(
         wakeup_inbox=StubWakeupInbox(),
         command_inbox=inbox,
+        event_sourced_command_service=command_service,  # type: ignore[arg-type]
     )
-    events = await reconciler.reconcile(_agg(), _ctx())
-    # At minimum, command event should appear
-    assert any(e.event_type == "command.processed" for e in events)
+    ctx = _ctx()
+    events = await reconciler.reconcile(_agg(), ctx)
+    assert events == []
+    assert command_service.applied_command_ids == ["cmd-1"]
+    assert ctx.canonical_replay_advanced is True
 
 
 # ── detect_orphaned_sessions with AgentRunSupervisorV2 (ADR 0201) ─────────────

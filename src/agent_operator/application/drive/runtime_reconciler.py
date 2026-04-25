@@ -1,7 +1,8 @@
-"""RuntimeReconciler — reads runtime state, returns domain events (ADR 0195).
+"""RuntimeReconciler — reconciles runtime-side inputs with canonical state (ADR 0195).
 
 Contract: async, reads from inboxes and supervisor, never mutates aggregate directly.
-All state changes are expressed as returned OperationDomainEventDraft instances.
+Runtime observations are returned as OperationDomainEventDraft instances. Control
+commands are applied through the event-sourced command application boundary.
 """
 from __future__ import annotations
 
@@ -9,8 +10,11 @@ from datetime import UTC, datetime, timedelta
 
 from agent_operator.application.drive.agent_run_supervisor import AgentRunSupervisorV2
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
+from agent_operator.application.event_sourcing.event_sourced_commands import (
+    EventSourcedCommandApplicationService,
+)
 from agent_operator.domain.aggregate import OperationAggregate
-from agent_operator.domain.enums import BackgroundRunStatus
+from agent_operator.domain.enums import BackgroundRunStatus, CommandStatus
 from agent_operator.domain.event_sourcing import OperationDomainEventDraft
 from agent_operator.protocols import AgentRunSupervisor, OperationCommandInbox, WakeupInbox
 
@@ -28,11 +32,13 @@ class RuntimeReconciler:
         *,
         wakeup_inbox: WakeupInbox,
         command_inbox: OperationCommandInbox,
+        event_sourced_command_service: EventSourcedCommandApplicationService | None = None,
         supervisor: AgentRunSupervisor | None = None,
         stale_run_threshold: timedelta = timedelta(minutes=5),
     ) -> None:
         self._wakeup_inbox = wakeup_inbox
         self._command_inbox = command_inbox
+        self._event_sourced_command_service = event_sourced_command_service
         self._supervisor = supervisor
         self._stale_run_threshold = stale_run_threshold
 
@@ -110,33 +116,47 @@ class RuntimeReconciler:
         agg: OperationAggregate,
         ctx: ProcessManagerContext,
     ) -> list[OperationDomainEventDraft]:
-        """Drain pending commands and translate them into domain events."""
+        """Apply pending commands through the canonical event-sourced boundary."""
         pending = await self._command_inbox.list_pending(agg.operation_id)
         if not pending:
             return []
 
-        events: list[OperationDomainEventDraft] = []
         now = datetime.now(UTC)
+        if self._event_sourced_command_service is None:
+            raise RuntimeError(
+                "RuntimeReconciler command draining requires "
+                "EventSourcedCommandApplicationService."
+            )
 
         for command in pending:
             command_id = getattr(command, "command_id", None) or str(id(command))
 
-            # Skip if already processed (idempotency)
             if command_id in agg.processed_command_ids:
+                await self._command_inbox.update_status(
+                    command_id,
+                    CommandStatus.APPLIED,
+                    applied_at=now,
+                )
                 continue
 
-            events.append(
-                OperationDomainEventDraft(
-                    event_type="command.processed",
-                    payload={
-                        "command_id": command_id,
-                        "command_type": str(getattr(command, "command_type", "unknown")),
-                        "processed_at": now.isoformat(),
-                    },
+            result = await self._event_sourced_command_service.apply(command)
+            if result.applied:
+                await self._command_inbox.update_status(
+                    command_id,
+                    CommandStatus.APPLIED,
+                    applied_at=now,
                 )
-            )
+            else:
+                await self._command_inbox.update_status(
+                    command_id,
+                    CommandStatus.REJECTED,
+                    rejection_reason=result.rejection_reason,
+                    applied_at=now,
+                )
+            if result.stored_events:
+                ctx.canonical_replay_advanced = True
 
-        return events
+        return []
 
     async def poll_background_runs(
         self,
