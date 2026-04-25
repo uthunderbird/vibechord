@@ -33,7 +33,8 @@ Implementation status on 2026-04-25:
 - `implemented`: canonical operation reference resolution preserves profile-name matching through
   the merged v2-plus-legacy state list.
 - `verified`: targeted ADR 0203 regression tests and the full `uv run pytest` suite passed on
-  2026-04-25.
+  2026-04-25; this was reconfirmed in the current ADR 0203 work wave with `250 passed` targeted
+  tests and `978 passed, 11 skipped` for the full suite.
 - `not verified`: full live CLI smoke that creates, observes, and terminates a v2 operation without
   `.operator/runs` was not run, so this ADR is `Implemented` rather than `Verified`.
 
@@ -43,6 +44,12 @@ Phase 1 produced the grounded completion artifact
 `../internal/adr-0203-completion-design-artifact-2026-04-25.md`, which scoped completion to the
 remaining converse/detail/control read-authority leaks and explicitly selected `Implemented`, not
 `Verified`, unless full smoke evidence existed.
+
+The current ADR 0203-only work wave also produced
+`../internal/adr-0203-current-grounded-design-2026-04-25.md`, which rechecked the current
+repository state before execution and found no new ADR 0203 production-code change required beyond
+verification and preserving the read-time status overlay immutability guard needed for the full
+suite.
 
 Grep/read citations for `Decision Status: Accepted`:
 
@@ -85,6 +92,9 @@ Grep/read citations for `Implementation Status: Implemented`:
 - Verification citation: targeted `uv run ruff check` on the changed Python modules and tests passed
   with `All checks passed!`.
 - Verification citation: `uv run pytest` passed with `959 passed, 11 skipped`.
+- Current verification citation: `uv run pytest tests/test_application_structure.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_cli.py tests/test_control_workflows.py -q`
+  passed with `250 passed`.
+- Current verification citation: `uv run pytest` passed with `978 passed, 11 skipped`.
 - Status-bound citation: because the full live CLI smoke listed in this ADR's Verification Plan was
   not run, the implementation status is `Implemented`, not `Verified`.
 
