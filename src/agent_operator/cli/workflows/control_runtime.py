@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import anyio
@@ -9,10 +10,7 @@ import typer
 from rich.console import Console as RichConsole
 from rich.live import Live
 
-from agent_operator.bootstrap import (
-    build_event_sink,
-    build_wakeup_inbox,
-)
+from agent_operator.bootstrap import build_wakeup_inbox
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AgentSessionHandle,
@@ -20,6 +18,8 @@ from agent_operator.domain import (
     OperationStatus,
     ProjectProfile,
     ResolvedProjectRunConfig,
+    RunEvent,
+    StoredOperationDomainEvent,
 )
 from agent_operator.runtime import (
     apply_effective_adapter_settings_snapshot,
@@ -27,6 +27,7 @@ from agent_operator.runtime import (
     load_project_profile_from_path,
     snapshot_effective_adapter_settings,
 )
+from agent_operator.runtime.events import parse_event_file_line
 
 from ..helpers.exit_codes import EXIT_INTERNAL_ERROR, raise_for_operation_status
 from ..helpers.rendering import (
@@ -128,7 +129,7 @@ def _build_run_goal_metadata(
 
 async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_interval: float) -> None:
     settings = load_settings()
-    event_sink = build_event_sink(settings, operation_id)
+    event_stream_path, event_parser = _resolve_watch_stream(settings, operation_id)
     projector = CliEventProjector(json_mode=json_mode)
     status_queries = build_status_query_service(settings)
     try:
@@ -140,7 +141,7 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
         projector.emit_operation(operation_id)
     seen_event_ids: set[str] = set()
     latest_update: str | None = None
-    for event in event_sink.iter_events(operation_id):
+    for event in _iter_watch_events(event_stream_path, operation_id, event_parser):
         seen_event_ids.add(event.event_id)
         rendered = format_live_event(event)
         if rendered is not None:
@@ -173,7 +174,7 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
             refresh_per_second=4,
         ) as live:
             while True:
-                for event in event_sink.iter_events(operation_id):
+                for event in _iter_watch_events(event_stream_path, operation_id, event_parser):
                     if event.event_id in seen_event_ids:
                         continue
                     seen_event_ids.add(event.event_id)
@@ -193,7 +194,7 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
                     return
                 await anyio.sleep(poll_interval)
     while True:
-        for event in event_sink.iter_events(operation_id):
+        for event in _iter_watch_events(event_stream_path, operation_id, event_parser):
             if event.event_id in seen_event_ids:
                 continue
             seen_event_ids.add(event.event_id)
@@ -207,6 +208,60 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
             projector.emit_outcome(outcome)
             return
         await anyio.sleep(poll_interval)
+
+
+def _resolve_watch_stream(
+    settings: OperatorSettings,
+    operation_id: str,
+) -> tuple[Path, Callable[[str, str], RunEvent]]:
+    canonical_path = settings.data_dir / "operation_events" / f"{operation_id}.jsonl"
+    if canonical_path.exists():
+        return canonical_path, _parse_canonical_watch_event
+    legacy_path = settings.data_dir / "events" / f"{operation_id}.jsonl"
+    return legacy_path, _parse_legacy_watch_event
+
+
+def _iter_watch_events(
+    path: Path,
+    operation_id: str,
+    parser: Callable[[str, str], RunEvent],
+) -> Iterator[RunEvent]:
+    if not path.exists():
+        return iter(())
+    def _events() -> Iterator[RunEvent]:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                yield parser(operation_id, line)
+    return _events()
+
+
+def _parse_legacy_watch_event(operation_id: str, raw_line: str) -> RunEvent:
+    del operation_id
+    return parse_event_file_line(raw_line)
+
+
+def _parse_canonical_watch_event(operation_id: str, raw_line: str) -> RunEvent:
+    event = StoredOperationDomainEvent.model_validate_json(raw_line)
+    payload = dict(event.payload)
+    iteration = payload.get("iteration")
+    if not isinstance(iteration, int) or iteration < 0:
+        iteration = 0
+    task_id = payload.get("task_id")
+    session_id = payload.get("session_id")
+    return RunEvent(
+        event_id=f"{operation_id}:{event.sequence}",
+        event_type=event.event_type,
+        kind="trace",
+        category="domain",
+        operation_id=operation_id,
+        iteration=iteration,
+        task_id=task_id if isinstance(task_id, str) else None,
+        session_id=session_id if isinstance(session_id, str) else None,
+        timestamp=event.timestamp,
+        payload=payload,
+    )
 
 
 async def _wait_for_operation_outcome(

@@ -79,6 +79,7 @@ from agent_operator.domain import (
     SessionRecord,
     SessionRecordStatus,
     StoredControlIntent,
+    StoredOperationDomainEvent,
     TaskPatch,
     TaskState,
     TaskStatus,
@@ -7549,6 +7550,72 @@ def test_watch_resolves_last_operation_reference(tmp_path: Path, monkeypatch) ->
     assert result.exit_code == 0
     assert "Operation op-watch-last" in result.stdout
     assert "completed: Watch target completed." in result.stdout
+
+
+def test_watch_reads_canonical_v2_operation_events(tmp_path: Path, monkeypatch) -> None:
+    operation_id = "op-watch-v2"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Inspect canonical watch truth.")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = datetime(2026, 4, 25, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=2,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text(
+        "\n".join(
+            [
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=1,
+                    event_type="operation.created",
+                    payload={"objective": "Inspect canonical watch truth."},
+                    timestamp=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+                ).model_dump_json(),
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=2,
+                    event_type="operation.status.changed",
+                    payload={"status": "completed", "iteration": 2},
+                    timestamp=datetime(2026, 4, 25, 10, 1, tzinfo=UTC),
+                ).model_dump_json(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    store = FileOperationStore(tmp_path / "runs")
+
+    async def _seed_outcome() -> None:
+        await store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Canonical watch completed.",
+            )
+        )
+
+    anyio.run(_seed_outcome)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["watch", "op-watch", "--poll-interval", "0.05"])
+
+    assert result.exit_code == 0
+    assert "operation.created" in result.stdout
+    assert "[iter 2] operation.status.changed" in result.stdout
+    assert "Operation op-watch-v2 [COMPLETED]" in result.stdout
+    assert "completed: Canonical watch completed." in result.stdout
 
 
 def test_format_live_snapshot_surfaces_typed_attention_brief() -> None:

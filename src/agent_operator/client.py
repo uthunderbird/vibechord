@@ -50,14 +50,12 @@ from agent_operator.domain import (
     RunMode,
     RunOptions,
     SessionStatus,
+    StoredOperationDomainEvent,
     TaskStatus,
 )
 from agent_operator.protocols import OperationCommandInbox, OperationStore
 from agent_operator.runtime import prepare_operator_settings
-from agent_operator.runtime.events import (
-    parse_canonical_event_file_line,
-    parse_event_file_line,
-)
+from agent_operator.runtime.events import parse_event_file_line
 
 
 class OperatorClient:
@@ -429,6 +427,29 @@ class OperatorClient:
             reason=cancel_reason,
         )
 
+    async def message(
+        self,
+        operation_id: str,
+        text: str,
+    ) -> None:
+        """Send a free-form operator message into the next planning cycle.
+
+        Args:
+            operation_id: Exact operation id, unique prefix, or `"last"`.
+            text: Human guidance to inject into operator planning context.
+
+        Examples:
+            ```python
+            async with OperatorClient() as client:
+                await client.message("last", "Use the staging branch.")
+            ```
+        """
+
+        await self._require_delivery_surface().message_operation(
+            operation_id,
+            text=text,
+        )
+
     async def interrupt(
         self,
         operation_id: str,
@@ -564,7 +585,25 @@ class OperatorClient:
         return parse_event_file_line(raw_line)
 
     def _parse_canonical_stream_line(self, operation_id: str, raw_line: str) -> RunEvent:
-        return parse_canonical_event_file_line(operation_id, raw_line)
+        event = StoredOperationDomainEvent.model_validate_json(raw_line)
+        payload = dict(event.payload)
+        iteration = payload.get("iteration")
+        if not isinstance(iteration, int) or iteration < 0:
+            iteration = 0
+        task_id = payload.get("task_id")
+        session_id = payload.get("session_id")
+        return RunEvent(
+            event_id=f"{operation_id}:{event.sequence}",
+            event_type=event.event_type,
+            kind="trace",
+            category="domain",
+            operation_id=operation_id,
+            iteration=iteration,
+            task_id=task_id if isinstance(task_id, str) else None,
+            session_id=session_id if isinstance(session_id, str) else None,
+            timestamp=event.timestamp,
+            payload=payload,
+        )
 
     def _require_settings(self) -> OperatorSettings:
         if self._settings is None:

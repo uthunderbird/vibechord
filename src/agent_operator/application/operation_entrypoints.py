@@ -192,12 +192,23 @@ class OperationEntrypointService:
         opts = options or RunOptions()
         return opts.model_copy(update={"max_cycles": 1})
 
-    async def _load_existing(self, operation_id: str) -> OperationState:
+    async def load_canonical_state(self, operation_id: str) -> OperationState:
+        """Load canonical state for non-mutating or terminalization entrypoints.
+
+        Args:
+            operation_id: Target canonical operation identifier.
+
+        Returns:
+            Canonical operation state, using event replay first when available.
+        """
         await self._lifecycle_guard.ensure_existing_operation_id(operation_id)
-        state = await self._store.load_operation(operation_id)
-        if state is None:
+        replay = await self._load_event_sourced_replay(operation_id)
+        if replay is not None:
+            return self._operation_state_view_service.from_checkpoint(replay.checkpoint)
+        fallback_state = await self._load_snapshot_fallback(operation_id)
+        if fallback_state is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
-        return state
+        return fallback_state
 
     async def _load_resume_ready_state(self, operation_id: str) -> OperationState:
         """Load canonical state for continue-only entrypoints with snapshot fallback.
@@ -208,15 +219,20 @@ class OperationEntrypointService:
         """
 
         await self._lifecycle_guard.ensure_existing_operation_id(operation_id)
-        fallback_state = await self._store.load_operation(operation_id)
-        if self._event_sourced_replay_service is None:
+        replay = await self._load_event_sourced_replay(operation_id)
+        fallback_state = await self._load_snapshot_fallback(operation_id)
+        if replay is None:
             if fallback_state is None:
                 raise RuntimeError(f"Operation {operation_id!r} was not found.")
             return fallback_state
+        replay_state = self._operation_state_view_service.from_checkpoint(replay.checkpoint)
         if fallback_state is None:
-            replay_state = await self._event_sourced_replay_service.load(operation_id)
-            return self._operation_state_view_service.from_checkpoint(replay_state.checkpoint)
-        return await self._load_event_sourced(operation_id, fallback_state=fallback_state)
+            return replay_state
+        return self._merge_replay_with_snapshot(
+            replay_state,
+            fallback_state,
+            checkpoint_has_tasks=bool(replay.checkpoint.tasks),
+        )
 
     async def _load_event_sourced(
         self,
@@ -226,8 +242,40 @@ class OperationEntrypointService:
     ) -> OperationState:
         if self._event_sourced_replay_service is None:
             return fallback_state
+        replay = await self._load_event_sourced_replay(operation_id)
+        if replay is None:
+            return fallback_state
+        replay_state = self._operation_state_view_service.from_checkpoint(replay.checkpoint)
+        return self._merge_replay_with_snapshot(
+            replay_state,
+            fallback_state,
+            checkpoint_has_tasks=bool(replay.checkpoint.tasks),
+        )
+
+    async def _load_event_sourced_replay(self, operation_id: str):
+        if self._event_sourced_replay_service is None:
+            return None
         replay_state = await self._event_sourced_replay_service.load(operation_id)
-        state = self._operation_state_view_service.from_checkpoint(replay_state.checkpoint)
+        if (
+            getattr(replay_state, "stored_checkpoint", None) is None
+            and getattr(replay_state, "last_applied_sequence", 0) == 0
+            and not getattr(replay_state, "suffix_events", [])
+        ):
+            return None
+        return replay_state
+
+    async def _load_snapshot_fallback(self, operation_id: str) -> OperationState | None:
+        """Load snapshot-era fallback state for mixed-mode continuity only."""
+
+        return await self._store.load_operation(operation_id)
+
+    def _merge_replay_with_snapshot(
+        self,
+        state: OperationState,
+        fallback_state: OperationState,
+        *,
+        checkpoint_has_tasks: bool,
+    ) -> OperationState:
         state.policy = fallback_state.policy.model_copy(deep=True)
         state.execution_budget = fallback_state.execution_budget.model_copy(deep=True)
         state.runtime_hints = fallback_state.runtime_hints.model_copy(deep=True)
@@ -277,7 +325,7 @@ class OperationEntrypointService:
             }
         ):
             state.current_focus = fallback_state.current_focus.model_copy(deep=True)
-        if not replay_state.checkpoint.tasks and fallback_state.tasks:
+        if not checkpoint_has_tasks and fallback_state.tasks:
             state.tasks = [item.model_copy(deep=True) for item in fallback_state.tasks]
             if state.objective is not None and fallback_state.objective is not None:
                 state.objective.root_task_id = fallback_state.objective.root_task_id

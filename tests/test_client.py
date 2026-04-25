@@ -332,6 +332,7 @@ async def test_operator_client_control_methods_use_delivery_command_facade(
     (event_dir / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
 
     async with OperatorClient(data_dir=tmp_path) as client:
+        await client.message("op-sdk", "Use the staging branch.")
         await client.answer_attention("op-sdk", "att-sdk", "Proceed")
         await client.interrupt("op-sdk")
         await client.pause("op-sdk")
@@ -339,18 +340,59 @@ async def test_operator_client_control_methods_use_delivery_command_facade(
 
     commands = await FileOperationCommandInbox(tmp_path / "commands").list(operation_id)
     assert [command.command_type.value for command in commands] == [
+        "inject_operator_message",
         "answer_attention_request",
         "stop_agent_turn",
         "pause_operator",
         "resume_operator",
     ]
-    assert commands[0].target_id == "att-sdk-control"
-    assert commands[0].payload == {"text": "Proceed"}
-    assert commands[1].target_id == "session-sdk-control"
-    assert commands[2].target_id == operation_id
-    assert commands[2].payload == {}
+    assert commands[0].target_id == operation_id
+    assert commands[0].payload == {"text": "Use the staging branch."}
+    assert commands[1].target_id == "att-sdk-control"
+    assert commands[1].payload == {"text": "Proceed"}
+    assert commands[2].target_id == "session-sdk-control"
     assert commands[3].target_id == operation_id
     assert commands[3].payload == {}
+    assert commands[4].target_id == operation_id
+    assert commands[4].payload == {}
+
+
+async def test_operator_client_message_rejects_empty_text(tmp_path: Path) -> None:
+    async with OperatorClient(data_dir=tmp_path) as client:
+        with pytest.raises(ValueError, match="text must not be empty"):
+            await client.message("last", "   ")
+
+
+async def test_operator_client_message_resolves_last_reference(tmp_path: Path) -> None:
+    operation_id = "op-sdk-message"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Message through SDK")
+    checkpoint.status = OperationStatus.RUNNING
+    checkpoint.created_at = datetime(2026, 4, 25, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        await client.message("last", "Keep the scope narrow.")
+
+    commands = await FileOperationCommandInbox(tmp_path / "commands").list(operation_id)
+    assert [command.command_type.value for command in commands] == ["inject_operator_message"]
+    assert commands[0].target_id == operation_id
+    assert commands[0].payload == {"text": "Keep the scope narrow."}
 
 
 async def test_operator_client_cancel_forwards_reason(tmp_path: Path) -> None:

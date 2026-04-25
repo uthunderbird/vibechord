@@ -118,6 +118,27 @@ class DeliverySurfaceService:
         operation_id = await self.resolve_operation_id(operation_ref)
         return await self.commands.enqueue_stop_turn(operation_id, task_id=task_id)
 
+    async def message_operation(
+        self,
+        operation_ref: str,
+        *,
+        text: str,
+    ) -> OperationCommand:
+        """Queue a free-form operator message through the shared command facade."""
+
+        message_text = text.strip()
+        if not message_text:
+            raise ValueError("text must not be empty.")
+        operation_id = await self.resolve_operation_id(operation_ref)
+        command, _, _ = await self.commands.enqueue_command(
+            operation_id,
+            OperationCommandType.INJECT_OPERATOR_MESSAGE,
+            {"text": message_text},
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+        )
+        return command
+
     async def pause_operation(self, operation_ref: str) -> OperationCommand:
         """Queue a pause command through the shared command facade."""
 
