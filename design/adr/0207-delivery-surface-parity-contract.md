@@ -4,11 +4,89 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Phase 1 grounding on 2026-04-25:
+
+- `implemented`: a shared `OperationResolutionService` exists and resolves exact ids, unique
+  prefixes, `last`, and event-sourced operation ids from canonical state/event files. Evidence:
+  `src/agent_operator/application/queries/operation_resolution.py:61-103`,
+  `src/agent_operator/application/queries/operation_resolution.py:114-151`.
+- `implemented`: CLI operation reference resolution delegates to that shared resolver for the main
+  operation-scoped commands. Evidence:
+  `src/agent_operator/cli/helpers/resolution.py:32-41`,
+  `src/agent_operator/cli/commands/operation_control.py:43-90`,
+  `src/agent_operator/cli/commands/operation_detail.py:239-340`.
+- `implemented`: MCP and the Python SDK already construct and use `OperationResolutionService`.
+  Evidence: `src/agent_operator/mcp/service.py:96-114`,
+  `src/agent_operator/mcp/service.py:198-287`,
+  `src/agent_operator/mcp/service.py:309-321`,
+  `src/agent_operator/client.py:108-136`, `src/agent_operator/client.py:155-205`,
+  `src/agent_operator/client.py:535-545`.
+- `implemented`: status-like read paths already have a typed `OperationReadPayload` with runtime
+  overlay metadata, and CLI/MCP status consume it. Evidence:
+  `src/agent_operator/application/queries/operation_status_queries.py:61-85`,
+  `src/agent_operator/application/queries/operation_status_queries.py:154-230`,
+  `src/agent_operator/application/queries/operation_status_queries.py:248-294`,
+  `src/agent_operator/mcp/service.py:198-238`.
+- `partial`: the delivery command facade exists for CLI/TUI/MCP command paths, but SDK command
+  methods still enqueue or invoke service paths directly instead of consuming that facade. Evidence:
+  `src/agent_operator/application/commands/operation_delivery_commands.py:61-213`,
+  `src/agent_operator/mcp/service.py:240-287`,
+  `src/agent_operator/client.py:330-430`.
+- `partial`: TUI is wired through injected load/control callbacks and uses shared payloads and
+  delivery actions indirectly, but that callback contract is not yet a named cross-surface parity
+  contract. Evidence: `src/agent_operator/cli/tui/controller.py:39-62`,
+  `src/agent_operator/cli/tui/controller.py:538-617`,
+  `src/agent_operator/cli/tui/controller.py:775-821`,
+  `src/agent_operator/cli/tui/controller.py:823-843`.
+- `planned`: parity needs a small application-facing delivery contract layer that names the covered
+  resolver, command, query, and event-stream capabilities, plus tests that assert CLI, TUI, MCP, and
+  SDK consume those capabilities instead of parallel authority paths.
+
+The Phase 1 grounded design artifact is
+[`../internal/adr-0207-phase-1-grounded-design.md`](../internal/adr-0207-phase-1-grounded-design.md).
+
+Phase 2 implementation on 2026-04-25:
+
+- `implemented`: a named `DeliverySurfaceService` now composes the shared operation resolver,
+  status query service, and delivery command facade without taking over their business semantics.
+  Evidence: `src/agent_operator/application/delivery_surface.py:16-41`,
+  `src/agent_operator/application/delivery_surface.py:57-113`.
+- `implemented`: the SDK constructs the delivery surface and routes status, answer, cancel, and
+  interrupt through it while preserving SDK return styles. Evidence:
+  `src/agent_operator/client.py:145-177`, `src/agent_operator/client.py:317-349`,
+  `src/agent_operator/client.py:391-436`,
+  `tests/test_client.py:223-270`.
+- `implemented`: MCP list, status, answer, cancel, interrupt, and resolver/error mapping paths
+  now build or consume the delivery surface instead of independently assembling those authorities.
+  Evidence: `src/agent_operator/mcp/service.py:97-109`,
+  `src/agent_operator/mcp/service.py:198-235`,
+  `src/agent_operator/mcp/service.py:237-277`,
+  `src/agent_operator/mcp/service.py:299-342`.
+- `implemented`: production TUI control callbacks are backed by the delivery surface while the TUI
+  controller keeps callback injection for UI tests. Evidence:
+  `src/agent_operator/cli/helpers/services.py:93-103`,
+  `src/agent_operator/cli/workflows/views.py:562-584`.
+- `implemented`: parity contract tests assert that reads and commands resolve through the shared
+  surface before reaching status/query or command authorities. Evidence:
+  `tests/test_delivery_surface_parity.py:123-161`.
+- `implemented`: public reference documentation lists the covered shared authorities, surface-local
+  output shapes, machine-facing error mapping, and intentional gaps. Evidence:
+  `docs/reference/delivery-surface-parity.md:7-33`.
+- `partial`: stream/watch parity is not complete for canonical v2 operation events. `operator
+  watch` and `OperatorClient.stream_events()` still read legacy run event files after shared
+  operation-reference resolution. Evidence: `src/agent_operator/client.py:438-465`,
+  `src/agent_operator/cli/commands/operation_detail.py:542-548`,
+  `src/agent_operator/cli/workflows/control_runtime.py:129-188`,
+  `docs/reference/delivery-surface-parity.md:18-24`.
+- `partial`: full typing verification is not complete. `uv run mypy` on the touched delivery
+  modules still traverses existing repository-wide typing debt outside this ADR slice; full pytest
+  completed with `975 passed, 11 skipped`.
 
 ## Context
 
@@ -48,6 +126,8 @@ The parity matrix covers:
 - MCP and SDK tests use v2-only operation fixtures.
 - CLI/TUI/MCP/SDK status outputs agree on status, attention, session, and permission facts.
 - public docs list parity guarantees and intentional gaps.
+- import/structure tests fail if public delivery surfaces bypass the shared resolver, command
+  facade, or read-model service for covered capabilities.
 
 ## Related
 

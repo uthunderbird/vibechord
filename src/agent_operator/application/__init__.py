@@ -11,6 +11,7 @@ from agent_operator.application.commands.operation_delivery_commands import (
     OperationDeliveryCommandService,
 )
 from agent_operator.application.decision_execution import DecisionExecutionService
+from agent_operator.application.delivery_surface import DeliverySurfaceService
 from agent_operator.application.drive.operation_drive import OperationDriveService
 from agent_operator.application.drive.operation_drive_control import OperationDriveControlService
 from agent_operator.application.drive.operation_drive_decision import (
@@ -79,6 +80,7 @@ __all__ = [
     "AttachedSessionManager",
     "AttachedTurnService",
     "DecisionExecutionService",
+    "DeliverySurfaceService",
     "EventSourcedOperationBirthResult",
     "EventSourcedOperationBirthService",
     "EventSourcedCommandApplicationResult",

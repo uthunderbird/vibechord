@@ -2,31 +2,45 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import anyio
 
+from agent_operator.application.commands.operation_delivery_commands import (
+    OperationDeliveryCommandService,
+    OperatorServiceLike,
+)
+from agent_operator.application.delivery_surface import DeliverySurfaceService
+from agent_operator.application.queries.operation_projections import OperationProjectionService
 from agent_operator.application.queries.operation_resolution import OperationResolutionService
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
+from agent_operator.application.queries.operation_status_queries import OperationStatusQueryService
 from agent_operator.application.service import OperatorService
 from agent_operator.bootstrap import (
+    build_background_run_inspection_store,
     build_command_inbox,
     build_event_sink,
     build_replay_service,
     build_service,
     build_store,
+    build_trace_store,
+    build_wakeup_inbox,
+)
+from agent_operator.cli.helpers.rendering import (
+    build_runtime_alert,
+    find_task_by_display_id,
+    render_inspect_summary,
+    render_status_brief,
+    render_status_summary,
 )
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AttentionRequest,
     AttentionStatus,
     BackgroundRuntimeMode,
-    CommandTargetScope,
     ExecutionBudget,
-    FocusKind,
     OperationBrief,
-    OperationCommand,
-    OperationCommandType,
     OperationGoal,
     OperationPolicy,
     OperationState,
@@ -104,6 +118,7 @@ class OperatorClient:
         self._command_inbox: OperationCommandInbox | None = None
         self._service: OperatorService | None = None
         self._resolution_service: OperationResolutionService | None = None
+        self._delivery_surface: DeliverySurfaceService | None = None
 
     async def __aenter__(self) -> OperatorClient:
         """Load settings and initialize backing services.
@@ -133,6 +148,33 @@ class OperatorClient:
             event_root=self._settings.data_dir / "operation_events",
             state_view_service=OperationStateViewService(),
         )
+        status_queries = OperationStatusQueryService(
+            store=self._store,
+            projection_service=OperationProjectionService(),
+            trace_store=build_trace_store(self._settings),
+            background_inspection_store=build_background_run_inspection_store(self._settings),
+            wakeup_inspection_store=build_wakeup_inbox(self._settings),
+            replay_service=build_replay_service(self._settings),
+            state_view_service=OperationStateViewService(),
+            build_runtime_alert=build_runtime_alert,
+            render_status_brief=render_status_brief,
+            render_inspect_summary=render_inspect_summary,
+            render_status_summary=render_status_summary,
+        )
+        commands = OperationDeliveryCommandService(
+            store=self._store,
+            command_inbox=self._command_inbox,
+            service_factory=lambda: cast(
+                OperatorServiceLike,
+                self._build_operation_service_for_delivery(),
+            ),
+            find_task_by_display_id=find_task_by_display_id,
+        )
+        self._delivery_surface = DeliverySurfaceService(
+            resolver=self._resolution_service,
+            status_queries=status_queries,
+            commands=commands,
+        )
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -149,6 +191,7 @@ class OperatorClient:
         self._service = None
         self._command_inbox = None
         self._store = None
+        self._delivery_surface = None
         self._resolution_service = None
         self._settings = None
 
@@ -271,12 +314,10 @@ class OperatorClient:
             ```
         """
 
-        resolved_operation_id = await self._resolve_operation_id(operation_id)
-        operation = await self._require_resolution_service().load_canonical_operation_state(
-            resolved_operation_id
-        )
-        store = self._require_store()
-        outcome = await store.load_outcome(resolved_operation_id)
+        read_payload = await self._require_delivery_surface().build_read_payload(operation_id)
+        resolved_operation_id = read_payload.operation_id
+        operation = read_payload.operation
+        outcome = read_payload.outcome
         if operation is None and outcome is None:
             raise RuntimeError(f"Operation {resolved_operation_id!r} was not found.")
         if operation is None:
@@ -352,25 +393,11 @@ class OperatorClient:
             raise ValueError("text must not be empty.")
         operation = await self._load_operation(operation_id)
         resolved_attention_id = self._resolve_attention_id(operation, attention_id)
-        await self._require_command_inbox().enqueue(
-            OperationCommand(
-                operation_id=operation.operation_id,
-                command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
-                target_scope=CommandTargetScope.ATTENTION_REQUEST,
-                target_id=resolved_attention_id,
-                payload={"text": answer_text},
-            )
+        await self._require_delivery_surface().answer_attention(
+            operation.operation_id,
+            attention_id=resolved_attention_id,
+            text=answer_text,
         )
-        if (
-            operation.status is OperationStatus.NEEDS_HUMAN
-            and operation.current_focus is not None
-            and operation.current_focus.kind is FocusKind.ATTENTION_REQUEST
-            and operation.current_focus.target_id == resolved_attention_id
-        ):
-            await self._build_operation_service(operation.operation_id).resume(
-                operation.operation_id,
-                options=RunOptions(run_mode=RunMode.ATTACHED),
-            )
 
     async def cancel(self, operation_id: str) -> None:
         """Cancel one operation.
@@ -385,8 +412,7 @@ class OperatorClient:
             ```
         """
 
-        resolved_operation_id = await self._resolve_operation_id(operation_id)
-        await self._build_operation_service(resolved_operation_id).cancel(resolved_operation_id)
+        await self._require_delivery_surface().cancel_operation(operation_id)
 
     async def interrupt(
         self,
@@ -407,27 +433,7 @@ class OperatorClient:
             ```
         """
 
-        operation = await self._load_operation(operation_id)
-        target_session_id = (
-            self._resolve_task_session_id(operation, task_id)
-            if task_id is not None
-            else (
-                operation.active_session_record.session_id
-                if operation.active_session_record is not None
-                else None
-            )
-        )
-        if target_session_id is None:
-            raise RuntimeError("This operation has no active session to stop.")
-        await self._require_command_inbox().enqueue(
-            OperationCommand(
-                operation_id=operation.operation_id,
-                command_type=OperationCommandType.STOP_AGENT_TURN,
-                target_scope=CommandTargetScope.SESSION,
-                target_id=target_session_id,
-                payload={},
-            )
-        )
+        await self._require_delivery_surface().interrupt_operation(operation_id, task_id=task_id)
 
     async def stream_events(
         self,
@@ -519,6 +525,10 @@ class OperatorClient:
         settings = self._require_settings()
         return build_service(settings, event_sink=build_event_sink(settings, operation_id))
 
+    def _build_operation_service_for_delivery(self) -> OperatorService:
+        settings = self._require_settings()
+        return build_service(settings)
+
     def _build_run_options(self, mode: str) -> RunOptions:
         if mode == "background":
             return RunOptions(
@@ -607,3 +617,8 @@ class OperatorClient:
         if self._resolution_service is None:
             raise RuntimeError("OperatorClient must be entered with 'async with' before use.")
         return self._resolution_service
+
+    def _require_delivery_surface(self) -> DeliverySurfaceService:
+        if self._delivery_surface is None:
+            raise RuntimeError("OperatorClient must be entered with 'async with' before use.")
+        return self._delivery_surface

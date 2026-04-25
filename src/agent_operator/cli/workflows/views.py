@@ -76,11 +76,10 @@ from ..helpers.resolution import (
     resolve_project_profile_selection,
 )
 from ..helpers.services import (
-    build_delivery_commands_service,
+    build_delivery_surface_service,
     build_fleet_workbench_query_service,
     build_operation_dashboard_query_service,
     build_project_dashboard_query_service,
-    delivery_commands_service,
     load_settings,
 )
 from .control import _execute_converse_command
@@ -549,7 +548,7 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
         auto_resume_when_paused: bool = False,
     ) -> str:
         """CLI-equivalent control action used by TUI state transitions."""
-        delivery = build_delivery_commands_service(settings)
+        delivery = build_delivery_surface_service(settings).commands
         command, outcome, note = await delivery.enqueue_command(
             operation_id,
             command_type,
@@ -562,27 +561,26 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
 
     async def interrupt_operation(operation_id: str, task_id: str | None) -> str:
         """CLI-equivalent of `operator interrupt <operation_id> [--task ...]`."""
-        delivery = build_delivery_commands_service(settings)
-        command = await delivery.enqueue_stop_turn(operation_id, task_id=task_id)
+        command = await build_delivery_surface_service(settings).interrupt_operation(
+            operation_id,
+            task_id=task_id,
+        )
         return _build_enqueued_command_message(command, None, None)
 
     async def answer_attention(operation_id: str, attention_id: str, text: str) -> str:
         """CLI-equivalent of `operator answer <operation_id> <attention_id> --text ...`."""
-        delivery = build_delivery_commands_service(settings)
-        answer_command, _, outcome = await delivery.answer_attention(
+        answer_command, _, outcome = await build_delivery_surface_service(
+            settings
+        ).answer_attention(
             operation_id,
             attention_id=attention_id,
             text=text,
-            promote=False,
-            policy_payload={},
         )
         return _build_enqueued_command_message(answer_command, outcome, None)
 
     async def cancel_operation(operation_id: str) -> str:
         """CLI-equivalent of `operator cancel <operation_id>`."""
-        outcome = await delivery_commands_service().cancel(
-            operation_id, session_id=None, run_id=None
-        )
+        outcome = await build_delivery_surface_service(settings).cancel_operation(operation_id)
         return f"{outcome.status.value}: {outcome.summary}"
 
     def _normalize_tui_command(

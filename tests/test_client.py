@@ -9,6 +9,11 @@ import pytest
 
 from agent_operator import OperatorClient
 from agent_operator.domain import (
+    AgentSessionHandle,
+    AttentionRequest,
+    AttentionStatus,
+    AttentionType,
+    CommandTargetScope,
     ExecutionBudget,
     InvolvementLevel,
     ObjectiveState,
@@ -21,8 +26,10 @@ from agent_operator.domain import (
     OperationStatus,
     RunEvent,
     RuntimeHints,
+    SessionRecord,
+    SessionRecordStatus,
 )
-from agent_operator.runtime import FileOperationStore, JsonlEventSink
+from agent_operator.runtime import FileOperationCommandInbox, FileOperationStore, JsonlEventSink
 
 pytestmark = pytest.mark.anyio
 
@@ -211,6 +218,56 @@ async def test_operator_client_resolves_v2_only_operation_reference(tmp_path: Pa
 
     assert brief.operation_id == "op-sdk-v2"
     assert brief.objective_brief == "Canonical event-sourced SDK operation"
+
+
+async def test_operator_client_control_methods_use_delivery_command_facade(
+    tmp_path: Path,
+) -> None:
+    """Catches swapping SDK control paths back to direct service/inbox calls."""
+    operation_id = "op-sdk-control"
+    store = FileOperationStore(tmp_path / "runs")
+    operation = OperationState(
+        operation_id=operation_id,
+        goal=OperationGoal(objective="Control through SDK"),
+        sessions=[
+            SessionRecord(
+                handle=AgentSessionHandle(
+                    adapter_key="codex_acp",
+                    session_id="session-sdk-control",
+                    session_name="sdk",
+                ),
+                status=SessionRecordStatus.RUNNING,
+            )
+        ],
+        attention_requests=[
+            AttentionRequest(
+                attention_id="att-sdk-control",
+                operation_id=operation_id,
+                attention_type=AttentionType.QUESTION,
+                title="Need answer",
+                question="Proceed?",
+                blocking=True,
+                status=AttentionStatus.OPEN,
+                target_scope=CommandTargetScope.OPERATION,
+                target_id=operation_id,
+            )
+        ],
+        **state_settings(),
+    )
+    await store.save_operation(operation)
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        await client.answer_attention("op-sdk", "att-sdk", "Proceed")
+        await client.interrupt("op-sdk")
+
+    commands = await FileOperationCommandInbox(tmp_path / "commands").list(operation_id)
+    assert [command.command_type.value for command in commands] == [
+        "answer_attention_request",
+        "stop_agent_turn",
+    ]
+    assert commands[0].target_id == "att-sdk-control"
+    assert commands[0].payload == {"text": "Proceed"}
+    assert commands[1].target_id == "session-sdk-control"
 
 
 async def test_operator_client_lists_event_only_v2_operation(tmp_path: Path) -> None:

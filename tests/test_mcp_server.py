@@ -406,7 +406,7 @@ async def test_operator_mcp_service_answer_cancel_interrupt_and_timeout_validati
             )
 
         async def enqueue_stop_turn(self, operation_id, *, task_id=None):
-            return None
+            return SimpleNamespace(operation_id=operation_id)
 
     service = OperatorMcpService(
         status_service_factory=lambda settings: None,

@@ -8,6 +8,7 @@ import typer
 import yaml
 
 from agent_operator.application import (
+    DeliverySurfaceService,
     OperationAgendaQueryService,
     OperationDashboardQueryService,
     OperationDeliveryCommandService,
@@ -87,6 +88,19 @@ def load_settings_with_data_dir() -> tuple[OperatorSettings, str]:
 def delivery_commands_service() -> OperationDeliveryCommandService:
     settings = load_settings()
     return build_delivery_commands_service(settings)
+
+
+def build_delivery_surface_service(settings: OperatorSettings) -> DeliverySurfaceService:
+    return DeliverySurfaceService(
+        resolver=OperationResolutionService(
+            store=build_store(settings),
+            replay_service=build_replay_service(settings),
+            event_root=settings.data_dir / "operation_events",
+            state_view_service=OperationStateViewService(),
+        ),
+        status_queries=build_status_query_service(settings),
+        commands=build_delivery_commands_service(settings),
+    )
 
 
 def build_agenda_query_service(settings: OperatorSettings) -> OperationAgendaQueryService:

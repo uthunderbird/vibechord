@@ -9,6 +9,7 @@ from uuid import uuid4
 import anyio
 
 from agent_operator.application import (
+    DeliverySurfaceService,
     OperationDeliveryCommandService,
     OperationStatusQueryService,
 )
@@ -99,15 +100,9 @@ class OperatorMcpService:
         status_filter: OperationStatus | None,
     ) -> list[dict[str, object]]:
         settings = self.settings_loader()
-        store = self.store_builder(settings)
-        resolver = OperationResolutionService(
-            store=store,
-            replay_service=build_replay_service(settings),
-            event_root=settings.data_dir / "operation_events",
-            state_view_service=OperationStateViewService(),
-        )
+        delivery = self._build_delivery_surface(settings)
         items: list[dict[str, object]] = []
-        for operation in await resolver.list_canonical_operation_states():
+        for operation in await delivery.list_operation_states():
             if status_filter is not None and operation.status is not status_filter:
                 continue
             items.append(self._list_item(operation))
@@ -196,10 +191,12 @@ class OperatorMcpService:
         }
 
     async def get_status(self, *, operation_id: str) -> dict[str, object]:
-        resolved_operation_id = await self._resolve_operation_id(operation_id)
         settings = self.settings_loader()
-        service = self.status_service_factory(settings)
-        read_payload = await self._build_read_payload(service, resolved_operation_id)
+        read_payload = await self._build_read_payload(
+            self._build_delivery_surface(settings),
+            operation_id,
+        )
+        resolved_operation_id = read_payload.operation_id
         operation = read_payload.operation
         outcome = read_payload.outcome
         assert operation is not None
@@ -244,18 +241,15 @@ class OperatorMcpService:
         attention_id: str | None,
         answer: str,
     ) -> dict[str, object]:
-        resolved_operation_id = await self._resolve_operation_id(operation_id)
-        service = self.delivery_service_factory(self.settings_loader())
+        settings = self.settings_loader()
         try:
-            answer_command, _, _ = await service.answer_attention(
-                resolved_operation_id,
+            answer_command, _, _ = await self._build_delivery_surface(settings).answer_attention(
+                operation_id,
                 attention_id=attention_id,
                 text=answer,
-                promote=False,
-                policy_payload={},
             )
         except RuntimeError as exc:
-            raise self._map_runtime_error(exc, operation_id=resolved_operation_id) from exc
+            raise self._map_runtime_error(exc, operation_id=operation_id) from exc
         return {"attention_id": answer_command.target_id, "status": "answered"}
 
     async def cancel_operation(
@@ -264,27 +258,23 @@ class OperatorMcpService:
         operation_id: str,
         reason: str | None,
     ) -> dict[str, object]:
-        resolved_operation_id = await self._resolve_operation_id(operation_id)
-        del reason
-        service = self.delivery_service_factory(self.settings_loader())
+        settings = self.settings_loader()
         try:
-            outcome = await service.cancel(
-                resolved_operation_id,
-                session_id=None,
-                run_id=None,
+            outcome = await self._build_delivery_surface(settings).cancel_operation(
+                operation_id,
+                reason=reason,
             )
         except RuntimeError as exc:
-            raise self._map_runtime_error(exc, operation_id=resolved_operation_id) from exc
-        return {"operation_id": resolved_operation_id, "status": outcome.status.value}
+            raise self._map_runtime_error(exc, operation_id=operation_id) from exc
+        return {"operation_id": outcome.operation_id, "status": outcome.status.value}
 
     async def interrupt_operation(self, *, operation_id: str) -> dict[str, object]:
-        resolved_operation_id = await self._resolve_operation_id(operation_id)
-        service = self.delivery_service_factory(self.settings_loader())
+        settings = self.settings_loader()
         try:
-            await service.enqueue_stop_turn(resolved_operation_id, task_id=None)
+            command = await self._build_delivery_surface(settings).interrupt_operation(operation_id)
         except RuntimeError as exc:
-            raise self._map_runtime_error(exc, operation_id=resolved_operation_id) from exc
-        return {"operation_id": resolved_operation_id, "acknowledged": True}
+            raise self._map_runtime_error(exc, operation_id=operation_id) from exc
+        return {"operation_id": command.operation_id, "acknowledged": True}
 
     async def _wait_for_outcome(
         self,
@@ -306,14 +296,22 @@ class OperatorMcpService:
                 )
             await anyio.sleep(0.1)
 
-    async def _resolve_operation_id(self, operation_ref: str) -> str:
-        settings = self.settings_loader()
+    def _build_delivery_surface(self, settings: OperatorSettings) -> DeliverySurfaceService:
         resolver = OperationResolutionService(
             store=self.store_builder(settings),
             replay_service=build_replay_service(settings),
             event_root=settings.data_dir / "operation_events",
             state_view_service=OperationStateViewService(),
         )
+        return DeliverySurfaceService(
+            resolver=resolver,
+            status_queries=self.status_service_factory(settings),
+            commands=self.delivery_service_factory(settings),
+        )
+
+    async def _resolve_operation_id(self, operation_ref: str) -> str:
+        settings = self.settings_loader()
+        resolver = self._build_delivery_surface(settings)
         try:
             return await resolver.resolve_operation_id(operation_ref)
         except OperationResolutionError as exc:
@@ -332,11 +330,14 @@ class OperatorMcpService:
 
     async def _build_read_payload(
         self,
-        service: OperationStatusQueryService,
+        service: DeliverySurfaceService,
         operation_id: str,
     ) -> OperationReadPayload:
         try:
             return await service.build_read_payload(operation_id)
+        except OperationResolutionError as exc:
+            code = "invalid_state" if exc.code == "ambiguous" else "not_found"
+            raise McpToolError(code, str(exc), operation_id=operation_id) from exc
         except RuntimeError as exc:
             raise McpToolError("not_found", str(exc), operation_id=operation_id) from exc
 
