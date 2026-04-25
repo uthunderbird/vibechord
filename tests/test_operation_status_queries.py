@@ -224,6 +224,44 @@ async def test_status_payload_falls_back_to_event_sourced_replay() -> None:
 
 
 @pytest.mark.anyio
+async def test_status_payload_prefers_event_sourced_replay_over_stale_snapshot() -> None:
+    """Catches the mutation where status loads a stale snapshot before v2 replay."""
+    store = MemoryStore()
+    stale_state = OperationState(
+        operation_id="op-status-v2-stale",
+        goal=OperationGoal(objective="Stale snapshot objective."),
+        status=OperationStatus.RUNNING,
+        **state_settings(),
+    )
+    await store.save_operation(stale_state)
+    checkpoint = OperationCheckpoint.initial("op-status-v2-stale")
+    checkpoint.objective = ObjectiveState(objective="Canonical event objective.")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.final_summary = "canonical v2 completed"
+    service = OperationStatusQueryService(
+        store=store,
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    operation, outcome, _, _ = await service.build_status_payload("op-status-v2-stale")
+
+    assert outcome is None
+    assert operation is not None
+    assert operation.goal.objective == "Canonical event objective."
+    assert operation.status is OperationStatus.COMPLETED
+
+
+@pytest.mark.anyio
 async def test_status_json_replays_permission_events_into_durable_truth() -> None:
     """Catches omitting replayed permission events from status/inspect query payloads."""
     checkpoint = OperationCheckpoint.initial("op-status-v2-permission")

@@ -70,27 +70,31 @@ class OperationResolutionService:
         raise RuntimeError(f"Operation {operation_ref!r} was not found.")
 
     async def load_canonical_operation_state(self, operation_id: str) -> OperationState | None:
+        operation = await self._load_event_sourced_operation_state(operation_id)
+        if operation is not None:
+            return operation
         operation = await self.store.load_operation(operation_id)
         if operation is not None:
             return operation
-        return await self._load_event_sourced_operation_state(operation_id)
+        return None
 
     async def list_canonical_operation_states(self) -> list[OperationState]:
         states: list[OperationState] = []
         seen_operation_ids: set[str] = set()
+        for operation_id in self.list_event_sourced_operation_ids():
+            operation = await self._load_event_sourced_operation_state(operation_id)
+            if operation is None:
+                continue
+            states.append(operation)
+            seen_operation_ids.add(operation.operation_id)
         for summary in await self.store.list_operations():
+            if summary.operation_id in seen_operation_ids:
+                continue
             operation = await self.store.load_operation(summary.operation_id)
             if operation is None:
                 continue
             states.append(operation)
             seen_operation_ids.add(operation.operation_id)
-        for operation_id in self.list_event_sourced_operation_ids():
-            if operation_id in seen_operation_ids:
-                continue
-            operation = await self._load_event_sourced_operation_state(operation_id)
-            if operation is None:
-                continue
-            states.append(operation)
         return states
 
     def list_event_sourced_operation_ids(self) -> list[str]:

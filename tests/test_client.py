@@ -211,3 +211,33 @@ async def test_operator_client_resolves_v2_only_operation_reference(tmp_path: Pa
 
     assert brief.operation_id == "op-sdk-v2"
     assert brief.objective_brief == "Canonical event-sourced SDK operation"
+
+
+async def test_operator_client_lists_event_only_v2_operation(tmp_path: Path) -> None:
+    """Catches the mutation where SDK list uses only FileOperationStore summaries."""
+    checkpoint = OperationCheckpoint.initial("op-sdk-list-v2")
+    checkpoint.objective = ObjectiveState(objective="Canonical event-sourced SDK list")
+    checkpoint.status = OperationStatus.RUNNING
+    checkpoint.created_at = datetime(2026, 4, 24, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id="op-sdk-list-v2",
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / "op-sdk-list-v2.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / "op-sdk-list-v2.jsonl").write_text("", encoding="utf-8")
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        summaries = await client.list_operations()
+
+    assert [summary.operation_id for summary in summaries] == ["op-sdk-list-v2"]
+    assert summaries[0].objective_prompt == "Canonical event-sourced SDK list"

@@ -4,27 +4,33 @@
 
 ## Decision Status
 
-Accepted
+Proposed
 
 ## Implementation Status
 
-Verified
+Partial
 
-Skim-safe status on 2026-04-24:
+Phase 2 implementation status on 2026-04-25:
 
-- `implemented`: `OperatorServiceV2` creates and cancels operations by appending canonical domain
-  events through `OperationEventStore`; it does not accept or persist `OperationState` snapshots
-- `implemented`: `DriveService` reloads canonical aggregate state from replay, appends new domain
-  events, and persists only derived checkpoints through `OperationCheckpointStore`
-- `implemented`: event-sourced birth and replay services materialize the
-  `operation_events` / `operation_checkpoints` authority pair directly, with checkpoints rejected
-  if they ever get ahead of the event stream
-- `implemented`: CLI resolution and list surfaces now load canonical v2 operation state from
-  replayed checkpoints when `.operator/runs` is absent instead of treating
-  `FileOperationStore.list_operations()` as complete
-- `implemented`: status/inspect already replay canonical v2 checkpoint truth when no legacy run
-  snapshot exists
-- `verified`: `uv run pytest` passed on 2026-04-24 at the repository state that closes this ADR
+- `implemented`: `OperatorServiceV2` creates operations by appending `operation.created` domain
+  events through `OperationEventStore` and drives through `DriveService`.
+- `implemented`: `OperatorServiceV2.cancel()` delegates cancellation to
+  `EventSourcedCommandApplicationService` when that service is wired.
+- `implemented`: `DriveService` reloads aggregate state from replay, appends new domain events, and
+  saves derived checkpoints through `OperationCheckpointStore`.
+- `implemented`: `EventSourcedReplayService` rejects checkpoints whose sequence is ahead of the
+  event stream.
+- `implemented`: canonical resolution now checks v2 event-sourced state before legacy snapshots for
+  exact loads and merged operation lists.
+- `implemented`: status payload construction now prefers v2 replay over stale legacy snapshots for
+  the same operation id.
+- `implemented`: MCP list and SDK list use the canonical merged v2-plus-legacy operation state
+  service.
+- `verified`: targeted ADR 0203 regression/static tests and the full `uv run pytest` suite passed
+  on 2026-04-25.
+- `partial`: some converse/detail/control paths still call legacy snapshot reads directly, so this
+  ADR remains `Proposed` / `Partial` rather than `Accepted` / `Verified`. Remaining work is tracked
+  in `../internal/adr-0203-phase-1-design-artifact-2026-04-25.md`.
 
 ## Context
 

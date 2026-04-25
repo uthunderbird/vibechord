@@ -35,6 +35,8 @@ from agent_operator.domain import (
     RunEvent,
     RunMode,
     RunOptions,
+    SessionStatus,
+    TaskStatus,
 )
 from agent_operator.protocols import OperationCommandInbox, OperationStore
 from agent_operator.runtime import prepare_operator_settings
@@ -170,15 +172,34 @@ class OperatorClient:
             ```
         """
 
-        store = self._require_store()
-        summaries = await store.list_operations()
+        states = await self._require_resolution_service().list_canonical_operation_states()
+        summaries = [
+            OperationSummary(
+                operation_id=operation.operation_id,
+                status=operation.status,
+                objective_prompt=operation.goal.objective_text,
+                final_summary=operation.final_summary,
+                focus=operation.current_focus.target_id
+                if operation.current_focus is not None
+                else None,
+                runnable_task_count=sum(
+                    1 for task in operation.tasks if task.status is TaskStatus.READY
+                ),
+                reusable_session_count=len(
+                    [
+                        session
+                        for session in operation.sessions
+                        if session.status is SessionStatus.IDLE
+                    ]
+                ),
+                updated_at=operation.updated_at,
+            )
+            for operation in states
+        ]
         if project is None:
             return summaries
         filtered: list[OperationSummary] = []
-        for summary in summaries:
-            operation = await store.load_operation(summary.operation_id)
-            if operation is None:
-                continue
+        for summary, operation in zip(summaries, states, strict=True):
             if operation.goal.metadata.get("project") == project:
                 filtered.append(summary)
         return filtered

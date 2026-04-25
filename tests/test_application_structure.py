@@ -110,6 +110,50 @@ def test_drive_loop_save_operation_only_via_advance_checkpoint() -> None:
     assert violations == [], "\n".join(violations)
 
 
+def test_adr_0203_v2_mutation_paths_do_not_save_legacy_snapshots() -> None:
+    """Catches reintroducing FileOperationStore.save_operation() into v2 mutation paths."""
+    paths = [
+        APPLICATION_DIR / "operator_service_v2.py",
+        APPLICATION_DIR / "drive" / "drive_service.py",
+        APPLICATION_DIR / "event_sourcing" / "event_sourced_commands.py",
+    ]
+
+    violations: list[str] = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "save_operation":
+                violations.append(f"{path.relative_to(APPLICATION_DIR)}:{node.lineno}")
+
+    assert violations == [], "\n".join(violations)
+
+
+def test_adr_0203_canonical_read_surfaces_use_event_first_resolution() -> None:
+    """Catches read surfaces falling back to snapshot-only v2 operation enumeration."""
+    root = Path(__file__).resolve().parents[1] / "src" / "agent_operator"
+    required_references = {
+        root / "application" / "queries" / "operation_resolution.py": [
+            "_load_event_sourced_operation_state",
+            "store.load_operation",
+        ],
+        root / "application" / "queries" / "operation_status_queries.py": [
+            "_load_event_sourced_operation",
+            "store.load_operation",
+        ],
+        root / "mcp" / "service.py": ["OperationResolutionService"],
+        root / "client.py": ["list_canonical_operation_states"],
+    }
+
+    missing: list[str] = []
+    for path, needles in required_references.items():
+        source = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source:
+                missing.append(f"{path.relative_to(root)} missing {needle!r}")
+
+    assert missing == [], "\n".join(missing)
+
+
 def test_event_sourced_operation_commands_do_not_force_snapshot_persistence() -> None:
     """ADR 0144: event-sourced command handling must not force snapshot writes."""
     command_file = APPLICATION_DIR / "commands" / "operation_commands.py"

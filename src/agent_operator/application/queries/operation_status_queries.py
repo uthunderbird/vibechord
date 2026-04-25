@@ -98,10 +98,10 @@ class OperationStatusQueryService:
         self,
         operation_id: str,
     ) -> tuple[OperationState | None, OperationOutcome | None, object | None, str | None]:
-        operation = await self.store.load_operation(operation_id)
+        operation = await self._load_event_sourced_operation(operation_id)
+        if operation is None:
+            operation = await self.store.load_operation(operation_id)
         outcome = await self.store.load_outcome(operation_id)
-        if operation is None and outcome is None:
-            operation = await self._load_event_sourced_operation(operation_id)
         if operation is None and outcome is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         if operation is None:

@@ -98,11 +98,14 @@ class OperatorMcpService:
     ) -> list[dict[str, object]]:
         settings = self.settings_loader()
         store = self.store_builder(settings)
+        resolver = OperationResolutionService(
+            store=store,
+            replay_service=build_replay_service(settings),
+            event_root=settings.data_dir / "operation_events",
+            state_view_service=OperationStateViewService(),
+        )
         items: list[dict[str, object]] = []
-        for summary in await store.list_operations():
-            operation = await store.load_operation(summary.operation_id)
-            if operation is None:
-                continue
+        for operation in await resolver.list_canonical_operation_states():
             if status_filter is not None and operation.status is not status_filter:
                 continue
             items.append(self._list_item(operation))
