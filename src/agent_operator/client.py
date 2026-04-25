@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
@@ -54,7 +54,10 @@ from agent_operator.domain import (
 )
 from agent_operator.protocols import OperationCommandInbox, OperationStore
 from agent_operator.runtime import prepare_operator_settings
-from agent_operator.runtime.events import parse_event_file_line
+from agent_operator.runtime.events import (
+    parse_canonical_event_file_line,
+    parse_event_file_line,
+)
 
 
 class OperatorClient:
@@ -169,6 +172,7 @@ class OperatorClient:
                 self._build_operation_service_for_delivery(),
             ),
             find_task_by_display_id=find_task_by_display_id,
+            state_loader=self._resolution_service,
         )
         self._delivery_surface = DeliverySurfaceService(
             resolver=self._resolution_service,
@@ -399,11 +403,17 @@ class OperatorClient:
             text=answer_text,
         )
 
-    async def cancel(self, operation_id: str) -> None:
+    async def cancel(
+        self,
+        operation_id: str,
+        *,
+        reason: str | None = None,
+    ) -> None:
         """Cancel one operation.
 
         Args:
             operation_id: Exact operation id, unique prefix, or `"last"`.
+            reason: Optional cancellation reason recorded by the application layer.
 
         Examples:
             ```python
@@ -411,8 +421,13 @@ class OperatorClient:
                 await client.cancel("last")
             ```
         """
-
-        await self._require_delivery_surface().cancel_operation(operation_id)
+        cancel_reason = reason.strip() if reason is not None else None
+        if cancel_reason == "":
+            cancel_reason = None
+        await self._require_delivery_surface().cancel_operation(
+            operation_id,
+            reason=cancel_reason,
+        )
 
     async def interrupt(
         self,
@@ -435,11 +450,41 @@ class OperatorClient:
 
         await self._require_delivery_surface().interrupt_operation(operation_id, task_id=task_id)
 
+    async def pause(self, operation_id: str) -> None:
+        """Pause one operation after the current attached turn yields.
+
+        Args:
+            operation_id: Exact operation id, unique prefix, or `"last"`.
+
+        Examples:
+            ```python
+            async with OperatorClient() as client:
+                await client.pause("last")
+            ```
+        """
+
+        await self._require_delivery_surface().pause_operation(operation_id)
+
+    async def unpause(self, operation_id: str) -> None:
+        """Resume a paused operation.
+
+        Args:
+            operation_id: Exact operation id, unique prefix, or `"last"`.
+
+        Examples:
+            ```python
+            async with OperatorClient() as client:
+                await client.unpause("last")
+            ```
+        """
+
+        await self._require_delivery_surface().unpause_operation(operation_id)
+
     async def stream_events(
         self,
         operation_id: str,
     ) -> AsyncIterator[RunEvent]:
-        """Yield persisted run events from the operation event file.
+        """Yield persisted live events from the canonical or legacy event stream.
 
         The iterator waits for the event file to appear, tails appended lines, and
         exits after a terminal event plus a quiet drain window. If the operation is
@@ -459,9 +504,8 @@ class OperatorClient:
             ```
         """
 
-        settings = self._require_settings()
         resolved_operation_id = await self._resolve_operation_id(operation_id)
-        path = settings.data_dir / "events" / f"{resolved_operation_id}.jsonl"
+        path, parser = self._resolve_stream_path(resolved_operation_id)
         initial_terminal = await self._is_terminal_operation(resolved_operation_id)
         wait_deadline = anyio.current_time() + self._event_file_timeout_seconds
         terminal_deadline: float | None = None
@@ -487,9 +531,7 @@ class OperatorClient:
                     if terminal_deadline is None and await self._is_terminal_operation(
                         resolved_operation_id
                     ):
-                        terminal_deadline = (
-                            anyio.current_time() + self._stream_drain_window_seconds
-                        )
+                        terminal_deadline = anyio.current_time() + self._stream_drain_window_seconds
                     if terminal_deadline is not None and anyio.current_time() >= terminal_deadline:
                         return
                     await anyio.sleep(self._stream_poll_interval_seconds)
@@ -498,13 +540,31 @@ class OperatorClient:
                     handle.seek(position)
                     await anyio.sleep(self._stream_poll_interval_seconds)
                     continue
-                event = parse_event_file_line(line)
+                event = parser(resolved_operation_id, line)
                 yield event
                 if event.event_type in self._TERMINAL_EVENT_TYPES:
                     terminal_deadline = anyio.current_time() + self._stream_drain_window_seconds
         finally:
             if handle is not None:
                 handle.close()
+
+    def _resolve_stream_path(
+        self,
+        operation_id: str,
+    ) -> tuple[Path, Callable[[str, str], RunEvent]]:
+        settings = self._require_settings()
+        canonical_path = settings.data_dir / "operation_events" / f"{operation_id}.jsonl"
+        if canonical_path.exists():
+            return canonical_path, self._parse_canonical_stream_line
+        legacy_path = settings.data_dir / "events" / f"{operation_id}.jsonl"
+        return legacy_path, self._parse_legacy_stream_line
+
+    def _parse_legacy_stream_line(self, operation_id: str, raw_line: str) -> RunEvent:
+        del operation_id
+        return parse_event_file_line(raw_line)
+
+    def _parse_canonical_stream_line(self, operation_id: str, raw_line: str) -> RunEvent:
+        return parse_canonical_event_file_line(operation_id, raw_line)
 
     def _require_settings(self) -> OperatorSettings:
         if self._settings is None:
@@ -588,8 +648,7 @@ class OperatorClient:
         ]
         if len(matches) > 1:
             raise RuntimeError(
-                f"Task reference {task_ref!r} is ambiguous in operation "
-                f"{operation.operation_id!r}."
+                f"Task reference {task_ref!r} is ambiguous in operation {operation.operation_id!r}."
             )
         if not matches:
             raise RuntimeError(
@@ -599,9 +658,7 @@ class OperatorClient:
         for session in operation.sessions:
             if task.task_id in session.bound_task_ids and session.status.value == "running":
                 return session.session_id
-        raise RuntimeError(
-            f"Task {task_ref!r} is running but has no active session bound to it."
-        )
+        raise RuntimeError(f"Task {task_ref!r} is running but has no active session bound to it.")
 
     async def _is_terminal_operation(self, operation_id: str) -> bool:
         store = self._require_store()

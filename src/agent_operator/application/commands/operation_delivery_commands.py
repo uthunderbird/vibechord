@@ -58,12 +58,17 @@ class OperatorServiceLike(Protocol):
     ) -> OperationOutcome: ...
 
 
+class OperationStateLoaderLike(Protocol):
+    async def load_canonical_operation_state(self, operation_id: str) -> OperationState | None: ...
+
+
 @dataclass(slots=True)
 class OperationDeliveryCommandService:
     store: OperationStore
     command_inbox: OperationCommandInbox
     service_factory: Callable[[], OperatorServiceLike]
     find_task_by_display_id: Callable[[OperationState, str], object | None]
+    state_loader: OperationStateLoaderLike | None = None
 
     async def cancel(
         self,
@@ -179,7 +184,7 @@ class OperationDeliveryCommandService:
             payload={key: value for key, value in payload.items() if value is not None},
         )
         await self.command_inbox.enqueue(command)
-        operation = await self.store.load_operation(operation_id)
+        operation = await self._load_operation(operation_id)
         if operation is None:
             return command, None, None
         if auto_resume_when_paused and command_type is OperationCommandType.RESUME_OPERATOR:
@@ -350,7 +355,7 @@ class OperationDeliveryCommandService:
         *,
         task_id: str | None = None,
     ) -> OperationCommand:
-        operation = await self.store.load_operation(operation_id)
+        operation = await self._load_operation(operation_id)
         if operation is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         if operation.scheduler_state is SchedulerState.DRAINING:
@@ -395,7 +400,7 @@ class OperationDeliveryCommandService:
         promote: bool,
         policy_payload: dict[str, object],
     ) -> tuple[OperationCommand, OperationCommand | None, OperationOutcome | None]:
-        operation = await self.store.load_operation(operation_id)
+        operation = await self._load_operation(operation_id)
         if operation is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         resolved_attention_id = attention_id
@@ -430,7 +435,7 @@ class OperationDeliveryCommandService:
                 target_scope=CommandTargetScope.ATTENTION_REQUEST,
                 target_id=resolved_attention_id,
             )
-        operation = await self.store.load_operation(operation_id)
+        operation = await self._load_operation(operation_id)
         if (
             operation is not None
             and operation.status is OperationStatus.NEEDS_HUMAN
@@ -445,3 +450,10 @@ class OperationDeliveryCommandService:
             )
             return answer_command, policy_command, outcome
         return answer_command, policy_command, None
+
+    async def _load_operation(self, operation_id: str) -> OperationState | None:
+        if self.state_loader is not None:
+            operation = await self.state_loader.load_canonical_operation_state(operation_id)
+            if operation is not None:
+                return operation
+        return await self.store.load_operation(operation_id)

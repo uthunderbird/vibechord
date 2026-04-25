@@ -10,7 +10,13 @@ from agent_operator.application.queries.operation_status_queries import (
     OperationReadPayload,
     OperationStatusQueryService,
 )
-from agent_operator.domain import OperationCommand, OperationOutcome, OperationState
+from agent_operator.domain import (
+    CommandTargetScope,
+    OperationCommand,
+    OperationCommandType,
+    OperationOutcome,
+    OperationState,
+)
 
 
 @dataclass(slots=True)
@@ -111,3 +117,32 @@ class DeliverySurfaceService:
 
         operation_id = await self.resolve_operation_id(operation_ref)
         return await self.commands.enqueue_stop_turn(operation_id, task_id=task_id)
+
+    async def pause_operation(self, operation_ref: str) -> OperationCommand:
+        """Queue a pause command through the shared command facade."""
+
+        operation_id = await self.resolve_operation_id(operation_ref)
+        command, _, _ = await self.commands.enqueue_command(
+            operation_id,
+            OperationCommandType.PAUSE_OPERATOR,
+            {},
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+        )
+        return command
+
+    async def unpause_operation(
+        self,
+        operation_ref: str,
+    ) -> tuple[OperationCommand, OperationOutcome | None, str | None]:
+        """Queue an unpause command and resume attached work when applicable."""
+
+        operation_id = await self.resolve_operation_id(operation_ref)
+        return await self.commands.enqueue_command(
+            operation_id,
+            OperationCommandType.RESUME_OPERATOR,
+            {},
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+            auto_resume_when_paused=True,
+        )

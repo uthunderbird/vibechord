@@ -28,6 +28,7 @@ from agent_operator.domain import (
     RuntimeHints,
     SessionRecord,
     SessionRecordStatus,
+    StoredOperationDomainEvent,
 )
 from agent_operator.runtime import FileOperationCommandInbox, FileOperationStore, JsonlEventSink
 
@@ -168,6 +169,66 @@ async def test_operator_client_stream_events_terminates_on_cycle_finished(tmp_pa
 
 
 @pytest.mark.anyio
+async def test_operator_client_stream_events_reads_canonical_v2_operation_events(
+    tmp_path: Path,
+) -> None:
+    operation_id = "op-sdk-stream-v2"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Canonical SDK stream")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = datetime(2026, 4, 25, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=2,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    event_path = event_dir / f"{operation_id}.jsonl"
+    event_path.write_text(
+        "\n".join(
+            [
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=1,
+                    event_type="operation.created",
+                    payload={"objective": "Canonical SDK stream"},
+                    timestamp=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+                ).model_dump_json(),
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=2,
+                    event_type="operation.status.changed",
+                    payload={"status": "completed", "iteration": 3},
+                    timestamp=datetime(2026, 4, 25, 10, 1, tzinfo=UTC),
+                ).model_dump_json(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        events = [event async for event in client.stream_events("op-sdk-stream")]
+
+    assert [event.event_type for event in events] == [
+        "operation.created",
+        "operation.status.changed",
+    ]
+    assert events[0].category == "domain"
+    assert events[0].event_id == f"{operation_id}:1"
+    assert events[1].iteration == 3
+
+
+@pytest.mark.anyio
 async def test_operator_client_resolves_last_operation_reference(tmp_path: Path) -> None:
     store = FileOperationStore(tmp_path / "runs")
     older = OperationState(
@@ -225,49 +286,92 @@ async def test_operator_client_control_methods_use_delivery_command_facade(
 ) -> None:
     """Catches swapping SDK control paths back to direct service/inbox calls."""
     operation_id = "op-sdk-control"
-    store = FileOperationStore(tmp_path / "runs")
-    operation = OperationState(
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Control through SDK")
+    checkpoint.allowed_agents = ["codex_acp"]
+    checkpoint.involvement_level = InvolvementLevel.AUTO
+    checkpoint.status = OperationStatus.RUNNING
+    checkpoint.current_focus = None
+    checkpoint.sessions = [
+        SessionRecord(
+            handle=AgentSessionHandle(
+                adapter_key="codex_acp",
+                session_id="session-sdk-control",
+                session_name="sdk",
+            ),
+            status=SessionRecordStatus.RUNNING,
+        )
+    ]
+    checkpoint.attention_requests = [
+        AttentionRequest(
+            attention_id="att-sdk-control",
+            operation_id=operation_id,
+            attention_type=AttentionType.QUESTION,
+            title="Need answer",
+            question="Proceed?",
+            blocking=True,
+            status=AttentionStatus.OPEN,
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+        )
+    ]
+    checkpoint_record = OperationCheckpointRecord(
         operation_id=operation_id,
-        goal=OperationGoal(objective="Control through SDK"),
-        sessions=[
-            SessionRecord(
-                handle=AgentSessionHandle(
-                    adapter_key="codex_acp",
-                    session_id="session-sdk-control",
-                    session_name="sdk",
-                ),
-                status=SessionRecordStatus.RUNNING,
-            )
-        ],
-        attention_requests=[
-            AttentionRequest(
-                attention_id="att-sdk-control",
-                operation_id=operation_id,
-                attention_type=AttentionType.QUESTION,
-                title="Need answer",
-                question="Proceed?",
-                blocking=True,
-                status=AttentionStatus.OPEN,
-                target_scope=CommandTargetScope.OPERATION,
-                target_id=operation_id,
-            )
-        ],
-        **state_settings(),
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
     )
-    await store.save_operation(operation)
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
 
     async with OperatorClient(data_dir=tmp_path) as client:
         await client.answer_attention("op-sdk", "att-sdk", "Proceed")
         await client.interrupt("op-sdk")
+        await client.pause("op-sdk")
+        await client.unpause("op-sdk")
 
     commands = await FileOperationCommandInbox(tmp_path / "commands").list(operation_id)
     assert [command.command_type.value for command in commands] == [
         "answer_attention_request",
         "stop_agent_turn",
+        "pause_operator",
+        "resume_operator",
     ]
     assert commands[0].target_id == "att-sdk-control"
     assert commands[0].payload == {"text": "Proceed"}
     assert commands[1].target_id == "session-sdk-control"
+    assert commands[2].target_id == operation_id
+    assert commands[2].payload == {}
+    assert commands[3].target_id == operation_id
+    assert commands[3].payload == {}
+
+
+async def test_operator_client_cancel_forwards_reason(tmp_path: Path) -> None:
+    """Catches dropping the SDK cancel reason before the delivery facade."""
+    operation_id = "op-sdk-cancel-reason"
+    store = FileOperationStore(tmp_path / "runs")
+    state = OperationState(
+        operation_id=operation_id,
+        goal=OperationGoal(objective="Cancel through SDK"),
+        status=OperationStatus.RUNNING,
+        **state_settings(),
+    )
+    await store.save_operation(state)
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        await client.cancel("op-sdk-cancel", reason="  operator requested stop  ")
+
+    outcome = await store.load_outcome(operation_id)
+    assert outcome is not None
+    assert outcome.status is OperationStatus.CANCELLED
+    assert "operator requested stop" in outcome.summary
 
 
 async def test_operator_client_lists_event_only_v2_operation(tmp_path: Path) -> None:
