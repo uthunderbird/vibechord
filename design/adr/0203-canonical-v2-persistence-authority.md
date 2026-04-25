@@ -4,13 +4,13 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
 
-Phase 2 implementation status on 2026-04-25:
+Implementation status on 2026-04-25:
 
 - `implemented`: `OperatorServiceV2` creates operations by appending `operation.created` domain
   events through `OperationEventStore` and drives through `DriveService`.
@@ -26,11 +26,67 @@ Phase 2 implementation status on 2026-04-25:
   the same operation id.
 - `implemented`: MCP list and SDK list use the canonical merged v2-plus-legacy operation state
   service.
-- `verified`: targeted ADR 0203 regression/static tests and the full `uv run pytest` suite passed
-  on 2026-04-25.
-- `partial`: some converse/detail/control paths still call legacy snapshot reads directly, so this
-  ADR remains `Proposed` / `Partial` rather than `Accepted` / `Verified`. Remaining work is tracked
-  in `../internal/adr-0203-phase-1-design-artifact-2026-04-25.md`.
+- `implemented`: converse operation prompts, converse fleet prompts, TUI converse operation/fleet
+  prompts, detail projections, transcript/session detail lookups, and control-runtime operation
+  metadata restoration now load operation state through canonical resolution helpers rather than
+  direct legacy snapshot reads.
+- `implemented`: canonical operation reference resolution preserves profile-name matching through
+  the merged v2-plus-legacy state list.
+- `verified`: targeted ADR 0203 regression tests and the full `uv run pytest` suite passed on
+  2026-04-25.
+- `not verified`: full live CLI smoke that creates, observes, and terminates a v2 operation without
+  `.operator/runs` was not run, so this ADR is `Implemented` rather than `Verified`.
+
+## ADR 0203 Closure Iteration Brief
+
+Phase 1 produced the grounded completion artifact
+`../internal/adr-0203-completion-design-artifact-2026-04-25.md`, which scoped completion to the
+remaining converse/detail/control read-authority leaks and explicitly selected `Implemented`, not
+`Verified`, unless full smoke evidence existed.
+
+Grep/read citations for `Decision Status: Accepted`:
+
+- Read citation: this ADR's Required Properties define the accepted authority contract: v2 mutation,
+  control, list/status/inspect, checkpoint sequence, and read-model authority rules in this file's
+  `Required Properties` section.
+- Grep citation: `rg -n "load_required_canonical_operation_state_async|load_canonical_operation_state_async|list_canonical_operation_states_async|resolve_operation_id_async|profile_matches" src/agent_operator/application/queries/operation_resolution.py src/agent_operator/cli/helpers/resolution.py src/agent_operator/cli/workflows/converse.py src/agent_operator/cli/workflows/views.py src/agent_operator/cli/commands/operation_detail.py src/agent_operator/cli/workflows/control_runtime.py`
+  showed canonical helper use in:
+  `src/agent_operator/cli/helpers/resolution.py:41`,
+  `src/agent_operator/cli/helpers/resolution.py:47`,
+  `src/agent_operator/cli/helpers/resolution.py:54`,
+  `src/agent_operator/cli/workflows/converse.py:401`,
+  `src/agent_operator/cli/workflows/converse.py:419`,
+  `src/agent_operator/cli/workflows/converse.py:426`,
+  `src/agent_operator/cli/workflows/views.py:443`,
+  `src/agent_operator/cli/workflows/views.py:649`,
+  `src/agent_operator/cli/workflows/views.py:749`,
+  `src/agent_operator/cli/commands/operation_detail.py:248`,
+  `src/agent_operator/cli/commands/operation_detail.py:296`,
+  `src/agent_operator/cli/commands/operation_detail.py:353`,
+  `src/agent_operator/cli/commands/operation_detail.py:398`,
+  `src/agent_operator/cli/commands/operation_detail.py:444`,
+  `src/agent_operator/cli/commands/operation_detail.py:564`,
+  `src/agent_operator/cli/commands/operation_detail.py:698`, and
+  `src/agent_operator/cli/workflows/control_runtime.py:444`.
+- Grep citation: `rg -n "build_store\\(settings\\)\\.load_operation|store\\.list_operations\\(|store\\.load_operation\\(" src/agent_operator/cli/workflows/converse.py src/agent_operator/cli/workflows/views.py src/agent_operator/cli/commands/operation_detail.py src/agent_operator/cli/workflows/control_runtime.py`
+  returned no matches for the named ADR 0203 converse/detail/control files after implementation.
+
+Grep/read citations for `Implementation Status: Implemented`:
+
+- Read citation: `src/agent_operator/application/queries/operation_resolution.py` exposes
+  `OperationResolutionService.load_canonical_operation_state()` and
+  `list_canonical_operation_states()` as the merged event-sourced-plus-legacy read authority.
+- Grep citation: `rg -n "event_sourced_operation_without_runs_dir|fleet_includes_event_sourced|attention_command_reads_event_sourced|_seed_event_sourced_checkpoint|load_canonical_operation_state_async" tests/test_cli.py tests/test_control_workflows.py`
+  showed event-sourced-only regressions in `tests/test_cli.py:850`, `tests/test_cli.py:885`,
+  `tests/test_cli.py:916`, `tests/test_cli.py:955`, and the control-runtime canonical-loader test
+  seam in `tests/test_control_workflows.py:201`.
+- Verification citation: `uv run pytest tests/test_cli.py tests/test_control_workflows.py -q`
+  passed with `211 passed`.
+- Verification citation: targeted `uv run ruff check` on the changed Python modules and tests passed
+  with `All checks passed!`.
+- Verification citation: `uv run pytest` passed with `959 passed, 11 skipped`.
+- Status-bound citation: because the full live CLI smoke listed in this ADR's Verification Plan was
+  not run, the implementation status is `Implemented`, not `Verified`.
 
 ## Context
 

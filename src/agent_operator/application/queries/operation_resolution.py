@@ -67,6 +67,13 @@ class OperationResolutionService:
                 f"Operation reference {operation_ref!r} is ambiguous. Matches: "
                 f"{rendered_matches}"
             )
+        profile_matches = [
+            item
+            for item in states
+            if item.goal.metadata.get("project_profile_name") == operation_ref
+        ]
+        if profile_matches:
+            return max(profile_matches, key=lambda item: item.created_at).operation_id
         raise RuntimeError(f"Operation {operation_ref!r} was not found.")
 
     async def load_canonical_operation_state(self, operation_id: str) -> OperationState | None:

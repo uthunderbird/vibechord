@@ -836,7 +836,7 @@ def test_resolution_last_accepts_event_sourced_operation_without_runs_dir(
         checkpoint_format_version=1,
     )
     checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
-    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint_path.write_text(
         json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
         encoding="utf-8",
@@ -845,6 +845,141 @@ def test_resolution_last_accepts_event_sourced_operation_without_runs_dir(
     (tmp_path / "operation_events" / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
 
     assert resolve_operation_id("last") == operation_id
+
+
+def _seed_event_sourced_checkpoint(
+    tmp_path: Path,
+    operation_id: str,
+    *,
+    objective: str,
+    status: OperationStatus = OperationStatus.RUNNING,
+    profile_name: str | None = None,
+    attention_requests: list[AttentionRequest] | None = None,
+    tasks: list[TaskState] | None = None,
+) -> None:
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    metadata = {"project_profile_name": profile_name} if profile_name is not None else {}
+    checkpoint.objective = ObjectiveState(objective=objective, metadata=metadata)
+    checkpoint.status = status
+    checkpoint.tasks = tasks or []
+    checkpoint.attention_requests = attention_requests or []
+    checkpoint.created_at = datetime(2026, 4, 24, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_path = tmp_path / "operation_events" / f"{operation_id}.jsonl"
+    event_path.parent.mkdir(parents=True, exist_ok=True)
+    event_path.write_text("", encoding="utf-8")
+
+
+def test_converse_cli_loads_event_sourced_operation_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-converse-v2-only"
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        operation_id,
+        objective="Canonical event-sourced converse objective",
+    )
+    prompts: list[str] = []
+
+    class _Brain:
+        async def converse(self, prompt: str) -> ConverseTurnDTO:
+            prompts.append(prompt)
+            return ConverseTurnDTO(answer="Canonical state loaded.")
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: _Brain(),
+    )
+
+    result = runner.invoke(app, ["converse", operation_id], input="Status?\nquit\n")
+
+    assert result.exit_code == 0
+    assert "Canonical state loaded." in result.stdout
+    assert len(prompts) == 1
+    assert f"Operation id: {operation_id}" in prompts[0]
+    assert "Canonical event-sourced converse objective" in prompts[0]
+
+
+def test_converse_cli_fleet_includes_event_sourced_operation_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        "op-converse-fleet-v2",
+        objective="Canonical fleet objective",
+        profile_name="demo",
+    )
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        "op-converse-fleet-done",
+        objective="Completed fleet objective",
+        status=OperationStatus.COMPLETED,
+        profile_name="demo",
+    )
+    prompts: list[str] = []
+
+    class _Brain:
+        async def converse(self, prompt: str) -> ConverseTurnDTO:
+            prompts.append(prompt)
+            return ConverseTurnDTO(answer="Fleet canonical state loaded.")
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_brain",
+        lambda settings: _Brain(),
+    )
+
+    result = runner.invoke(app, ["converse", "--project", "demo"], input="Fleet?\nquit\n")
+
+    assert result.exit_code == 0
+    assert "Fleet canonical state loaded." in result.stdout
+    assert len(prompts) == 1
+    assert "op-converse-fleet-v2" in prompts[0]
+    assert "Canonical fleet objective" in prompts[0]
+    assert "op-converse-fleet-done" not in prompts[0]
+
+
+def test_attention_command_reads_event_sourced_operation_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-detail-v2-attention"
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        operation_id,
+        objective="Canonical detail objective",
+        attention_requests=[
+            AttentionRequest(
+                attention_id="attn-1",
+                operation_id=operation_id,
+                attention_type=AttentionType.QUESTION,
+                title="Need answer",
+                question="Which branch?",
+                blocking=True,
+            )
+        ],
+    )
+
+    result = runner.invoke(app, ["attention", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["attention_requests"][0]["attention_id"] == "attn-1"
+    assert payload["attention_requests"][0]["question"] == "Which branch?"
 
 
 def test_converse_cli_read_only_query_renders_answer_without_executing_commands(

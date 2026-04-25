@@ -4,21 +4,21 @@ import json
 import shlex
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 import typer
 
+from agent_operator.cli.helpers.resolution import (
+    list_canonical_operation_states_async,
+    load_required_canonical_operation_state_async,
+    resolve_operation_id_async,
+)
+from agent_operator.config import OperatorSettings
 from agent_operator.domain import AttentionStatus, OperationState, OperationStatus
 
 
 class ConverseBrain(Protocol):
     async def converse(self, prompt: str): ...
-
-
-class OperationStore(Protocol):
-    async def load_operation(self, operation_id: str) -> OperationState | None: ...
-
-    async def list_operations(self): ...
 
 
 @dataclass(frozen=True)
@@ -158,7 +158,7 @@ async def converse_async(
     context_level: str,
     build_brain: Callable[[object], ConverseBrain],
     load_settings: Callable[[], object],
-    build_store: Callable[[object], OperationStore],
+    build_store: Callable[[object], object],
     build_event_sink: Callable[[object, str], object],
     execute_command: Callable[[ConverseCommand], Awaitable[None]],
 ) -> None:
@@ -170,23 +170,18 @@ async def converse_async(
     resolved_operation_id: str | None = None
     if operation_ref is not None:
         try:
-            resolved_operation_id = await resolve_ask_operation_id(
-                operation_ref,
-                store=build_store(settings),
-            )
+            resolved_operation_id = await resolve_ask_operation_id(operation_ref)
         except RuntimeError as exc:
             raise typer.BadParameter(str(exc)) from exc
 
     while True:
         if resolved_operation_id is not None:
-            state = await build_store(settings).load_operation(resolved_operation_id)
-            if state is None:
-                raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+            state = await _load_converse_operation(settings, resolved_operation_id)
             header = _format_operation_converse_header(state)
         else:
             operations = await _load_converse_fleet_operations(
                 project,
-                store=build_store(settings),
+                settings=settings,
             )
             header = _format_fleet_converse_header(operations, project=project)
         if not history:
@@ -203,8 +198,7 @@ async def converse_async(
             return
         history.append({"role": "user", "content": user_message})
         if resolved_operation_id is not None:
-            state = await build_store(settings).load_operation(resolved_operation_id)
-            assert state is not None
+            state = await _load_converse_operation(settings, resolved_operation_id)
             recent_events: list[dict[str, object]] | None = None
             if context_level == "full":
                 recent_events = _load_recent_events(
@@ -222,7 +216,7 @@ async def converse_async(
         else:
             operations = await _load_converse_fleet_operations(
                 project,
-                store=build_store(settings),
+                settings=settings,
             )
             prompt = build_converse_fleet_prompt(
                 operations,
@@ -401,14 +395,10 @@ def _format_fleet_converse_header(
 async def _load_converse_fleet_operations(
     project: str | None,
     *,
-    store: OperationStore,
+    settings: object,
 ) -> list[OperationState]:
-    summaries = await store.list_operations()
     operations: list[OperationState] = []
-    for summary in summaries:
-        operation = await store.load_operation(summary.operation_id)
-        if operation is None:
-            continue
+    for operation in await list_canonical_operation_states_async(cast(OperatorSettings, settings)):
         if operation.status in {
             OperationStatus.COMPLETED,
             OperationStatus.FAILED,
@@ -424,48 +414,21 @@ async def _load_converse_fleet_operations(
 
 async def resolve_ask_operation_id(
     operation_ref: str,
-    *,
-    store: OperationStore,
 ) -> str:
-    summaries = await store.list_operations()
-    if operation_ref == "last":
-        if not summaries:
-            raise RuntimeError("No persisted operations were found.")
-        states = [
-            operation
-            for summary in summaries
-            if (operation := await store.load_operation(summary.operation_id)) is not None
-        ]
-        if not states:
-            raise RuntimeError("No persisted operations were found.")
-        return max(states, key=lambda item: item.created_at).operation_id
-    exact = next(
-        (item.operation_id for item in summaries if item.operation_id == operation_ref),
-        None,
-    )
-    if exact is not None:
-        return exact
-    prefix_matches = [
-        item.operation_id for item in summaries if item.operation_id.startswith(operation_ref)
-    ]
-    if len(prefix_matches) == 1:
-        return prefix_matches[0]
-    if len(prefix_matches) > 1:
-        raise RuntimeError(
-            f"Operation reference {operation_ref!r} is ambiguous. Matches: "
-            + ", ".join(sorted(prefix_matches))
+    try:
+        return await resolve_operation_id_async(operation_ref)
+    except typer.BadParameter as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+async def _load_converse_operation(settings: object, operation_id: str) -> OperationState:
+    try:
+        return await load_required_canonical_operation_state_async(
+            cast(OperatorSettings, settings),
+            operation_id,
         )
-    profile_matches = []
-    for summary in summaries:
-        operation = await store.load_operation(summary.operation_id)
-        if operation is None:
-            continue
-        profile_name = operation.goal.metadata.get("project_profile_name")
-        if isinstance(profile_name, str) and profile_name == operation_ref:
-            profile_matches.append(operation)
-    if profile_matches:
-        return max(profile_matches, key=lambda item: item.created_at).operation_id
-    raise RuntimeError(f"Operation {operation_ref!r} was not found.")
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _load_recent_events(

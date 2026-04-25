@@ -18,7 +18,6 @@ from agent_operator.bootstrap import (
     build_background_run_inspection_store,
     build_brain,
     build_history_ledger,
-    build_store,
     build_trace_store,
     build_wakeup_inbox,
 )
@@ -71,6 +70,7 @@ from ..helpers.rendering import (
 )
 from ..helpers.resolution import (
     list_canonical_operation_states_async,
+    load_required_canonical_operation_state_async,
     resolve_history_entry,
     resolve_operation_id,
     resolve_project_profile_selection,
@@ -438,10 +438,10 @@ async def history_async(operation_ref: str | None, json_mode: bool) -> None:
 
 async def ask_async(operation_id: str, question: str, json_mode: bool) -> None:
     settings = load_settings()
-    store = build_store(settings)
-    operation = await store.load_operation(operation_id)
-    if operation is None:
-        raise typer.Exit(code=4)
+    try:
+        operation = await load_required_canonical_operation_state_async(settings, operation_id)
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     brain = build_brain(settings)
     answer = (await brain.answer_question(operation, question)).strip()
     if json_mode:
@@ -645,9 +645,7 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
         if view_level == "forensic" and event_summary is not None:
             scoped_message = f"[Forensic focus: {event_summary}] {user_message}"
         if operation_id is not None:
-            state = await build_store(settings).load_operation(operation_id)
-            if state is None:
-                raise RuntimeError(f"Operation {operation_id!r} was not found.")
+            state = await load_required_canonical_operation_state_async(settings, operation_id)
             prompt = build_converse_operation_prompt(
                 state,
                 user_message=scoped_message,
@@ -658,7 +656,7 @@ async def fleet_tui_async(project: str | None, include_all: bool, poll_interval:
         else:
             operations = await _load_converse_fleet_operations(
                 active_project,
-                store=build_store(settings),
+                settings=settings,
             )
             prompt = build_converse_fleet_prompt(
                 operations,
@@ -746,10 +744,12 @@ async def log_async(
 ) -> None:
     resolved_operation_id = resolve_operation_id(operation_ref)
     settings = load_settings()
-    store = build_store(settings)
-    operation = await store.load_operation(resolved_operation_id)
-    if operation is None:
-        raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+    try:
+        operation = await load_required_canonical_operation_state_async(
+            settings, resolved_operation_id
+        )
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     log_kind, session = resolve_log_target(operation, agent=agent)
     if log_kind == "codex":
         path = find_codex_session_log(codex_home, session.session_id)

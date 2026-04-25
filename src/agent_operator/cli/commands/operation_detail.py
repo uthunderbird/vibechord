@@ -42,7 +42,11 @@ from ..helpers.rendering import (
     shorten_live_text,
     summarize_task_counts,
 )
-from ..helpers.resolution import resolve_operation_id, resolve_operation_id_async
+from ..helpers.resolution import (
+    load_required_canonical_operation_state_async,
+    resolve_operation_id,
+    resolve_operation_id_async,
+)
 from ..helpers.services import (
     build_operation_dashboard_query_service,
     build_status_query_service,
@@ -238,13 +242,12 @@ def attention(
     json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     settings = load_settings()
-    store = build_store(settings)
 
     async def _attention() -> None:
         resolved_operation_id = await resolve_operation_id_async(operation_ref)
-        operation = await store.load_operation(resolved_operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        operation = await load_required_canonical_operation_state_async(
+            settings, resolved_operation_id
+        )
         payload = [PROJECTIONS.attention_payload(item) for item in operation.attention_requests]
         if json_mode:
             typer.echo(
@@ -287,13 +290,12 @@ def tasks(
     json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     settings = load_settings()
-    store = build_store(settings)
 
     async def _tasks() -> None:
         resolved_operation_id = await resolve_operation_id_async(operation_ref)
-        operation = await store.load_operation(resolved_operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        operation = await load_required_canonical_operation_state_async(
+            settings, resolved_operation_id
+        )
         payload = [PROJECTIONS.task_payload(task) for task in operation.tasks]
         if json_mode:
             typer.echo(
@@ -345,13 +347,12 @@ def memory(
     json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     settings = load_settings()
-    store = build_store(settings)
 
     async def _memory() -> None:
         resolved_operation_id = await resolve_operation_id_async(operation_ref)
-        operation = await store.load_operation(resolved_operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        operation = await load_required_canonical_operation_state_async(
+            settings, resolved_operation_id
+        )
         entries = memory_payload(operation, include_inactive=include_all)
         payload = [PROJECTIONS.memory_entry_payload(entry) for entry in entries]
         if json_mode:
@@ -391,13 +392,12 @@ def artifacts(
     json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     settings = load_settings()
-    store = build_store(settings)
 
     async def _artifacts() -> None:
         resolved_operation_id = await resolve_operation_id_async(operation_ref)
-        operation = await store.load_operation(resolved_operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        operation = await load_required_canonical_operation_state_async(
+            settings, resolved_operation_id
+        )
         payload = [PROJECTIONS.artifact_payload(artifact) for artifact in operation.artifacts]
         if json_mode:
             typer.echo(
@@ -441,9 +441,11 @@ def report(
 
     async def _report() -> None:
         if ticket:
-            operation = await store.load_operation(resolved_operation_id)
+            operation = await load_required_canonical_operation_state_async(
+                settings, resolved_operation_id
+            )
             outcome = await store.load_outcome(resolved_operation_id)
-            if operation is None or outcome is None:
+            if outcome is None:
                 raise typer.BadParameter(
                     f"Ticket report for {resolved_operation_id!r} was not found."
                 )
@@ -557,12 +559,11 @@ def log(
 ) -> None:
     resolved_operation_id = resolve_operation_id(operation_ref)
     settings = load_settings()
-    store = build_store(settings)
 
     async def _log() -> None:
-        operation = await store.load_operation(resolved_operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        operation = await load_required_canonical_operation_state_async(
+            settings, resolved_operation_id
+        )
         log_kind, session = resolve_log_target(operation, agent=agent)
         if log_kind == "codex":
             path = find_codex_session_log(codex_home, session.session_id)
@@ -692,12 +693,11 @@ def session(
 ) -> None:
     resolved_operation_id = resolve_operation_id(operation_ref)
     settings = load_settings()
-    store = build_store(settings)
 
     async def _session() -> None:
-        operation = await store.load_operation(resolved_operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {resolved_operation_id!r} was not found.")
+        operation = await load_required_canonical_operation_state_async(
+            settings, resolved_operation_id
+        )
         task_record = _resolve_task(operation, task)
         if task_record.linked_session_id is None:
             raise typer.BadParameter(

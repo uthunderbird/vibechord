@@ -44,6 +44,23 @@ async def list_canonical_operation_states_async(
     return await _build_resolution_service(settings).list_canonical_operation_states()
 
 
+async def load_canonical_operation_state_async(
+    settings: OperatorSettings,
+    operation_id: str,
+) -> OperationState | None:
+    return await _build_resolution_service(settings).load_canonical_operation_state(operation_id)
+
+
+async def load_required_canonical_operation_state_async(
+    settings: OperatorSettings,
+    operation_id: str,
+) -> OperationState:
+    operation = await load_canonical_operation_state_async(settings, operation_id)
+    if operation is None:
+        raise RuntimeError(f"Operation {operation_id!r} was not found.")
+    return operation
+
+
 def _event_sourced_operation_path(settings: OperatorSettings, operation_id: str) -> Path:
     return settings.data_dir / "operation_events" / f"{operation_id}.jsonl"
 

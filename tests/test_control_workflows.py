@@ -190,14 +190,16 @@ async def test_restore_operation_scoped_runtime_settings_prefers_snapshot_over_p
         **_state_settings(),
     )
 
-    class _Store:
-        async def load_operation(self, operation_id: str) -> OperationState | None:
-            assert operation_id == "op-restore"
-            return operation
+    async def _load_operation(
+        passed_settings: OperatorSettings, operation_id: str
+    ) -> OperationState | None:
+        assert passed_settings is settings
+        assert operation_id == "op-restore"
+        return operation
 
     monkeypatch.setattr(
-        "agent_operator.cli.workflows.control_runtime.build_store",
-        lambda passed_settings: _Store(),
+        "agent_operator.cli.workflows.control_runtime.load_canonical_operation_state_async",
+        _load_operation,
     )
 
     settings.codex_acp.timeout_seconds = 1.0

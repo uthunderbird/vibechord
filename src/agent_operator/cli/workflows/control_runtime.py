@@ -11,8 +11,6 @@ from rich.live import Live
 
 from agent_operator.bootstrap import (
     build_event_sink,
-    build_replay_service,
-    build_store,
     build_wakeup_inbox,
 )
 from agent_operator.config import OperatorSettings
@@ -37,6 +35,7 @@ from ..helpers.rendering import (
     render_dashboard,
     render_watch_snapshot,
 )
+from ..helpers.resolution import load_canonical_operation_state_async
 from ..helpers.services import (
     build_operation_dashboard_query_service,
     build_projecting_delivery_commands_service,
@@ -309,10 +308,7 @@ async def ask_async(operation_ref: str, question: str, json_mode: bool) -> None:
         from .control import _build_cli_service
         from .converse import resolve_ask_operation_id
 
-        operation_id = await resolve_ask_operation_id(
-            operation_ref,
-            store=build_store(settings),
-        )
+        operation_id = await resolve_ask_operation_id(operation_ref)
         service = _build_cli_service(settings)
         answer = (await service.answer_question(operation_id, question)).strip()
     except RuntimeError as exc:
@@ -444,15 +440,10 @@ async def _restore_operation_scoped_runtime_settings(
 ) -> None:
     """Restore per-operation adapter settings from persisted goal metadata when present."""
 
-    operation = await build_store(settings).load_operation(operation_id)
+    operation = await load_canonical_operation_state_async(settings, operation_id)
     metadata: dict[str, object] = {}
     if operation is not None:
         metadata = operation.goal.metadata if operation.goal is not None else {}
-    else:
-        replay_state = await build_replay_service(settings).load(operation_id)
-        objective = replay_state.checkpoint.objective
-        if objective is not None:
-            metadata = objective.metadata
     snapshot = metadata.get("effective_adapter_settings")
     if isinstance(snapshot, dict):
         apply_effective_adapter_settings_snapshot(settings, snapshot)
