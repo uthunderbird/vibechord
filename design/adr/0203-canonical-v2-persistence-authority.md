@@ -35,6 +35,9 @@ Implementation status on 2026-04-25:
 - `verified`: targeted ADR 0203 regression tests and the full `uv run pytest` suite passed on
   2026-04-25; this was reconfirmed in the current ADR 0203 work wave with `250 passed` targeted
   tests and `978 passed, 11 skipped` for the full suite.
+- `verified`: the 2026-04-25 current-session ADR 0203 work wave produced
+  `../internal/adr-0203-session-design-artifact-2026-04-25.md`, reran the targeted ADR 0203
+  regression set with `250 passed`, and reran the full suite with `978 passed, 11 skipped`.
 - `not verified`: full live CLI smoke that creates, observes, and terminates a v2 operation without
   `.operator/runs` was not run, so this ADR is `Implemented` rather than `Verified`.
 
@@ -51,11 +54,30 @@ repository state before execution and found no new ADR 0203 production-code chan
 verification and preserving the read-time status overlay immutability guard needed for the full
 suite.
 
+The current session also produced
+`../internal/adr-0203-session-design-artifact-2026-04-25.md`, which reran the DESIGN phase using
+swarm-mode, scoped required production and test changes to none under current repository evidence,
+and made the IMPLEMENT & VERIFY phase verification-gated.
+
 Grep/read citations for `Decision Status: Accepted`:
 
 - Read citation: this ADR's Required Properties define the accepted authority contract: v2 mutation,
   control, list/status/inspect, checkpoint sequence, and read-model authority rules in this file's
   `Required Properties` section.
+- Current-session read citation:
+  `nl -ba src/agent_operator/application/operator_service_v2.py | sed -n '40,175p'` showed
+  `OperatorServiceV2` is constructed with `DriveService` and `OperationEventStore`, appends
+  `operation.created` through `_event_store.append(...)`, and requires
+  `EventSourcedCommandApplicationService` for cancellation at
+  `src/agent_operator/application/operator_service_v2.py:46`,
+  `src/agent_operator/application/operator_service_v2.py:130`, and
+  `src/agent_operator/application/operator_service_v2.py:160`.
+- Current-session read citation:
+  `nl -ba src/agent_operator/application/event_sourcing/event_sourced_replay.py | sed -n '45,120p'`
+  showed `EventSourcedReplayService.load()` compares checkpoint sequence to event-stream sequence
+  and rejects ahead-of-stream checkpoints at
+  `src/agent_operator/application/event_sourcing/event_sourced_replay.py:67` and
+  `src/agent_operator/application/event_sourcing/event_sourced_replay.py:73`.
 - Grep citation: `rg -n "load_required_canonical_operation_state_async|load_canonical_operation_state_async|list_canonical_operation_states_async|resolve_operation_id_async|profile_matches" src/agent_operator/application/queries/operation_resolution.py src/agent_operator/cli/helpers/resolution.py src/agent_operator/cli/workflows/converse.py src/agent_operator/cli/workflows/views.py src/agent_operator/cli/commands/operation_detail.py src/agent_operator/cli/workflows/control_runtime.py`
   showed canonical helper use in:
   `src/agent_operator/cli/helpers/resolution.py:41`,
@@ -83,6 +105,16 @@ Grep/read citations for `Implementation Status: Implemented`:
 - Read citation: `src/agent_operator/application/queries/operation_resolution.py` exposes
   `OperationResolutionService.load_canonical_operation_state()` and
   `list_canonical_operation_states()` as the merged event-sourced-plus-legacy read authority.
+- Current-session read citation:
+  `nl -ba src/agent_operator/application/queries/operation_resolution.py | sed -n '95,140p'`
+  showed event-sourced state is attempted before `store.load_operation()` at
+  `src/agent_operator/application/queries/operation_resolution.py:105`, and event-sourced
+  operation ids are enumerated before legacy store summaries at
+  `src/agent_operator/application/queries/operation_resolution.py:114`.
+- Current-session read citation:
+  `nl -ba tests/test_application_structure.py | sed -n '105,165p'` showed static ADR 0203 guards
+  for v2 mutation paths and canonical read surfaces at
+  `tests/test_application_structure.py:113` and `tests/test_application_structure.py:131`.
 - Grep citation: `rg -n "event_sourced_operation_without_runs_dir|fleet_includes_event_sourced|attention_command_reads_event_sourced|_seed_event_sourced_checkpoint|load_canonical_operation_state_async" tests/test_cli.py tests/test_control_workflows.py`
   showed event-sourced-only regressions in `tests/test_cli.py:850`, `tests/test_cli.py:885`,
   `tests/test_cli.py:916`, `tests/test_cli.py:955`, and the control-runtime canonical-loader test
@@ -95,6 +127,10 @@ Grep/read citations for `Implementation Status: Implemented`:
 - Current verification citation: `uv run pytest tests/test_application_structure.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_cli.py tests/test_control_workflows.py -q`
   passed with `250 passed`.
 - Current verification citation: `uv run pytest` passed with `978 passed, 11 skipped`.
+- Current-session verification citation:
+  `uv run pytest tests/test_application_structure.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_cli.py tests/test_control_workflows.py -q`
+  passed with `250 passed`.
+- Current-session verification citation: `uv run pytest` passed with `978 passed, 11 skipped`.
 - Status-bound citation: because the full live CLI smoke listed in this ADR's Verification Plan was
   not run, the implementation status is `Implemented`, not `Verified`.
 
