@@ -18,6 +18,7 @@ from agent_operator.application.queries.operation_resolution import (
     OperationStoreLike,
 )
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
+from agent_operator.application.queries.operation_status_queries import OperationReadPayload
 from agent_operator.bootstrap import (
     build_event_sink,
     build_replay_service,
@@ -198,7 +199,9 @@ class OperatorMcpService:
         resolved_operation_id = await self._resolve_operation_id(operation_id)
         settings = self.settings_loader()
         service = self.status_service_factory(settings)
-        operation, outcome, _, _ = await self._build_status_payload(service, resolved_operation_id)
+        read_payload = await self._build_read_payload(service, resolved_operation_id)
+        operation = read_payload.operation
+        outcome = read_payload.outcome
         assert operation is not None
         blocking_attention = [
             attention
@@ -226,6 +229,12 @@ class OperatorMcpService:
                 else None
             ),
             "outcome_summary": outcome.summary if outcome is not None else operation.final_summary,
+            "source": read_payload.source,
+            "runtime_overlay": {
+                "authorities": read_payload.overlay.authorities,
+                "staleness": read_payload.overlay.staleness,
+                "runtime_alert": read_payload.overlay.runtime_alert,
+            },
         }
 
     async def answer_attention(
@@ -318,6 +327,16 @@ class OperatorMcpService:
     ) -> tuple[OperationState | None, OperationOutcome | None, object | None, str | None]:
         try:
             return await service.build_status_payload(operation_id)
+        except RuntimeError as exc:
+            raise McpToolError("not_found", str(exc), operation_id=operation_id) from exc
+
+    async def _build_read_payload(
+        self,
+        service: OperationStatusQueryService,
+        operation_id: str,
+    ) -> OperationReadPayload:
+        try:
+            return await service.build_read_payload(operation_id)
         except RuntimeError as exc:
             raise McpToolError("not_found", str(exc), operation_id=operation_id) from exc
 

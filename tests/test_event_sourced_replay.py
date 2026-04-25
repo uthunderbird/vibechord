@@ -118,6 +118,47 @@ async def test_event_sourced_replay_materialize_refreshes_checkpoint_from_stream
 
 
 @pytest.mark.anyio
+async def test_event_sourced_replay_accepts_operation_created_event_metadata(
+    tmp_path: Path,
+) -> None:
+    """Catches feeding the whole operation.created event payload into ObjectiveState."""
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=DefaultOperationProjector(),
+    )
+    operation_id = "op-created-metadata"
+    await event_store.append(
+        operation_id,
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "Canonical objective",
+                    "harness_instructions": "Use v2 events",
+                    "success_criteria": ["Readable"],
+                    "allowed_agents": ["codex_acp", "claude_acp"],
+                    "involvement_level": "collaborative",
+                    "created_at": "2026-04-03T12:34:00+00:00",
+                },
+                timestamp=datetime(2026, 4, 3, 12, 0, 0, tzinfo=UTC),
+            )
+        ],
+    )
+
+    state = await replay.load(operation_id)
+
+    assert state.checkpoint.objective is not None
+    assert state.checkpoint.objective.objective == "Canonical objective"
+    assert state.checkpoint.allowed_agents == ["codex_acp", "claude_acp"]
+    assert state.checkpoint.involvement_level.value == "collaborative"
+    assert state.checkpoint.created_at == datetime(2026, 4, 3, 12, 34, tzinfo=UTC)
+
+
+@pytest.mark.anyio
 async def test_event_sourced_replay_rejects_checkpoint_ahead_of_stream(
     tmp_path: Path,
 ) -> None:

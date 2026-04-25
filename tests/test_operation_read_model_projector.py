@@ -67,6 +67,27 @@ def test_project_operation_created_builds_operation_brief():
     assert model.operation_brief.status is OperationStatus.RUNNING
 
 
+def test_project_operation_created_accepts_nested_objective_payload():
+    """Catches only accepting string objective payloads in operation.created."""
+    projector = OperationReadModelProjector()
+    model = projector.project(
+        "op-test",
+        [
+            _event(
+                "operation.created",
+                {
+                    "objective": {"objective": "Inspect nested repository state"},
+                    "allowed_agents": ["codex_acp"],
+                    "created_at": "2026-04-03T12:34:00+00:00",
+                },
+            )
+        ],
+    )
+
+    assert model.operation_brief is not None
+    assert model.operation_brief.objective_brief == "Inspect nested repository state"
+
+
 def test_project_status_change_updates_existing_operation_brief():
     projector = OperationReadModelProjector()
     model = projector.project(

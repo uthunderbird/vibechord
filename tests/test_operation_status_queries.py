@@ -262,6 +262,45 @@ async def test_status_payload_prefers_event_sourced_replay_over_stale_snapshot()
 
 
 @pytest.mark.anyio
+async def test_status_json_uses_shared_read_payload_overlay_metadata() -> None:
+    """Catches JSON status recomputing from a separate non-overlay path."""
+    checkpoint = OperationCheckpoint.initial("op-status-v2-overlay")
+    checkpoint.objective = ObjectiveState(objective="Report overlay status.")
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint),
+        build_runtime_alert=lambda **kwargs: "runtime wakeup pending",
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    read_payload = await service.build_read_payload("op-status-v2-overlay")
+    payload = json.loads(
+        await service.render_status_output(
+            "op-status-v2-overlay",
+            json_mode=True,
+            brief=False,
+        )
+    )
+
+    assert read_payload.source == "event_sourced"
+    assert payload["source"] == read_payload.source
+    assert payload["summary"] == read_payload.live_snapshot
+    assert payload["runtime_overlay"]["runtime_alert"] == "runtime wakeup pending"
+    assert (
+        payload["runtime_overlay"]["authorities"]["wakeup_inspection"]
+        == "runtime_overlay"
+    )
+
+
+@pytest.mark.anyio
 async def test_status_json_replays_permission_events_into_durable_truth() -> None:
     """Catches omitting replayed permission events from status/inspect query payloads."""
     checkpoint = OperationCheckpoint.initial("op-status-v2-permission")

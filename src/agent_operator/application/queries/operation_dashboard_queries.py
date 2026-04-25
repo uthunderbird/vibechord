@@ -29,9 +29,8 @@ class OperationDashboardQueryService:
     build_upstream_transcript: Callable[[OperationState], dict[str, object] | None]
 
     async def load_payload(self, operation_id: str) -> dict[str, object]:
-        operation, outcome, brief, runtime_alert = await self.status_service.build_status_payload(
-            operation_id
-        )
+        read_payload = await self.status_service.build_read_payload(operation_id)
+        operation = read_payload.operation
         if operation is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         commands = await self.command_inbox.list(operation_id)
@@ -40,17 +39,23 @@ class OperationDashboardQueryService:
         report_text = await self.trace_store.load_report(operation_id)
         payload = self.projection_service.build_dashboard_payload(
             operation,
-            brief=brief,
-            outcome=outcome,
-            runtime_alert=runtime_alert,
+            brief=read_payload.overlay.trace_brief,
+            outcome=read_payload.outcome,
+            runtime_alert=read_payload.overlay.runtime_alert,
             commands=commands,
             events=events,
             decision_memos=decision_memos,
             upstream_transcript=self.build_upstream_transcript(operation),
             report_text=report_text,
         )
+        brief = read_payload.overlay.trace_brief
         if brief is not None and brief.operation_brief is not None:
             payload["brief"] = self.projection_service._operation_brief_payload(
                 brief.operation_brief
             )
+        payload["runtime_overlay"] = {
+            "authorities": read_payload.overlay.authorities,
+            "staleness": read_payload.overlay.staleness,
+            "runtime_alert": read_payload.overlay.runtime_alert,
+        }
         return payload

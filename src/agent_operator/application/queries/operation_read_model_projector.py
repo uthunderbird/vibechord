@@ -42,6 +42,10 @@ class OperationReadModelProjector:
             objective = payload.get("objective")
             if isinstance(objective, str):
                 objective_brief = objective
+            elif isinstance(objective, dict):
+                nested_objective = objective.get("objective")
+                if isinstance(nested_objective, str):
+                    objective_brief = nested_objective
 
             brief = OperationBrief(
                 operation_id=model.operation_id,

@@ -28,6 +28,63 @@ class ReplayServiceLike(Protocol):
 
 
 @dataclass(slots=True)
+class OperationRuntimeOverlay:
+    """Runtime inspection facts attached to a canonical operation read.
+
+    Examples:
+        ```python
+        overlay = OperationRuntimeOverlay(runtime_alert="pending wakeup")
+        assert overlay.authorities["wakeup_inspection"] == "runtime_overlay"
+        ```
+    """
+
+    wakeups: list[dict[str, object]] = field(default_factory=list)
+    background_runs: list[dict[str, object]] = field(default_factory=list)
+    trace_brief: object | None = None
+    runtime_alert: str | None = None
+    authorities: dict[str, str] = field(
+        default_factory=lambda: {
+            "wakeup_inspection": "runtime_overlay",
+            "background_inspection": "runtime_overlay",
+            "trace_brief": "trace_overlay",
+        }
+    )
+    staleness: dict[str, str] = field(
+        default_factory=lambda: {
+            "wakeup_inspection": "read_time",
+            "background_inspection": "read_time",
+            "trace_brief": "persisted_trace_snapshot",
+        }
+    )
+
+
+@dataclass(slots=True)
+class OperationReadPayload:
+    """Typed read payload shared by status-like surfaces.
+
+    Examples:
+        ```python
+        payload = OperationReadPayload(
+            operation_id="op-1",
+            operation=None,
+            outcome=None,
+            source="event_sourced",
+        )
+        assert payload.operation_id == "op-1"
+        ```
+    """
+
+    operation_id: str
+    operation: OperationState | None
+    outcome: OperationOutcome | None
+    source: str
+    overlay: OperationRuntimeOverlay = field(default_factory=OperationRuntimeOverlay)
+    action_hint: str | None = None
+    live_snapshot: dict[str, object] = field(default_factory=dict)
+    durable_truth: dict[str, object] | None = None
+
+
+@dataclass(slots=True)
 class OperationStatusQueryService:
     store: OperationStore
     projection_service: OperationProjectionService
@@ -94,31 +151,83 @@ class OperationStatusQueryService:
             "raw_ref": run.raw_ref,
         }
 
-    async def build_status_payload(
-        self,
-        operation_id: str,
-    ) -> tuple[OperationState | None, OperationOutcome | None, object | None, str | None]:
+    async def build_read_payload(self, operation_id: str) -> OperationReadPayload:
+        """Build the shared canonical read payload for one operation.
+
+        Args:
+            operation_id: Canonical operation identifier.
+
+        Returns:
+            Typed read payload with canonical state plus runtime overlays.
+
+        Raises:
+            RuntimeError: If neither canonical state nor terminal outcome exists.
+        """
+
         operation = await self._load_event_sourced_operation(operation_id)
+        source = "event_sourced" if operation is not None else "legacy_snapshot"
         if operation is None:
             operation = await self.store.load_operation(operation_id)
         outcome = await self.store.load_outcome(operation_id)
         if operation is None and outcome is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
         if operation is None:
-            return None, outcome, None, None
+            return OperationReadPayload(
+                operation_id=operation_id,
+                operation=None,
+                outcome=outcome,
+                source="outcome_only",
+                live_snapshot=self.build_live_snapshot(operation_id, None, outcome),
+            )
         wakeups = (
             self.wakeup_inspection_store.read_all(operation_id)
             if self.wakeup_inspection_store is not None
             else []
         )
         runs = await self.background_inspection_store.list_runs(operation_id)
+        background_runs = [self._background_run_payload(item) for item in runs]
         brief_bundle = await self.trace_store.load_brief_bundle(operation_id)
         runtime_alert = self.build_runtime_alert(
             status=operation.status,
             wakeups=wakeups,
-            background_runs=[self._background_run_payload(item) for item in runs],
+            background_runs=background_runs,
         )
-        return operation, outcome, brief_bundle, runtime_alert
+        action_hint = self.build_status_action_hint(operation)
+        return OperationReadPayload(
+            operation_id=operation_id,
+            operation=operation,
+            outcome=outcome,
+            source=source,
+            overlay=OperationRuntimeOverlay(
+                wakeups=wakeups,
+                background_runs=background_runs,
+                trace_brief=brief_bundle,
+                runtime_alert=runtime_alert,
+            ),
+            action_hint=action_hint,
+            live_snapshot=self.build_live_snapshot(
+                operation_id,
+                operation,
+                outcome,
+                runtime_alert=runtime_alert,
+            ),
+            durable_truth=self.projection_service.build_durable_truth_payload(
+                operation,
+                include_inactive_memory=True,
+            ),
+        )
+
+    async def build_status_payload(
+        self,
+        operation_id: str,
+    ) -> tuple[OperationState | None, OperationOutcome | None, object | None, str | None]:
+        payload = await self.build_read_payload(operation_id)
+        return (
+            payload.operation,
+            payload.outcome,
+            payload.overlay.trace_brief,
+            payload.overlay.runtime_alert,
+        )
 
     async def _load_event_sourced_operation(self, operation_id: str) -> OperationState | None:
         """Load v2 operations from event-sourced truth when no legacy run snapshot exists."""
@@ -143,9 +252,9 @@ class OperationStatusQueryService:
         json_mode: bool,
         brief: bool,
     ) -> str:
-        operation, outcome, brief_bundle, runtime_alert = await self.build_status_payload(
-            operation_id
-        )
+        payload = await self.build_read_payload(operation_id)
+        operation = payload.operation
+        outcome = payload.outcome
         if operation is None:
             assert outcome is not None
             if json_mode:
@@ -161,30 +270,27 @@ class OperationStatusQueryService:
             return f"{operation_id} {outcome.status.value.upper()} {outcome.summary}"
 
         if json_mode:
-            payload = {
+            output = {
                 "operation_id": operation_id,
                 "status": operation.status.value,
-                "summary": self.build_live_snapshot(
-                    operation_id,
-                    operation,
-                    outcome,
-                    runtime_alert=runtime_alert,
-                ),
-                "action_hint": self.build_status_action_hint(operation),
-                "durable_truth": self.projection_service.build_durable_truth_payload(
-                    operation,
-                    include_inactive_memory=True,
-                ),
+                "source": payload.source,
+                "summary": payload.live_snapshot,
+                "action_hint": payload.action_hint,
+                "durable_truth": payload.durable_truth,
+                "runtime_overlay": {
+                    "authorities": payload.overlay.authorities,
+                    "staleness": payload.overlay.staleness,
+                    "runtime_alert": payload.overlay.runtime_alert,
+                },
             }
-            return json.dumps(payload, indent=2, ensure_ascii=False)
+            return json.dumps(output, indent=2, ensure_ascii=False)
         if brief:
             return self.render_status_brief(operation)
-        action_hint = self.build_status_action_hint(operation)
         return self.render_status_summary(
             operation,
-            brief_bundle,
-            runtime_alert=runtime_alert,
-            action_hint=action_hint,
+            payload.overlay.trace_brief,
+            runtime_alert=payload.overlay.runtime_alert,
+            action_hint=payload.action_hint,
         )
 
     def build_status_action_hint(self, operation: OperationState) -> str | None:

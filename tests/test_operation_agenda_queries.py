@@ -75,6 +75,12 @@ def _operation():
     )
 
 
+def _operation_with_id(operation_id: str):
+    operation = _operation()
+    operation.operation_id = operation_id
+    return operation
+
+
 def _status_queries(store: MemoryStore) -> OperationStatusQueryService:
     return OperationStatusQueryService(
         store=store,
@@ -108,6 +114,14 @@ class _StoreWithSummaries(MemoryStore):
         ]
 
 
+class _CanonicalLister:
+    def __init__(self, operations: list) -> None:
+        self._operations = operations
+
+    async def list_canonical_operation_states(self) -> list:
+        return self._operations
+
+
 @pytest.mark.anyio
 async def test_load_snapshot_filters_by_project() -> None:
     store = _StoreWithSummaries()
@@ -119,3 +133,21 @@ async def test_load_snapshot_filters_by_project() -> None:
     assert snapshot.total_operations == 1
     assert len(snapshot.active) == 1
     assert snapshot.active[0].operation_id == "op-1"
+
+
+@pytest.mark.anyio
+async def test_load_snapshot_uses_canonical_lister_for_event_sourced_only_operation() -> None:
+    """Catches agenda enumeration using only legacy store summaries."""
+    store = MemoryStore()
+    operation = _operation_with_id("op-event-only-agenda")
+    await store.save_operation(operation)
+    service = OperationAgendaQueryService(
+        store=MemoryStore(),
+        status_service=_status_queries(store),
+        canonical_lister=_CanonicalLister([operation]),
+    )
+
+    snapshot = await service.load_snapshot(project="operator", include_recent=True)
+
+    assert snapshot.total_operations == 1
+    assert snapshot.active[0].operation_id == "op-event-only-agenda"

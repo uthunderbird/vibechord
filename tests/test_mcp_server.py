@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import agent_operator.cli.commands.mcp as mcp_command
+from agent_operator.application.queries.operation_status_queries import OperationReadPayload
 from agent_operator.domain import (
     AgentSessionHandle,
     AttentionRequest,
@@ -305,6 +306,16 @@ async def test_operator_mcp_service_lists_and_reports_status(tmp_path: Path) -> 
     await store.save_outcome(outcome)
 
     class _StatusService:
+        async def build_read_payload(self, operation_id: str) -> OperationReadPayload:
+            loaded = await store.load_operation(operation_id)
+            loaded_outcome = await store.load_outcome(operation_id)
+            return OperationReadPayload(
+                operation_id=operation_id,
+                operation=loaded,
+                outcome=loaded_outcome,
+                source="legacy_snapshot",
+            )
+
         async def build_status_payload(self, operation_id: str):
             loaded = await store.load_operation(operation_id)
             loaded_outcome = await store.load_outcome(operation_id)

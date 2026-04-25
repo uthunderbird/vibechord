@@ -114,7 +114,7 @@ class DefaultOperationProjector:
     ) -> OperationCheckpoint:
         if event.event_type == "operation.created":
             checkpoint.operation_id = event.operation_id
-            checkpoint.objective = self._payload_model(event.payload, ObjectiveState)
+            checkpoint.objective = self._operation_created_objective(event.payload)
             raw_allowed_agents = event.payload.get("allowed_agents")
             if isinstance(raw_allowed_agents, list):
                 checkpoint.allowed_agents = [
@@ -470,6 +470,16 @@ class DefaultOperationProjector:
 
     def _payload_model(self, payload: dict[str, Any], model_type: type[BaseModel]) -> Any:
         return model_type.model_validate(payload)
+
+    def _operation_created_objective(self, payload: dict[str, Any]) -> ObjectiveState:
+        objective_payload = payload.get("objective")
+        if isinstance(objective_payload, dict):
+            return self._payload_model(objective_payload, ObjectiveState)
+        objective_fields = set(ObjectiveState.model_fields)
+        return self._payload_model(
+            {key: value for key, value in payload.items() if key in objective_fields},
+            ObjectiveState,
+        )
 
     def _payload_datetime(
         self,

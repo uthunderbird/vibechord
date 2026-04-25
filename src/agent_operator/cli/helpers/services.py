@@ -16,6 +16,7 @@ from agent_operator.application import (
     OperationStateViewService,
     OperationStatusQueryService,
 )
+from agent_operator.application.queries.operation_resolution import OperationResolutionService
 from agent_operator.bootstrap import (
     build_background_run_inspection_store,
     build_command_inbox,
@@ -92,6 +93,12 @@ def build_agenda_query_service(settings: OperatorSettings) -> OperationAgendaQue
     return OperationAgendaQueryService(
         store=build_store(settings),
         status_service=build_status_query_service(settings),
+        canonical_lister=OperationResolutionService(
+            store=build_store(settings),
+            replay_service=build_replay_service(settings),
+            event_root=settings.data_dir / "operation_events",
+            state_view_service=OperationStateViewService(),
+        ),
     )
 
 
