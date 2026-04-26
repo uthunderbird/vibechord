@@ -8,7 +8,32 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
+
+Implementation grounding on 2026-04-26:
+
+- `implemented`: semantic exit codes remain centralized in
+  `src/agent_operator/cli/helpers/exit_codes.py`, with `completed=0`, `failed=1`,
+  `needs_human=2`, `cancelled=3`, and internal/wait failure paths mapped to `4`.
+- `implemented`: `operator run` still exposes the ADR-required `--wait`, resumable-only
+  `--timeout`, `--brief`, and `--json` flags through `src/agent_operator/cli/commands/run.py`,
+  with runtime enforcement in `src/agent_operator/cli/workflows/control.py`.
+- `implemented`: operation-control commands still expose the required machine-readable surfaces for
+  `status`, `attention`, `answer`, and `cancel` in
+  `src/agent_operator/cli/commands/operation_control.py`, and `cancel_async()` still emits the
+  stable JSON payload plus semantic exit codes from
+  `src/agent_operator/cli/workflows/control_runtime.py`.
+- `implemented`: detail/fleet surfaces still expose the ADR-required one-shot machine-readable
+  coverage for `fleet --once`, `list --json`, `tasks --json`, and `watch --once --json` in
+  `src/agent_operator/cli/commands/fleet.py` and
+  `src/agent_operator/cli/commands/operation_detail.py`.
+- `implemented`: the committed schema reference still names the covered command set and their
+  stable JSON payload shapes in `docs/reference/cli-json-schemas.md`.
+- `verified`: CLI regressions currently cover the status/cancel/watch JSON surfaces, scoped cancel
+  exit-code behavior, resumable `run --wait --brief`, resumable `run --wait --json`, and the
+  attached-mode timeout guard in `tests/test_cli.py`.
+- `verified`: full repository verification passed in this wave with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1038 passed, 11 skipped`).
 
 ## Context
 
@@ -128,7 +153,7 @@ This ADR is grounded in the following implementation and verification surfaces:
 
 ## Related
 
-- [AGENT-INTEGRATION-VISION.md](../AGENT-INTEGRATION-VISION.md)
-- [CLI-UX-VISION.md](../CLI-UX-VISION.md)
+- [AGENT-INTEGRATION-VISION.md](../interfaces/agent-integration.md)
+- [CLI-UX-VISION.md](../interfaces/cli.md)
 - [ADR 0093](./0093-cli-command-taxonomy-visibility-tiers-and-default-operator-entry-behavior.md)
 - [ADR 0131](./0131-cross-operation-supervisory-snapshot-surface.md)
