@@ -10,12 +10,15 @@ Accepted
 
 Verified
 
-Skim-safe status on 2026-04-23:
+Skim-safe status on 2026-04-27:
 
 - `implemented`: project profiles now carry typed per-adapter `allowed_models` allowlists alongside
   adapter defaults
 - `implemented`: runtime control now supports bounded operation-local `set_execution_profile`
   mutation for one explicitly named already allowed adapter
+- `implemented`: `codex_acp` execution-profile truth now includes the adapter-owned execution-policy
+  fields `approval_policy` and `sandbox_mode` when those fields are part of the authored
+  allowlisted/default Codex profile
 - `implemented`: execution-profile overlays now persist as operation-local runtime truth, separate
   from launch defaults and project profile data
 - `implemented`: event-sourced command handling, attached-turn reuse compatibility, and operation
@@ -34,6 +37,7 @@ defaults, but it still treats model and effort mostly as static launch configura
   - `claude_acp.effort`
   - `codex_acp.model`
   - `codex_acp.reasoning_effort`
+  - and, under `ADR 0010`, `codex_acp.approval_policy` and `codex_acp.sandbox_mode`
 - project profiles already expose `adapter_settings` as a bounded per-adapter override map
 - runtime control already allows operation-local mutation of some policy fields, for example
   `set_allowed_agents`, `patch_objective`, and `patch_harness`
@@ -66,6 +70,12 @@ The real problem is:
 - only within one already allowed adapter named explicitly by adapter key,
 - only within an explicit profile- or settings-authored allowlist,
 - while keeping default launch configuration and live operation overlays separate.
+
+For `codex_acp`, current repository truth also includes a narrower adjacent requirement:
+
+- when Codex execution policy is part of the authored effective/allowed profile, session reuse and
+  runtime rebinding must compare that policy too rather than silently treating it as unrelated
+  ambient config
 
 ## Decision
 
@@ -109,15 +119,19 @@ The typed schema direction is:
 - each allowed profile may contain only:
   - `model`
   - and that adapter's existing effort field, if the adapter has one
-- no transport, approval, sandbox, timeout, MCP wiring, substrate, or command fields are valid
-  inside `allowed_models`
+- and only adapter-specific execution-policy fields already committed elsewhere, where a prior ADR
+  has made them part of that adapter's authored runtime contract
+- no unrelated transport, timeout, MCP wiring, substrate, or command fields are valid inside
+  `allowed_models`
 
 This keeps the allowlist as execution-profile authority, not a second adapter-settings mutation
 surface.
 
 Current support boundary for this ADR:
 
-- `codex_acp`: supported through `model` + `reasoning_effort`
+- `codex_acp`: supported through `model` + `reasoning_effort`, with optional exact-match
+  `approval_policy` + `sandbox_mode` fields because `ADR 0010` already exposes those as
+  adapter-owned Codex execution-policy settings
 - `claude_acp`: supported through `model` + `effort`
 - adapters without an existing effort field, such as `opencode_acp`, are out of scope for this ADR
   rather than forced into a fake cross-adapter schema
@@ -135,14 +149,17 @@ That command may mutate only:
 
 - `model`
 - the adapter's existing effort field
+- and, for `codex_acp` only, the already-committed adapter execution-policy fields
+  `approval_policy` and `sandbox_mode`
 
 It must not mutate:
 
 - the adapter key
 - the allowed-agent list
-- vendor execution-policy fields such as approval or sandbox mode
 - unrelated adapter transport fields such as command, timeout, substrate backend, or MCP server
   wiring
+- any execution-policy or transport field not already committed as part of that adapter's authored
+  execution-profile contract
 
 Changing adapter identity remains the job of `set_allowed_agents` or a future distinct feature, not
 this one.
@@ -189,13 +206,21 @@ adapter_settings:
   codex_acp:
     model: gpt-5.4
     reasoning_effort: low
+    approval_policy: never
+    sandbox_mode: workspace-write
     allowed_models:
       - model: gpt-5.4
         reasoning_effort: low
+        approval_policy: never
+        sandbox_mode: workspace-write
       - model: gpt-5.4
         reasoning_effort: high
+        approval_policy: never
+        sandbox_mode: workspace-write
       - model: gpt-5.4-mini
         reasoning_effort: medium
+        approval_policy: auto
+        sandbox_mode: danger-full-access
   claude_acp:
     model: claude-sonnet-4-6
     effort: low
@@ -224,9 +249,11 @@ should stay grounded in the real adapter setting models already present in the r
 This ADR uses the following terms consistently:
 
 - `launch default execution profile`:
-  the model plus adapter-native effort field resolved at run start for one adapter
+  the model plus adapter-native effort field, and any adapter-specific execution-policy adjuncts
+  explicitly committed as part of that adapter's profile contract, resolved at run start for one
+  adapter
 - `execution-profile overlay`:
-  the operation-local runtime override for that adapter's model/effort pair
+  the operation-local runtime override for that adapter's profile fields committed by this ADR
 - `effective execution profile`:
   the execution profile currently in force for one adapter after applying the overlay, if any, to
   the launch default
@@ -236,8 +263,9 @@ This ADR uses the following terms consistently:
 
 `project profile` remains the authored reusable project configuration object.
 
-`execution profile` is narrower: it means only the model plus the adapter's native effort field,
-not the whole project profile and not the full adapter settings object.
+`execution profile` is narrower than the full adapter settings object: it means the model, the
+adapter's native effort field when present, and only those adapter-specific execution-policy fields
+that this ADR explicitly admits into one adapter's authored profile contract.
 
 `runtime bindings` are an implementation consequence of materializing effective adapter runtime
 settings. They are not a separate source of truth.
@@ -256,7 +284,8 @@ metadata snapshot of effective adapter runtime settings.
 
 #### B. Operation-local execution-profile overlay
 
-This is the live runtime override chosen during the operation for an adapter's model/effort pair.
+This is the live runtime override chosen during the operation for one adapter's committed
+execution-profile fields.
 
 It is:
 
@@ -319,6 +348,8 @@ The operator-visible compatibility input is a normalized execution-profile stamp
 - `model`
 - the adapter's native effort field name
 - the adapter's native effort field value
+- `approval_policy`, when the adapter profile contract includes it
+- `sandbox_mode`, when the adapter profile contract includes it
 
 The operator owns this normalized stamp as durable coordination truth.
 
@@ -371,6 +402,7 @@ The committed command direction is:
   - `adapter_key`
   - `model`
   - exactly one adapter-native effort field when that adapter supports effort
+  - for `codex_acp` only, optional `approval_policy` and `sandbox_mode`
 
 The command is replan-triggering control-plane input, comparable in lifecycle treatment to other
 bounded operation-local mutations such as `set_allowed_agents`.
@@ -382,7 +414,8 @@ Deterministic rejection cases include at least:
 - payload omits `model`
 - payload includes unknown fields
 - payload mixes fields from another adapter's schema
-- payload attempts to mutate adapter identity or any transport / approval / sandbox / command field
+- payload attempts to mutate adapter identity or any transport / command field not explicitly
+  admitted by this ADR for the targeted adapter
 
 This command applies only to future turns. In-flight turns are not hot-swapped.
 
@@ -441,15 +474,17 @@ The feature must enforce the following rules deterministically.
 
 ### Allowlist
 
-- The requested model/effort pair must exactly match one allowlisted execution profile for the
-  adapter.
+- The requested execution-profile fields must exactly match one allowlisted execution profile for
+  the adapter.
 - If no allowlist exists for that adapter, reject the command.
 
 ### Field scope
 
-- Only model and the adapter's existing effort field are mutable through this feature.
+- Only model, the adapter's existing effort field, and any adapter-specific execution-policy fields
+  explicitly admitted by this ADR are mutable through this feature.
 - Unknown fields are rejected.
 - Adapters may not borrow another adapter's effort field name.
+- Adapters may not borrow another adapter's execution-policy field.
 - Adapters without an existing effort field are outside this ADR's dynamic effort-switching scope.
 
 ### Session compatibility
@@ -632,6 +667,10 @@ Current repository truth that grounds this ADR:
 - current reusable-idle selection is still adapter-key based and therefore needs the compatibility
   strengthening this ADR now specifies:
   [loaded_operation.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/loaded_operation.py:330)
+- Codex execution-policy fields already exist as adapter-owned authored runtime settings under
+  `ADR 0010`, which is why this ADR now admits them for `codex_acp` profile matching rather than
+  treating them as arbitrary transport mutation:
+  [ADR 0010](/Users/thunderbird/Projects/operator/design/adr/0010-expose-codex-acp-execution-policy.md)
 - project and operation policy/query surfaces already distinguish profile scope from operation-local
   truth in:
   [operation_policy_context.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/runtime/operation_policy_context.py:17)
@@ -642,6 +681,10 @@ Current repository truth that grounds this ADR:
 ## Verification
 
 Verified locally on 2026-04-23 with targeted evidence plus full `pytest -q`.
+
+Repository truth advanced on 2026-04-27 by extending the verified Codex tranche so execution-
+profile overlays, session stamps, and reuse compatibility also carry `approval_policy` and
+`sandbox_mode` for `codex_acp`, consistent with `ADR 0010`.
 
 Repository evidence for the closure criteria:
 
@@ -663,6 +706,15 @@ Repository evidence for the closure criteria:
   [loaded_operation.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/loaded_operation.py:95),
   covered by
   [test_attached_turn_service.py](/Users/thunderbird/Projects/operator/tests/test_attached_turn_service.py:741)
+- Codex execution-policy fields participate in accepted override persistence, session-profile
+  application events, and idle-session compatibility matching:
+  [runtime_bindings.py](/Users/thunderbird/Projects/operator/src/agent_operator/adapters/runtime_bindings.py:201),
+  [loaded_operation.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/loaded_operation.py:97),
+  [operation_turn_execution.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/operation_turn_execution.py:536),
+  covered by
+  [test_event_sourced_command_application.py](/Users/thunderbird/Projects/operator/tests/test_event_sourced_command_application.py:461),
+  [test_operation_command_service.py](/Users/thunderbird/Projects/operator/tests/test_operation_command_service.py:2480),
+  [test_attached_turn_service.py](/Users/thunderbird/Projects/operator/tests/test_attached_turn_service.py:795)
 - operation query/status surfaces expose launch default, overlay, allowed models, and effective
   execution-profile truth:
   [operation_projections.py](/Users/thunderbird/Projects/operator/src/agent_operator/application/queries/operation_projections.py:491),

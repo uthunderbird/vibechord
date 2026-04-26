@@ -52,9 +52,9 @@ This RFC proposes a smaller canonical model for session lifecycle that fits thos
 - `Session`
 - `Execution`
 
-The runtime should also split:
+The runtime should distinguish:
 
-- desired control intent
+- control intent
 - observed runtime state
 
 Attached and background execution should be modeled as execution mode, not as separate session
@@ -100,7 +100,6 @@ Minimum shape:
 - `working_directory`
 - `conversation_ref | None`
 - `reuse_policy`
-- `desired_state`
 - `observed_state`
 - `current_execution_id | None`
 - `last_terminal_execution_id | None`
@@ -164,19 +163,11 @@ The following should be treated as derived control projection:
 These may still be persisted for transparency and crash recovery, but they should not be the
 canonical source of truth for lifecycle.
 
-## Desired State vs Observed State
+## Control Intent vs Observed State
 
-This split is required.
-
-### Session desired state
-
-`Session.desired_state` expresses operator intent.
-
-Minimum states:
-
-- `active`
-- `paused`
-- `stopped`
+The runtime still needs to distinguish operator control intent from observed runtime fact, but
+current repository truth no longer supports a persisted `Session.desired_state` field. That field
+was removed in ADR 0150.
 
 ### Session observed state
 
@@ -230,9 +221,8 @@ The model should preserve these invariants:
 2. Assert there is no active execution.
 3. Create an execution with `mode=attached` or `mode=background`.
 4. Launch runtime work and attach handle metadata.
-5. Set:
-   - `Session.desired_state = active`
-   - `Session.observed_state = running`
+5. Set `Session.observed_state = running` and record any control intent through commands or
+   runtime-owned control state rather than a persisted `Session.desired_state` field.
 
 ### Poll or reconcile an execution
 
@@ -262,7 +252,8 @@ continued `Execution`.
 
 ### Cancel a running turn
 
-1. Set `Session.desired_state = stopped`.
+1. Record stop intent through the command/control path rather than a persisted
+   `Session.desired_state` field.
 2. Send termination intent to the active execution.
 3. Keep execution observed state non-terminal until runtime truth confirms terminal outcome.
 4. Reconcile final execution outcome.
@@ -327,13 +318,18 @@ Rejected because:
 - it is too close to raw runtime machinery
 - and it does not represent reusable logical sessions cleanly
 
-### Option C: Use a session/execution split with desired vs observed state
+### Option C: Use a session/execution split with control intent vs observed state
 
 Accepted because:
 
 - it minimizes moving parts without collapsing logical and concrete runtime identities
 - it matches the accepted ADR direction
 - and it gives cancel, pause, and recovery a clearer semantic foundation
+
+Current repo-truth note: the persisted `Session.desired_state` part of this RFC's earlier framing
+is stale. Current repository truth keeps the session/execution split direction but expresses
+control intent through commands, focus, scheduler state, and runtime-owned control flow instead of
+through a durable session field.
 
 ## Consequences
 
@@ -357,4 +353,5 @@ Accepted because:
 - A follow-up ADR should lock the precise migration strategy from `SessionRecord` and
   `BackgroundRunHandle` to `Session` and `Execution`.
 - `design/ARCHITECTURE.md` should be updated when this model moves from RFC to implementation.
-- Cancel/pause/recover tests should be rewritten around invariants on desired vs observed state.
+- Cancel/pause/recover tests should be rewritten around invariants on control intent vs observed
+  runtime state.

@@ -101,6 +101,8 @@ class ExecutionProfileOverride(BaseModel):
     model: str
     effort: str | None = None
     reasoning_effort: str | None = None
+    approval_policy: str | None = None
+    sandbox_mode: str | None = None
 
     @property
     def effort_field_name(self) -> str | None:
@@ -124,6 +126,8 @@ class ExecutionProfileStamp(BaseModel):
     model: str
     effort_field_name: str | None = None
     effort_value: str | None = None
+    approval_policy: str | None = None
+    sandbox_mode: str | None = None
 
 
 class RunOptions(BaseModel):

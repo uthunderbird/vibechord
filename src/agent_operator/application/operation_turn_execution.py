@@ -557,6 +557,8 @@ class OperationTurnExecutionService:
                 "model": model,
                 "effort_field_name": effort_field_name,
                 "effort_value": effort_value,
+                "approval_policy": stamp.approval_policy if stamp is not None else None,
+                "sandbox_mode": stamp.sandbox_mode if stamp is not None else None,
                 "applied_via": applied_via,
             },
             task_id=task_id,

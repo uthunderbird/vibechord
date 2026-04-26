@@ -174,6 +174,8 @@ class OperationCommandService:
             adapter_key = str(command.payload.get("adapter_key", "")).strip()
             current_model = str(command.payload.get("model", "")).strip()
             current_effort = command.payload.get("effort")
+            current_approval_policy = command.payload.get("approval_policy")
+            current_sandbox_mode = command.payload.get("sandbox_mode")
             event_payload.update(
                 {
                     "adapter_key": adapter_key,
@@ -192,6 +194,16 @@ class OperationCommandService:
                         if previous_execution_profile is not None
                         else None
                     ),
+                    "previous_approval_policy": (
+                        previous_execution_profile.approval_policy
+                        if previous_execution_profile is not None
+                        else None
+                    ),
+                    "previous_sandbox_mode": (
+                        previous_execution_profile.sandbox_mode
+                        if previous_execution_profile is not None
+                        else None
+                    ),
                     "current_model": current_model or None,
                     "current_effort_field_name": (
                         "reasoning_effort" if adapter_key == "codex_acp" else "effort"
@@ -199,6 +211,18 @@ class OperationCommandService:
                     "current_effort_value": (
                         current_effort.strip()
                         if isinstance(current_effort, str) and current_effort.strip()
+                        else None
+                    ),
+                    "current_approval_policy": (
+                        current_approval_policy.strip()
+                        if isinstance(current_approval_policy, str)
+                        and current_approval_policy.strip()
+                        else None
+                    ),
+                    "current_sandbox_mode": (
+                        current_sandbox_mode.strip()
+                        if isinstance(current_sandbox_mode, str)
+                        and current_sandbox_mode.strip()
                         else None
                     ),
                 }
@@ -1199,7 +1223,13 @@ class OperationCommandService:
         if not isinstance(adapter_key, str) or not adapter_key.strip():
             return "SET_EXECUTION_PROFILE requires non-empty payload.adapter_key."
         adapter_key = adapter_key.strip()
-        unknown_keys = set(payload) - {"adapter_key", "model", "effort"}
+        unknown_keys = set(payload) - {
+            "adapter_key",
+            "model",
+            "effort",
+            "approval_policy",
+            "sandbox_mode",
+        }
         if unknown_keys:
             return (
                 "SET_EXECUTION_PROFILE does not support payload fields: "
@@ -1215,6 +1245,28 @@ class OperationCommandService:
         effort = payload.get("effort")
         if effort is not None and (not isinstance(effort, str) or not effort.strip()):
             return "payload.effort must be a non-empty string when provided."
+        approval_policy = payload.get("approval_policy")
+        if approval_policy is not None and (
+            not isinstance(approval_policy, str) or not approval_policy.strip()
+        ):
+            return "payload.approval_policy must be a non-empty string when provided."
+        sandbox_mode = payload.get("sandbox_mode")
+        if sandbox_mode is not None and (
+            not isinstance(sandbox_mode, str) or not sandbox_mode.strip()
+        ):
+            return "payload.sandbox_mode must be a non-empty string when provided."
+        if adapter_key != "codex_acp":
+            unsupported_keys: list[str] = []
+            if approval_policy is not None:
+                unsupported_keys.append("approval_policy")
+            if sandbox_mode is not None:
+                unsupported_keys.append("sandbox_mode")
+            if unsupported_keys:
+                return (
+                    f"Adapter {adapter_key!r} does not support payload fields: "
+                    + ", ".join(unsupported_keys)
+                    + "."
+                )
         allowed_map = state.goal.metadata.get("allowed_execution_profiles")
         if not isinstance(allowed_map, dict):
             return f"Adapter {adapter_key!r} has no allowed execution profiles."
@@ -1228,10 +1280,29 @@ class OperationCommandService:
                 if entry.get("model") != model:
                     continue
                 reasoning_effort = entry.get("reasoning_effort")
-                if effort is None and reasoning_effort in {None, ""}:
-                    return None
-                if isinstance(reasoning_effort, str) and reasoning_effort == effort:
-                    return None
+                if effort is None and reasoning_effort not in {None, ""}:
+                    continue
+                if effort is not None and (
+                    not isinstance(reasoning_effort, str) or reasoning_effort != effort
+                ):
+                    continue
+                allowed_approval_policy = entry.get("approval_policy")
+                if approval_policy is None and allowed_approval_policy not in {None, ""}:
+                    continue
+                if approval_policy is not None and (
+                    not isinstance(allowed_approval_policy, str)
+                    or allowed_approval_policy != approval_policy
+                ):
+                    continue
+                allowed_sandbox_mode = entry.get("sandbox_mode")
+                if sandbox_mode is None and allowed_sandbox_mode not in {None, ""}:
+                    continue
+                if sandbox_mode is not None and (
+                    not isinstance(allowed_sandbox_mode, str)
+                    or allowed_sandbox_mode != sandbox_mode
+                ):
+                    continue
+                return None
             return "Requested codex_acp execution profile is not allowlisted."
         if adapter_key == "claude_acp":
             for entry in raw_profiles:

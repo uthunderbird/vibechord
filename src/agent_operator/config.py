@@ -55,7 +55,7 @@ class CodexAcpAdapterSettings(BaseModel):
         default=None,
         validation_alias=AliasChoices("reasoning_effort", "effort"),
     )
-    approval_policy: Literal["untrusted", "on-request", "never"] | None = None
+    approval_policy: Literal["auto", "untrusted", "on-request", "never"] | None = None
     sandbox_mode: Literal["read-only", "workspace-write", "danger-full-access"] | None = None
     timeout_seconds: float | None = None
     mcp_servers: list[dict[str, object]] = Field(default_factory=list)

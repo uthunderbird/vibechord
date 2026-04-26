@@ -2496,12 +2496,27 @@ async def test_set_execution_profile_command_updates_operation_override() -> Non
             objective="continue work",
             metadata={
                 "effective_adapter_settings": {
-                    "codex_acp": {"model": "gpt-5.4", "reasoning_effort": "low"}
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                        "approval_policy": "never",
+                        "sandbox_mode": "workspace-write",
+                    }
                 },
                 "allowed_execution_profiles": {
                     "codex_acp": [
-                        {"model": "gpt-5.4", "reasoning_effort": "low"},
-                        {"model": "gpt-5.4-mini", "reasoning_effort": "medium"},
+                        {
+                            "model": "gpt-5.4",
+                            "reasoning_effort": "low",
+                            "approval_policy": "never",
+                            "sandbox_mode": "workspace-write",
+                        },
+                        {
+                            "model": "gpt-5.4-mini",
+                            "reasoning_effort": "medium",
+                            "approval_policy": "auto",
+                            "sandbox_mode": "danger-full-access",
+                        },
                     ]
                 }
             },
@@ -2518,6 +2533,8 @@ async def test_set_execution_profile_command_updates_operation_override() -> Non
             "adapter_key": "codex_acp",
             "model": "gpt-5.4-mini",
             "effort": "medium",
+            "approval_policy": "auto",
+            "sandbox_mode": "danger-full-access",
         },
     )
     await inbox.enqueue(command)
@@ -2532,6 +2549,11 @@ async def test_set_execution_profile_command_updates_operation_override() -> Non
     assert updated is not None
     assert updated.execution_profile_overrides["codex_acp"].model == "gpt-5.4-mini"
     assert updated.execution_profile_overrides["codex_acp"].reasoning_effort == "medium"
+    assert updated.execution_profile_overrides["codex_acp"].approval_policy == "auto"
+    assert (
+        updated.execution_profile_overrides["codex_acp"].sandbox_mode
+        == "danger-full-access"
+    )
     assert inbox.commands[command.command_id].status is CommandStatus.APPLIED
     applied_event = next(
         event
@@ -2543,6 +2565,8 @@ async def test_set_execution_profile_command_updates_operation_override() -> Non
     assert applied_event.payload["previous_model"] == "gpt-5.4"
     assert applied_event.payload["current_model"] == "gpt-5.4-mini"
     assert applied_event.payload["current_effort_value"] == "medium"
+    assert applied_event.payload["current_approval_policy"] == "auto"
+    assert applied_event.payload["current_sandbox_mode"] == "danger-full-access"
 
 
 @pytest.mark.anyio
@@ -2564,7 +2588,14 @@ async def test_set_execution_profile_command_rejects_unallowlisted_profile() -> 
             objective="continue work",
             metadata={
                 "allowed_execution_profiles": {
-                    "codex_acp": [{"model": "gpt-5.4", "reasoning_effort": "low"}]
+                    "codex_acp": [
+                        {
+                            "model": "gpt-5.4",
+                            "reasoning_effort": "low",
+                            "approval_policy": "never",
+                            "sandbox_mode": "workspace-write",
+                        }
+                    ]
                 }
             },
         ),
@@ -2578,8 +2609,9 @@ async def test_set_execution_profile_command_rejects_unallowlisted_profile() -> 
         target_id=operation.operation_id,
         payload={
             "adapter_key": "codex_acp",
-            "model": "gpt-5.4-mini",
-            "effort": "medium",
+            "model": "gpt-5.4",
+            "effort": "low",
+            "approval_policy": "auto",
         },
     )
     await inbox.enqueue(command)
@@ -2594,6 +2626,10 @@ async def test_set_execution_profile_command_rejects_unallowlisted_profile() -> 
     assert updated is not None
     assert updated.execution_profile_overrides == {}
     assert inbox.commands[command.command_id].status is CommandStatus.REJECTED
+    assert (
+        inbox.commands[command.command_id].rejection_reason
+        == "Requested codex_acp execution profile is not allowlisted."
+    )
 
 
 @pytest.mark.anyio
@@ -2615,7 +2651,14 @@ async def test_set_execution_profile_command_rejects_unknown_payload_fields() ->
             objective="continue work",
             metadata={
                 "allowed_execution_profiles": {
-                    "codex_acp": [{"model": "gpt-5.4", "reasoning_effort": "low"}]
+                    "codex_acp": [
+                        {
+                            "model": "gpt-5.4",
+                            "reasoning_effort": "low",
+                            "approval_policy": "never",
+                            "sandbox_mode": "workspace-write",
+                        }
+                    ]
                 }
             },
         ),
@@ -2631,7 +2674,69 @@ async def test_set_execution_profile_command_rejects_unknown_payload_fields() ->
             "adapter_key": "codex_acp",
             "model": "gpt-5.4",
             "effort": "low",
+            "approval_policy": "auto",
             "timeout_seconds": 30,
+        },
+    )
+    await inbox.enqueue(command)
+
+    outcome = await service.resume(
+        operation.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=2),
+    )
+    updated = await store.load_operation(operation.operation_id)
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert updated is not None
+    assert updated.execution_profile_overrides == {}
+    assert inbox.commands[command.command_id].status is CommandStatus.REJECTED
+
+
+@pytest.mark.anyio
+async def test_set_execution_profile_command_rejects_codex_policy_fields_for_non_codex_adapter(
+) -> None:
+    class _StopBrain:
+        async def decide_next_action(self, state) -> BrainDecision:
+            return BrainDecision(
+                action_type=BrainActionType.STOP,
+                rationale="Command validation coverage only.",
+            )
+
+    store = MemoryStore()
+    inbox = MemoryCommandInbox()
+    service = make_service(
+        brain=_StopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"claude_acp": FakeAgent(key="claude_acp")}
+        ),
+        command_inbox=inbox,
+    )
+    operation = OperationState(
+        goal=OperationGoal(
+            objective="continue work",
+            metadata={
+                "allowed_execution_profiles": {
+                    "claude_acp": [{"model": "claude-sonnet-4-6", "effort": "low"}]
+                }
+            },
+        ),
+        **state_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+    )
+    await store.save_operation(operation)
+    command = OperationCommand(
+        operation_id=operation.operation_id,
+        command_type=OperationCommandType.SET_EXECUTION_PROFILE,
+        target_scope=CommandTargetScope.OPERATION,
+        target_id=operation.operation_id,
+        payload={
+            "adapter_key": "claude_acp",
+            "model": "claude-sonnet-4-6",
+            "effort": "low",
+            "approval_policy": "auto",
+            "sandbox_mode": "workspace-write",
         },
     )
     await inbox.enqueue(command)
@@ -2648,7 +2753,7 @@ async def test_set_execution_profile_command_rejects_unknown_payload_fields() ->
     assert inbox.commands[command.command_id].status is CommandStatus.REJECTED
     assert (
         inbox.commands[command.command_id].rejection_reason
-        == "SET_EXECUTION_PROFILE does not support payload fields: timeout_seconds."
+        == "Adapter 'claude_acp' does not support payload fields: approval_policy, sandbox_mode."
     )
 
 

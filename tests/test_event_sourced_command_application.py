@@ -475,7 +475,13 @@ async def test_event_sourced_command_application_updates_execution_profile(
         operation_id=operation_id,
         command_type=OperationCommandType.SET_EXECUTION_PROFILE,
         target_scope=CommandTargetScope.OPERATION,
-        payload={"adapter_key": "codex_acp", "model": "gpt-5.4", "effort": "low"},
+        payload={
+            "adapter_key": "codex_acp",
+            "model": "gpt-5.4",
+            "effort": "low",
+            "approval_policy": "never",
+            "sandbox_mode": "workspace-write",
+        },
     )
 
     result = await service.apply(command)
@@ -488,6 +494,8 @@ async def test_event_sourced_command_application_updates_execution_profile(
     profile = result.checkpoint.execution_profile_overrides["codex_acp"]
     assert profile.model == "gpt-5.4"
     assert profile.reasoning_effort == "low"
+    assert profile.approval_policy == "never"
+    assert profile.sandbox_mode == "workspace-write"
 
 
 @pytest.mark.anyio

@@ -786,6 +786,62 @@ async def test_start_agent_does_not_reuse_idle_session_when_execution_profile_mi
 
 
 @pytest.mark.anyio
+async def test_start_agent_does_not_reuse_idle_session_when_codex_capability_profile_mismatches(
+) -> None:
+    store = MemoryStore()
+    agent = FakeAgent(key="codex_acp")
+    service = make_service(
+        brain=StartThenStartAgainThenStopBrain(target_agent="codex_acp"),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"codex_acp": agent}),
+    )
+
+    outcome = await service.run(
+        OperationGoal(
+            objective="do not reuse codex session with stale capability profile",
+            metadata={
+                "resolved_project_profile": {
+                    "session_reuse_policy": "reuse_if_idle",
+                },
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                        "approval_policy": "never",
+                        "sandbox_mode": "workspace-write",
+                    }
+                },
+            },
+        ),
+        **run_settings(max_iterations=4, allowed_agents=["codex_acp"]),
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=1),
+    )
+    operation = await store.load_operation(outcome.operation_id)
+    assert operation is not None
+    operation.execution_profile_overrides["codex_acp"] = ExecutionProfileOverride(
+        adapter_key="codex_acp",
+        model="gpt-5.4",
+        reasoning_effort="low",
+        approval_policy="auto",
+        sandbox_mode="danger-full-access",
+    )
+    await store.save_operation(operation)
+
+    resumed = await service.resume(
+        outcome.operation_id,
+        options=RunOptions(run_mode=RunMode.ATTACHED, max_cycles=4),
+    )
+    updated = await store.load_operation(outcome.operation_id)
+
+    assert outcome.status is OperationStatus.RUNNING
+    assert resumed.status is OperationStatus.COMPLETED
+    assert updated is not None
+    assert len(agent.started_requests) == 2
+
+
+@pytest.mark.anyio
 async def test_start_agent_emits_session_execution_profile_applied_event() -> None:
     store = MemoryStore()
     event_sink = MemoryEventSink()
@@ -805,7 +861,12 @@ async def test_start_agent_emits_session_execution_profile_applied_event() -> No
             objective="emit start profile event",
             metadata={
                 "effective_adapter_settings": {
-                    "codex_acp": {"model": "gpt-5.4", "reasoning_effort": "low"}
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                        "approval_policy": "never",
+                        "sandbox_mode": "workspace-write",
+                    }
                 }
             },
         ),
@@ -822,6 +883,8 @@ async def test_start_agent_emits_session_execution_profile_applied_event() -> No
     assert applied_events[0].payload["adapter_key"] == "codex_acp"
     assert applied_events[0].payload["model"] == "gpt-5.4"
     assert applied_events[0].payload["effort_value"] == "low"
+    assert applied_events[0].payload["approval_policy"] == "never"
+    assert applied_events[0].payload["sandbox_mode"] == "workspace-write"
     assert applied_events[0].payload["applied_via"] == "start"
 
 

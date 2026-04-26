@@ -106,6 +106,8 @@ class LoadedOperation:
                 model=override.model,
                 effort_field_name=override.effort_field_name,
                 effort_value=override.effort_value,
+                approval_policy=override.approval_policy,
+                sandbox_mode=override.sandbox_mode,
             )
         raw_snapshot = state.goal.metadata.get("effective_adapter_settings")
         if not isinstance(raw_snapshot, dict):
@@ -121,11 +123,25 @@ class LoadedOperation:
             effort_value = (
                 raw_effort if isinstance(raw_effort, str) and raw_effort.strip() else None
             )
+            raw_approval_policy = raw_adapter.get("approval_policy")
+            approval_policy = (
+                raw_approval_policy.strip()
+                if isinstance(raw_approval_policy, str) and raw_approval_policy.strip()
+                else None
+            )
+            raw_sandbox_mode = raw_adapter.get("sandbox_mode")
+            sandbox_mode = (
+                raw_sandbox_mode.strip()
+                if isinstance(raw_sandbox_mode, str) and raw_sandbox_mode.strip()
+                else None
+            )
             return ExecutionProfileStamp(
                 adapter_key=adapter_key,
                 model=model.strip(),
                 effort_field_name="reasoning_effort",
                 effort_value=effort_value,
+                approval_policy=approval_policy,
+                sandbox_mode=sandbox_mode,
             )
         raw_effort = raw_adapter.get("effort")
         effort_value = raw_effort if isinstance(raw_effort, str) and raw_effort.strip() else None
@@ -150,6 +166,10 @@ class LoadedOperation:
         }
         if stamp.effort_field_name is not None and stamp.effort_value is not None:
             metadata[f"execution_profile_{stamp.effort_field_name}"] = stamp.effort_value
+        if stamp.approval_policy is not None:
+            metadata["execution_profile_approval_policy"] = stamp.approval_policy
+        if stamp.sandbox_mode is not None:
+            metadata["execution_profile_sandbox_mode"] = stamp.sandbox_mode
         return metadata
 
     def session_matches_execution_profile(
@@ -324,12 +344,26 @@ class LoadedOperation:
             return None
         model = raw_model.strip()
         raw_reasoning_effort = handle.metadata.get("execution_profile_reasoning_effort")
+        raw_approval_policy = handle.metadata.get("execution_profile_approval_policy")
+        approval_policy = (
+            raw_approval_policy.strip()
+            if isinstance(raw_approval_policy, str) and raw_approval_policy.strip()
+            else None
+        )
+        raw_sandbox_mode = handle.metadata.get("execution_profile_sandbox_mode")
+        sandbox_mode = (
+            raw_sandbox_mode.strip()
+            if isinstance(raw_sandbox_mode, str) and raw_sandbox_mode.strip()
+            else None
+        )
         if isinstance(raw_reasoning_effort, str) and raw_reasoning_effort.strip():
             return ExecutionProfileStamp(
                 adapter_key=handle.adapter_key,
                 model=model,
                 effort_field_name="reasoning_effort",
                 effort_value=raw_reasoning_effort.strip(),
+                approval_policy=approval_policy,
+                sandbox_mode=sandbox_mode,
             )
         raw_effort = handle.metadata.get("execution_profile_effort")
         if isinstance(raw_effort, str) and raw_effort.strip():
@@ -338,8 +372,15 @@ class LoadedOperation:
                 model=model,
                 effort_field_name="effort",
                 effort_value=raw_effort.strip(),
+                approval_policy=approval_policy,
+                sandbox_mode=sandbox_mode,
             )
-        return ExecutionProfileStamp(adapter_key=handle.adapter_key, model=model)
+        return ExecutionProfileStamp(
+            adapter_key=handle.adapter_key,
+            model=model,
+            approval_policy=approval_policy,
+            sandbox_mode=sandbox_mode,
+        )
 
     def upsert_background_run(
         self,

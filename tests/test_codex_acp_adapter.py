@@ -413,11 +413,11 @@ async def test_codex_acp_adapter_describe_exposes_standard_coding_tools() -> Non
 def test_build_codex_acp_command_includes_runtime_overrides() -> None:
     command = _build_codex_acp_command(
         "npx @zed-industries/codex-acp",
-        approval_policy="never",
+        approval_policy="auto",
         sandbox_mode="danger-full-access",
     )
 
     assert command == (
-        "npx @zed-industries/codex-acp -c 'approval_policy=\"never\"' "
+        "npx @zed-industries/codex-acp -c 'approval_policy=\"auto\"' "
         "-c 'sandbox_mode=\"danger-full-access\"'"
     )

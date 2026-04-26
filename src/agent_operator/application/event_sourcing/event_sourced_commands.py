@@ -428,6 +428,8 @@ class EventSourcedCommandApplicationService:
             adapter_key = str(command.payload.get("adapter_key", "")).strip()
             model = str(command.payload.get("model", "")).strip()
             effort = command.payload.get("effort")
+            approval_policy = command.payload.get("approval_policy")
+            sandbox_mode = command.payload.get("sandbox_mode")
             if not adapter_key:
                 reason = "SET_EXECUTION_PROFILE requires non-empty payload.adapter_key."
                 return [self._rejected_event(command, reason)], reason
@@ -436,6 +438,34 @@ class EventSourcedCommandApplicationService:
                 return [self._rejected_event(command, reason)], reason
             if effort is not None and (not isinstance(effort, str) or not effort.strip()):
                 reason = "SET_EXECUTION_PROFILE payload.effort must be a non-empty string."
+                return [self._rejected_event(command, reason)], reason
+            if approval_policy is not None and (
+                not isinstance(approval_policy, str) or not approval_policy.strip()
+            ):
+                reason = (
+                    "SET_EXECUTION_PROFILE payload.approval_policy must be a non-empty string."
+                )
+                return [self._rejected_event(command, reason)], reason
+            if sandbox_mode is not None and (
+                not isinstance(sandbox_mode, str) or not sandbox_mode.strip()
+            ):
+                reason = (
+                    "SET_EXECUTION_PROFILE payload.sandbox_mode must be a non-empty string."
+                )
+                return [self._rejected_event(command, reason)], reason
+            if adapter_key != "codex_acp" and (
+                approval_policy is not None or sandbox_mode is not None
+            ):
+                unsupported_fields: list[str] = []
+                if approval_policy is not None:
+                    unsupported_fields.append("approval_policy")
+                if sandbox_mode is not None:
+                    unsupported_fields.append("sandbox_mode")
+                reason = (
+                    f"Adapter {adapter_key!r} does not support payload fields: "
+                    + ", ".join(unsupported_fields)
+                    + "."
+                )
                 return [self._rejected_event(command, reason)], reason
             payload = ExecutionProfileOverride(
                 adapter_key=adapter_key,
@@ -450,6 +480,10 @@ class EventSourcedCommandApplicationService:
                     if adapter_key == "claude_acp" and isinstance(effort, str)
                     else None
                 ),
+                approval_policy=(
+                    approval_policy.strip() if isinstance(approval_policy, str) else None
+                ),
+                sandbox_mode=sandbox_mode.strip() if isinstance(sandbox_mode, str) else None,
             ).model_dump(mode="json")
             return [
                 accepted,

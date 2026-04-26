@@ -1213,6 +1213,16 @@ def test_apply_project_profile_settings_updates_adapter_defaults(tmp_path: Path)
     assert settings.opencode_acp.working_directory == Path("/tmp/femtobot")
 
 
+def test_codex_acp_settings_accept_auto_approval_policy(monkeypatch) -> None:
+    from agent_operator.config import OperatorSettings
+
+    monkeypatch.setenv("OPERATOR_CODEX_ACP__APPROVAL_POLICY", "auto")
+
+    settings = OperatorSettings()
+
+    assert settings.codex_acp.approval_policy == "auto"
+
+
 def test_apply_project_profile_settings_updates_mcp_servers_and_timeout_seconds(
     tmp_path: Path,
 ) -> None:

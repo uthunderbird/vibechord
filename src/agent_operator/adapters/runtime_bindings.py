@@ -208,6 +208,8 @@ def _build_adapter_for_session(
     model_override = session_metadata.get("execution_profile_model")
     effort_override = session_metadata.get("execution_profile_effort")
     reasoning_effort_override = session_metadata.get("execution_profile_reasoning_effort")
+    approval_policy_override = session_metadata.get("execution_profile_approval_policy")
+    sandbox_mode_override = session_metadata.get("execution_profile_sandbox_mode")
     if adapter_key == "claude_acp":
         return ClaudeAcpAgentAdapter(
             command=settings.claude_acp.command,
@@ -229,8 +231,16 @@ def _build_adapter_for_session(
                 if reasoning_effort_override is not None
                 else settings.codex_acp.reasoning_effort
             ),
-            approval_policy=settings.codex_acp.approval_policy,
-            sandbox_mode=settings.codex_acp.sandbox_mode,
+            approval_policy=(
+                approval_policy_override
+                if approval_policy_override is not None
+                else settings.codex_acp.approval_policy
+            ),
+            sandbox_mode=(
+                sandbox_mode_override
+                if sandbox_mode_override is not None
+                else settings.codex_acp.sandbox_mode
+            ),
             timeout_seconds=settings.codex_acp.timeout_seconds,
             mcp_servers=settings.codex_acp.mcp_servers,
             substrate_backend=settings.codex_acp.substrate_backend,
