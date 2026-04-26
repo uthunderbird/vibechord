@@ -4,11 +4,52 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Implementation grounding on 2026-04-26:
+
+- `implemented`: shared status/read payload authority already exists at
+  `src/agent_operator/application/delivery_surface.py` and
+  `src/agent_operator/application/queries/operation_status_queries.py`. Delivery surfaces resolve
+  one operation id through `DeliverySurfaceService.build_read_payload()`, then consume one
+  `OperationReadPayload` carrying canonical operation truth plus explicit runtime-overlay
+  authorities and staleness metadata.
+- `implemented`: CLI `watch` and Python SDK `OperatorClient.stream_events()` already prefer the
+  canonical `.operator/operation_events/<operation_id>.jsonl` event stream and fall back to
+  legacy `.operator/events/<operation_id>.jsonl` only when no canonical stream exists. Evidence:
+  `src/agent_operator/cli/workflows/control_runtime.py`,
+  `src/agent_operator/client.py`,
+  `tests/test_cli.py::test_watch_prefers_canonical_v2_events_over_legacy_event_file`,
+  `tests/test_client.py::test_operator_client_stream_events_prefers_canonical_v2_stream_over_legacy`.
+- `implemented`: canonical event-stream records are normalized into shared `RunEvent` objects for
+  live CLI/SDK consumption instead of each surface inventing a separate ad hoc parser. Evidence:
+  `src/agent_operator/cli/workflows/control_runtime.py`,
+  `src/agent_operator/client.py`,
+  `tests/test_cli.py::test_watch_reads_canonical_v2_events_without_legacy_event_file`,
+  `tests/test_client.py::test_operator_client_stream_events_reads_canonical_v2_operation_events`.
+- `implemented`: JSON status-like surfaces already expose overlay provenance and staleness
+  explicitly through `runtime_overlay.authorities` and `runtime_overlay.staleness`. Evidence:
+  `src/agent_operator/application/queries/operation_status_queries.py`,
+  `src/agent_operator/mcp/service.py`,
+  `tests/test_operation_status_queries.py::test_status_json_uses_shared_read_payload_overlay_metadata`.
+- `partial`: the repository still does not emit one typed cross-surface streaming payload family
+  that marks every live payload as canonical, overlay-derived, or forensic.
+- `partial`: explicit lag/drop signaling and answered-attention stale-warning coverage described in
+  this ADR are not yet implemented as a closed repository contract.
+- `blocked`: the live verification row still depends on the fresh end-to-end evidence captured by
+  ADR 0211, which remains partial.
+
+Acceptance grounding on 2026-04-26:
+
+- The repository already depends on this direction in code: canonical event files are preferred for
+  live watch/SDK streaming, shared read payloads carry overlay provenance, and status-like delivery
+  surfaces consume that shared authority today.
+- Acceptance records that architectural direction in git now. It does not claim that all required
+  properties below are fully delivered; implementation truth remains `Partial`.
 
 ## Context
 

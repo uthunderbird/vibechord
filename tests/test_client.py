@@ -239,6 +239,64 @@ async def test_operator_client_stream_events_reads_canonical_v2_operation_events
 
 
 @pytest.mark.anyio
+async def test_operator_client_stream_events_prefers_canonical_v2_stream_over_legacy(
+    tmp_path: Path,
+) -> None:
+    """Catches swapping canonical/legacy stream precedence in the SDK."""
+    operation_id = "op-sdk-stream-precedence"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Canonical SDK stream wins.")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = datetime(2026, 4, 25, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=1,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    canonical_dir = tmp_path / "operation_events"
+    canonical_dir.mkdir()
+    (canonical_dir / f"{operation_id}.jsonl").write_text(
+        "\n".join(
+            [
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=1,
+                    event_type="operation.created",
+                    payload={"objective": "Canonical SDK stream wins."},
+                    timestamp=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+                ).model_dump_json(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    legacy_sink = JsonlEventSink(tmp_path, operation_id)
+    await legacy_sink.emit(
+        RunEvent(
+            event_type="legacy.started",
+            operation_id=operation_id,
+            iteration=0,
+            payload={"objective": "Legacy stream should not be read."},
+            category="trace",
+        )
+    )
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        events = [event async for event in client.stream_events(operation_id)]
+
+    assert [event.event_type for event in events] == ["operation.created"]
+
+
+@pytest.mark.anyio
 async def test_operator_client_resolves_last_operation_reference(tmp_path: Path) -> None:
     store = FileOperationStore(tmp_path / "runs")
     older = OperationState(

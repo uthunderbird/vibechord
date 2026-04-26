@@ -7881,6 +7881,93 @@ def test_watch_reads_canonical_v2_events_without_legacy_event_file(
     assert "completed: Canonical watch completed." in result.stdout
 
 
+def test_watch_prefers_canonical_v2_events_over_legacy_event_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Catches swapping canonical/legacy watch-stream precedence."""
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-watch-v2-precedence"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Inspect canonical watch precedence")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = datetime(2026, 4, 25, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=2,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text(
+        "\n".join(
+            [
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=1,
+                    event_type="agent.invocation.started",
+                    payload={
+                        "iteration": 1,
+                        "adapter_key": "codex_acp",
+                        "session_id": "canonical-session",
+                        "session_name": "canonical-name",
+                    },
+                    timestamp=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+                ).model_dump_json(),
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=2,
+                    event_type="operation.status.changed",
+                    payload={"status": "completed", "iteration": 1},
+                    timestamp=datetime(2026, 4, 25, 10, 1, tzinfo=UTC),
+                ).model_dump_json(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    legacy_sink = JsonlEventSink(tmp_path, operation_id)
+
+    async def _seed_legacy_and_outcome() -> None:
+        await legacy_sink.emit(
+            RunEvent(
+                event_type="agent.invocation.started",
+                operation_id=operation_id,
+                iteration=1,
+                session_id="legacy-session",
+                payload={
+                    "adapter_key": "claude_acp",
+                    "session_name": "legacy-name",
+                },
+                category="trace",
+            )
+        )
+        await FileOperationStore(tmp_path / "runs").save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Canonical watch completed.",
+            )
+        )
+
+    anyio.run(_seed_legacy_and_outcome)
+
+    result = runner.invoke(app, ["watch", operation_id, "--poll-interval", "0.05"])
+
+    assert result.exit_code == 0
+    assert "canonical-session" in result.stdout
+    assert "canonical-name" in result.stdout
+    assert "legacy-session" not in result.stdout
+    assert "legacy-name" not in result.stdout
+
+
 def test_watch_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
     operation_id = "op-watch-last"
     runs_dir = tmp_path / "runs"
