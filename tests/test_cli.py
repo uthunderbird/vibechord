@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 import agent_operator.cli.commands as cli_commands_pkg
 import agent_operator.cli.commands.operation_detail as commands_operation_detail
+import agent_operator.cli.commands.operation_detail_session as commands_operation_detail_session
 import agent_operator.cli.helpers as cli_helpers_pkg
 import agent_operator.cli.workflows as cli_workflows
 from agent_operator.application.event_sourcing.event_sourced_birth import (
@@ -3814,12 +3815,12 @@ def test_session_command_follow_uses_live_redraw_in_tty(
 
     fake_tty = SimpleNamespace(isatty=lambda: True)
     monkeypatch.setattr(
-        commands_operation_detail,
+        commands_operation_detail_session,
         "sys",
         SimpleNamespace(stdout=fake_tty, stdin=fake_tty),
     )
-    monkeypatch.setattr(commands_operation_detail, "RichConsole", lambda: "console")
-    monkeypatch.setattr(commands_operation_detail, "Live", _FakeLive)
+    monkeypatch.setattr(commands_operation_detail_session, "RichConsole", lambda: "console")
+    monkeypatch.setattr(commands_operation_detail_session, "Live", _FakeLive)
 
     result = runner.invoke(app, ["session", operation_id, "--task", "task-1", "--follow", "--once"])
 
@@ -3894,7 +3895,7 @@ def test_session_command_prints_selected_event_summary_when_present(
             }
 
     monkeypatch.setattr(
-        commands_operation_detail,
+        commands_operation_detail_session,
         "build_operation_dashboard_query_service",
         lambda settings, operation_id, codex_home: _FakeDashboardQueries(),
     )
@@ -3945,7 +3946,7 @@ def test_session_command_prefers_attention_over_wait_when_attention_is_present(
             }
 
     monkeypatch.setattr(
-        commands_operation_detail,
+        commands_operation_detail_session,
         "build_operation_dashboard_query_service",
         lambda settings, operation_id, codex_home: _FakeDashboardQueries(),
     )

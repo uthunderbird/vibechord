@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from importlib import import_module
 from typing import Any
 
 import anyio
@@ -106,14 +107,19 @@ def main(
     raise typer.Exit()
 
 
-from .commands import agent as _commands_agent  # noqa: E402,F401
-from .commands import config as _commands_config  # noqa: E402,F401
-from .commands import debug as _commands_debug  # noqa: E402,F401
-from .commands import fleet as _commands_fleet  # noqa: E402,F401
-from .commands import mcp as _commands_mcp  # noqa: E402,F401
-from .commands import operation_control as _commands_operation_control  # noqa: E402,F401
-from .commands import operation_detail as _commands_operation_detail  # noqa: E402,F401
-from .commands import policy as _commands_policy  # noqa: E402,F401
-from .commands import project as _commands_project  # noqa: E402,F401
-from .commands import run as _commands_run  # noqa: E402,F401
-from .commands import smoke as _commands_smoke  # noqa: E402,F401
+for _command_module in (
+    "agent",
+    "config",
+    "debug",
+    "fleet",
+    "mcp",
+    "operation_control",
+    "operation_detail",
+    "operation_detail_log",
+    "operation_detail_session",
+    "policy",
+    "project",
+    "run",
+    "smoke",
+):
+    import_module(f"{__package__}.commands.{_command_module}")

@@ -617,11 +617,52 @@ def test_cli_app_registers_commands_via_package_modules() -> None:
     """ADR 0120: command registration flows through cli.app package imports."""
     module = ast.parse((CLI_DIR / "app.py").read_text(encoding="utf-8"))
 
-    command_imports = [
-        f"{'.' * node.level}{node.module}"
-        for node in module.body
-        if isinstance(node, ast.ImportFrom) and node.module is not None
-        and f"{'.' * node.level}{node.module}" == ".commands"
+    import_module_calls = [
+        node
+        for node in ast.walk(module)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "import_module"
     ]
+    assert len(import_module_calls) == 1
 
-    assert len(command_imports) == 11
+    loop = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.For)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "_command_module"
+    )
+    command_modules = ast.literal_eval(loop.iter)
+
+    assert command_modules == (
+        "agent",
+        "config",
+        "debug",
+        "fleet",
+        "mcp",
+        "operation_control",
+        "operation_detail",
+        "operation_detail_log",
+        "operation_detail_session",
+        "policy",
+        "project",
+        "run",
+        "smoke",
+    )
+
+
+def test_operation_detail_cli_modules_stay_under_500_lines() -> None:
+    """ADR 0119: the operation-detail command family stays under the CLI line budget."""
+    targets = {
+        "operation_detail.py": CLI_DIR / "commands" / "operation_detail.py",
+        "operation_detail_log.py": CLI_DIR / "commands" / "operation_detail_log.py",
+        "operation_detail_session.py": CLI_DIR / "commands" / "operation_detail_session.py",
+    }
+
+    line_counts = {
+        name: sum(1 for _ in path.open(encoding="utf-8")) for name, path in targets.items()
+    }
+
+    for name, count in line_counts.items():
+        assert count < 500, f"{name} regressed to {count} lines"
