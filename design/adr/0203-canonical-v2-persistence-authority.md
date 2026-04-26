@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Implementation status on 2026-04-25:
 
@@ -38,8 +38,15 @@ Implementation status on 2026-04-25:
 - `verified`: the 2026-04-25 current-session ADR 0203 work wave produced
   `../internal/adr-0203-session-design-artifact-2026-04-25.md`, reran the targeted ADR 0203
   regression set with `250 passed`, and reran the full suite with `978 passed, 11 skipped`.
-- `not verified`: full live CLI smoke that creates, observes, and terminates a v2 operation without
-  `.operator/runs` was not run, so this ADR is `Implemented` rather than `Verified`.
+- `verified`: the remaining CLI smoke gap is now covered by
+  `tests/test_cli.py::test_v2_cli_smoke_creates_observes_and_cancels_without_runs_dir`, which
+  drives `operator run --v2 --json`, `operator status --json`, and `operator cancel --yes --json`
+  against canonical `operation_events`/`operation_checkpoints` state while asserting that no
+  legacy `runs/<operation_id>.operation.json` or `.outcome.json` snapshot becomes authoritative.
+- `verified`: the current 2026-04-26 verification wave passed the focused ADR 0203 CLI slice with
+  `uv run pytest tests/test_cli.py -k "v2_cli_smoke_creates_observes_and_cancels_without_runs_dir or resolution_last_accepts_event_sourced_operation_without_runs_dir or attention_command_reads_event_sourced_operation_without_runs_dir or list_json_emits_event_sourced_objects_without_runs_dir" -q`
+  (`4 passed`) and passed the full repository suite with `uv run pytest`
+  (`1004 passed, 11 skipped`).
 
 ## ADR 0203 Closure Iteration Brief
 
@@ -131,8 +138,10 @@ Grep/read citations for `Implementation Status: Implemented`:
   `uv run pytest tests/test_application_structure.py tests/test_event_sourced_replay.py tests/test_operation_status_queries.py tests/test_cli.py tests/test_control_workflows.py -q`
   passed with `250 passed`.
 - Current-session verification citation: `uv run pytest` passed with `978 passed, 11 skipped`.
-- Status-bound citation: because the full live CLI smoke listed in this ADR's Verification Plan was
-  not run, the implementation status is `Implemented`, not `Verified`.
+- Status-bound citation: `tests/test_cli.py::test_v2_cli_smoke_creates_observes_and_cancels_without_runs_dir`
+  now closes the previously named create/observe/terminate CLI smoke gap, and the current
+  repository-wide `uv run pytest` pass (`1004 passed, 11 skipped`) supports
+  `Implementation Status: Verified`.
 
 ## Context
 

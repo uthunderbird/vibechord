@@ -19,6 +19,9 @@ import agent_operator.cli.workflows as cli_workflows
 from agent_operator.application.event_sourcing.event_sourced_birth import (
     EventSourcedOperationBirthService,
 )
+from agent_operator.application.event_sourcing.event_sourced_commands import (
+    EventSourcedCommandApplicationService,
+)
 from agent_operator.bootstrap import build_replay_service
 from agent_operator.cli.helpers.rendering import render_watch_snapshot
 from agent_operator.cli.main import _format_live_snapshot, app
@@ -901,6 +904,139 @@ def _seed_event_sourced_checkpoint(
     event_path = tmp_path / "operation_events" / f"{operation_id}.jsonl"
     event_path.parent.mkdir(parents=True, exist_ok=True)
     event_path.write_text("", encoding="utf-8")
+
+
+def test_v2_cli_smoke_creates_observes_and_cancels_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "operator-profile.yaml").write_text(
+        "\n".join(
+            [
+                "name: project",
+                "default_objective: Verify canonical v2 persistence",
+                "cwd: .",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    data_dir = tmp_path / ".operator"
+    event_store = FileOperationEventStore(data_dir / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(data_dir / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth_service = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    command_service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    monkeypatch.chdir(project_dir)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(data_dir))
+
+    class FakeV2Service:
+        async def run(
+            self,
+            goal: OperationGoal,
+            options,
+            *,
+            operation_id: str | None = None,
+            policy: OperationPolicy | None = None,
+            budget: ExecutionBudget | None = None,
+            runtime_hints: RuntimeHints | None = None,
+        ) -> OperationOutcome:
+            del options
+            assert operation_id is not None
+            state = OperationState(
+                operation_id=operation_id,
+                goal=goal,
+                policy=policy or OperationPolicy(),
+                execution_budget=budget or ExecutionBudget(),
+                runtime_hints=runtime_hints or RuntimeHints(),
+                status=OperationStatus.RUNNING,
+            )
+            await birth_service.birth(state)
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Operation started.",
+            )
+
+    class FakeCancelService:
+        async def cancel(
+            self,
+            operation_id: str,
+            *,
+            session_id: str | None = None,
+            run_id: str | None = None,
+            reason: str | None = None,
+        ) -> OperationOutcome:
+            assert session_id is None
+            assert run_id is None
+            result = await command_service.apply(
+                OperationCommand(
+                    operation_id=operation_id,
+                    command_type=OperationCommandType.STOP_OPERATION,
+                    target_scope=CommandTargetScope.OPERATION,
+                    target_id=operation_id,
+                    payload={"reason": reason} if reason else {},
+                )
+            )
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.CANCELLED,
+                summary=result.checkpoint.final_summary or "Operation cancelled.",
+                ended_at=result.checkpoint.updated_at,
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.build_v2_service",
+        lambda settings, event_sink=None: FakeV2Service(),
+    )
+
+    run_result = runner.invoke(app, ["run", "--v2", "--json"])
+
+    assert run_result.exit_code == 0
+    run_lines = [json.loads(line) for line in run_result.stdout.splitlines() if line.strip()]
+    assert run_lines[0]["type"] == "operation"
+    operation_id = run_lines[0]["operation_id"]
+    assert run_lines[1]["type"] == "outcome"
+    assert run_lines[1]["outcome"]["status"] == "running"
+    assert (data_dir / "operation_events" / f"{operation_id}.jsonl").exists()
+    assert not (data_dir / "runs" / f"{operation_id}.operation.json").exists()
+    assert not (data_dir / "runs" / f"{operation_id}.outcome.json").exists()
+
+    status_result = runner.invoke(app, ["status", operation_id, "--json"])
+
+    assert status_result.exit_code == 0
+    status_payload = json.loads(status_result.stdout)
+    assert status_payload["operation_id"] == operation_id
+    assert status_payload["status"] == "running"
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeCancelService(),
+    )
+
+    cancel_result = runner.invoke(app, ["cancel", operation_id, "--yes", "--json"])
+
+    assert cancel_result.exit_code == 3
+    cancel_payload = json.loads(cancel_result.stdout)
+    assert cancel_payload["operation_id"] == operation_id
+    assert cancel_payload["status"] == "cancelled"
+
+    cancelled_status = runner.invoke(app, ["status", operation_id, "--json"])
+
+    assert cancelled_status.exit_code == 0
+    cancelled_payload = json.loads(cancelled_status.stdout)
+    assert cancelled_payload["status"] == "cancelled"
+    assert not (data_dir / "runs" / f"{operation_id}.operation.json").exists()
+    assert not (data_dir / "runs" / f"{operation_id}.outcome.json").exists()
 
 
 def test_converse_cli_loads_event_sourced_operation_without_runs_dir(
