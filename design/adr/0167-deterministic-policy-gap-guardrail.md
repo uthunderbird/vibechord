@@ -6,16 +6,27 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
-Implementation grounding on 2026-04-13:
+Implementation grounding on 2026-04-26:
 
 - `implemented`: runtime guardrail logic checks policy coverage and
   `metadata.requires_policy_decision` before allowing policy-shaped decisions to proceed silently
 - `implemented`: the attention path can force `policy_gap` when the bounded guardrail conditions
   are met
-- `verified`: prompt and runtime behavior are covered in `tests/test_decision_execution_service.py`
-  and `tests/test_policy_coverage.py`
+- `verified`: the runtime blocks non-clarification policy-shaped actions behind
+  `decision_requires_policy_gap(...)` before agent execution and rewrites clarification attention
+  type to `policy_gap` when required. Evidence:
+  `src/agent_operator/application/decision_execution.py:109-150`,
+  `src/agent_operator/application/commands/operation_attention.py:164-188`.
+- `verified`: prompt and runtime behavior are covered by targeted regressions for uncovered policy
+  coverage prompt surfacing, blocking vs deferred policy-gap behavior, and clarification-type
+  coercion. Evidence: `tests/test_policy_coverage.py:174-237`,
+  `tests/test_decision_execution_service.py:367-495`,
+  `tests/test_policy_coverage_cli.py:52-106`.
+- `verified`: local verification on 2026-04-26 ran
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_decision_execution_service.py tests/test_policy_coverage.py tests/test_policy_coverage_cli.py`
+  and repository-wide `UV_CACHE_DIR=/tmp/uv-cache uv run pytest`.
 
 ## Context
 
