@@ -278,6 +278,23 @@ async def test_drain_wakeups_acks_completed_run() -> None:
     assert "evt-1" in inbox.acked
 
 
+@pytest.mark.anyio
+async def test_drain_wakeups_releases_v2_supervisor_events_without_polling_api() -> None:
+    event = StubRunEvent("evt-1", "agent.turn.completed", payload={"run_id": "run-1"})
+    inbox = StubWakeupInbox([event])
+    reconciler = RuntimeReconciler(
+        wakeup_inbox=inbox,
+        command_inbox=StubCommandInbox(),
+        supervisor=AgentRunSupervisorV2(),
+    )
+
+    events = await reconciler.drain_wakeups(_agg(), _ctx())
+
+    assert events == []
+    assert inbox.released == ["evt-1"]
+    assert inbox.acked == []
+
+
 # ── detect_orphaned_sessions ───────────────────────────────────────────────────
 
 
@@ -419,3 +436,16 @@ async def test_detect_orphaned_v2_runs_once_per_drive_call() -> None:
 
     assert len(first) == 1
     assert second == []
+
+
+@pytest.mark.anyio
+async def test_poll_background_runs_returns_empty_for_v2_supervisor() -> None:
+    reconciler = RuntimeReconciler(
+        wakeup_inbox=StubWakeupInbox(),
+        command_inbox=StubCommandInbox(),
+        supervisor=AgentRunSupervisorV2(),
+    )
+
+    events = await reconciler.poll_background_runs(_agg(), _ctx())
+
+    assert events == []

@@ -106,7 +106,7 @@ class AcpAdapterRuntime:
             "cwd": str(self._working_directory),
         }
         request_id = payload.get("id")
-        if isinstance(request_id, int):
+        if isinstance(request_id, (str, int)):
             normalized["id"] = request_id
         return normalized
 

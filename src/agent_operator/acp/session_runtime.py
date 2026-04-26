@@ -526,12 +526,35 @@ class AcpAgentSessionRuntime:
                 )
             )
             return True
-        return method in {
+        if method in {
             "session/request_permission",
             "item/commandExecution/requestApproval",
             "item/fileChange/requestApproval",
             "item/tool/requestUserInput",
-        }
+        }:
+            if self._active_prompt_task is not None and not self._active_prompt_task.done():
+                self._active_prompt_task.cancel()
+            await self._emit_fact(
+                TechnicalFactDraft(
+                    fact_type="session.failed",
+                    payload={
+                        "message": (
+                            f"Known ACP server request {method!r} was not recognized into "
+                            "operator-visible permission or input facts."
+                        ),
+                        "error_code": "agent_server_request_unrecognized",
+                        "raw": {
+                            "payload": fact.payload,
+                            "permission_events": list(session.permission_event_payloads),
+                        },
+                    },
+                    observed_at=datetime.now(UTC),
+                    source_fact_ids=[],
+                    session_id=session_id,
+                )
+            )
+            return True
+        return False
 
     def _normalized_session_metadata(self, metadata: object) -> dict[str, str]:
         if not isinstance(metadata, dict):

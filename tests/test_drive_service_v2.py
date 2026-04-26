@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -228,6 +229,17 @@ class PermissionRejectedSessionManager(StubSessionManager):
                 ]
             },
         )
+
+
+class HangingCloseSessionManager(StubSessionManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.close_started = False
+        self.close_gate = asyncio.Event()
+
+    async def close(self, handle) -> None:
+        self.close_started = True
+        await self.close_gate.wait()
 
 
 class PermissionFollowupBrain:
@@ -488,6 +500,57 @@ async def test_drive_service_emits_session_created_before_turn_completion() -> N
         "session.created",
         "agent.turn.completed",
     ]
+    assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+
+
+@pytest.mark.anyio
+async def test_policy_executor_records_terminal_success_before_close_returns() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=HangingCloseSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+    )
+
+    outcome = await asyncio.wait_for(drive.drive("op-1", RunOptions(max_cycles=1)), timeout=0.2)
+
+    event_types = [event.event_type for event in event_sink.events]
+    assert "agent.turn.completed" in event_types
+    assert "session.observed_state.changed" in event_types
     assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
 
 

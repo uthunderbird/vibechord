@@ -198,8 +198,13 @@ class DefaultOperationProjector:
                     self._payload_optional_string(event.payload, "terminal_state"),
                 )
                 session.observed_state = observed_state
+                _terminal_state_value = (
+                    "cancelled" if terminal_state == "interrupted" else terminal_state
+                )
                 session.terminal_state = (
-                    SessionTerminalState(terminal_state) if terminal_state is not None else None
+                    SessionTerminalState(_terminal_state_value)
+                    if _terminal_state_value is not None
+                    else None
                 )
                 self._assign_if_present(session, event.payload, "current_execution_id")
                 self._assign_if_present(session, event.payload, "last_terminal_execution_id")
@@ -236,6 +241,7 @@ class DefaultOperationProjector:
             SessionTerminalState.COMPLETED.value,
             SessionTerminalState.FAILED.value,
             SessionTerminalState.CANCELLED.value,
+            "interrupted",  # legacy value from older event schema
         }:
             return SessionObservedState.TERMINAL, terminal_state or str(observed_state)
         return SessionObservedState(str(observed_state)), terminal_state
@@ -313,9 +319,13 @@ class DefaultOperationProjector:
     ) -> OperationCheckpoint:
         if event.event_type == "attention.request.created":
             request = AttentionRequest(
-                attention_id=str(event.payload["attention_id"]),
-                operation_id=str(event.payload["operation_id"]),
-                attention_type=AttentionType(event.payload["attention_type"]),
+                attention_id=str(
+                    event.payload.get("attention_id") or event.payload.get("request_id", "")
+                ),
+                operation_id=str(event.payload.get("operation_id") or ""),
+                attention_type=AttentionType(
+                    event.payload.get("attention_type", AttentionType.QUESTION.value)
+                ),
                 target_scope=CommandTargetScope(event.payload.get("target_scope", "operation")),
                 target_id=self._payload_optional_string(event.payload, "target_id"),
                 title=str(event.payload["title"]),

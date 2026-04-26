@@ -5,7 +5,7 @@ import json
 import anyio
 import typer
 
-from agent_operator.bootstrap import build_policy_store, build_store
+from agent_operator.bootstrap import build_policy_store
 from agent_operator.domain import (
     CommandTargetScope,
     InvolvementLevel,
@@ -20,6 +20,10 @@ from ..helpers.policy import (
     policy_evaluation_payload,
     policy_payload,
     resolve_operation_policy_scope,
+)
+from ..helpers.resolution import (
+    load_required_canonical_operation_state_async,
+    resolve_operation_id_async,
 )
 from ..helpers.services import load_settings
 from ..options import (
@@ -207,13 +211,16 @@ def policy_explain(
     json_mode: bool = POLICY_JSON_OPTION,
 ) -> None:
     settings = load_settings()
-    store = build_store(settings)
     policy_store = build_policy_store(settings)
 
     async def _explain_policy() -> None:
-        operation = await store.load_operation(operation_id)
-        if operation is None:
-            raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
+        try:
+            resolved_operation_id = await resolve_operation_id_async(operation_id)
+            operation = await load_required_canonical_operation_state_async(
+                settings, resolved_operation_id
+            )
+        except RuntimeError as exc:
+            raise typer.BadParameter(str(exc)) from exc
         project_scope = resolve_operation_policy_scope(operation)
         entries = (
             await policy_store.list(project_scope=project_scope)
@@ -226,7 +233,7 @@ def policy_explain(
         matched = [item for item in evaluations if bool(item.get("applies_now"))]
         skipped = [item for item in evaluations if not bool(item.get("applies_now"))]
         payload = {
-            "operation_id": operation_id,
+            "operation_id": operation.operation_id,
             "project_scope": project_scope,
             "matched_policy_entries": matched,
             "skipped_policy_entries": skipped,
@@ -235,7 +242,7 @@ def policy_explain(
         if json_mode:
             typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
             return
-        typer.echo(f"Operation {operation_id}")
+        typer.echo(f"Operation {operation.operation_id}")
         typer.echo(f"Project scope: {project_scope or '-'}")
         if project_scope is None:
             typer.echo(

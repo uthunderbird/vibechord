@@ -180,6 +180,39 @@ def test_operation_projector_projects_permission_events_for_replay_visibility() 
     )
 
 
+def test_operation_projector_normalizes_legacy_interrupted_terminal_state() -> None:
+    """Catches replay rejecting legacy `interrupted` session terminal payloads."""
+    projector = DefaultOperationProjector()
+    checkpoint = OperationCheckpoint.initial("op-1")
+    session = SessionState.model_validate(
+        {
+            "handle": {
+                "adapter_key": "codex_acp",
+                "session_id": "session-1",
+            }
+        }
+    )
+
+    projected = projector.project(
+        checkpoint,
+        [
+            _event("session.created", sequence=1, payload=session.model_dump()),
+            _event(
+                "session.observed_state.changed",
+                sequence=2,
+                payload={
+                    "session_id": "session-1",
+                    "observed_state": "terminal",
+                    "terminal_state": "interrupted",
+                },
+            ),
+        ],
+    )
+
+    assert projected.sessions[0].observed_state is SessionObservedState.TERMINAL
+    assert projected.sessions[0].terminal_state is SessionTerminalState.CANCELLED
+
+
 def test_operation_projector_updates_attention_scheduler_and_optional_subslices() -> None:
     projector = DefaultOperationProjector()
     checkpoint = OperationCheckpoint.initial("op-1")
@@ -288,6 +321,32 @@ def test_operation_projector_updates_attention_scheduler_and_optional_subslices(
     assert len(projected.operator_messages) == 1
     assert projected.operator_messages[0].message_id == "msg-1"
     assert projected.operator_messages[0].dropped_from_context is True
+
+
+def test_operation_projector_accepts_legacy_attention_request_id_shape() -> None:
+    """Catches replay requiring the new `attention_id` payload shape too early."""
+    projector = DefaultOperationProjector()
+    checkpoint = OperationCheckpoint.initial("op-1")
+
+    projected = projector.project(
+        checkpoint,
+        [
+            _event(
+                "attention.request.created",
+                sequence=1,
+                payload={
+                    "request_id": "attention-legacy",
+                    "title": "Clarify",
+                    "question": "Which path?",
+                    "blocking": True,
+                },
+            )
+        ],
+    )
+
+    assert projected.attention_requests[0].attention_id == "attention-legacy"
+    assert projected.attention_requests[0].attention_type is AttentionType.QUESTION
+    assert projected.status is OperationStatus.NEEDS_HUMAN
 
 
 def test_operation_projector_is_deterministic_for_same_input_suffix() -> None:

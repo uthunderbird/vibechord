@@ -18,6 +18,8 @@ from agent_operator.domain.enums import BackgroundRunStatus, CommandStatus
 from agent_operator.domain.event_sourcing import OperationDomainEventDraft
 from agent_operator.protocols import AgentRunSupervisor, OperationCommandInbox, WakeupInbox
 
+type RuntimeSupervisor = AgentRunSupervisor | AgentRunSupervisorV2
+
 
 class RuntimeReconciler:
     """Drain inboxes and poll background runs, returning domain events.
@@ -33,7 +35,7 @@ class RuntimeReconciler:
         wakeup_inbox: WakeupInbox,
         command_inbox: OperationCommandInbox,
         event_sourced_command_service: EventSourcedCommandApplicationService | None = None,
-        supervisor: AgentRunSupervisor | None = None,
+        supervisor: RuntimeSupervisor | None = None,
         stale_run_threshold: timedelta = timedelta(minutes=5),
     ) -> None:
         self._wakeup_inbox = wakeup_inbox
@@ -60,7 +62,11 @@ class RuntimeReconciler:
 
         for event in claimed:
             run_id = event.payload.get("run_id") if isinstance(event.payload, dict) else None
-            if not isinstance(run_id, str) or self._supervisor is None:
+            if (
+                not isinstance(run_id, str)
+                or self._supervisor is None
+                or isinstance(self._supervisor, AgentRunSupervisorV2)
+            ):
                 release_ids.append(event.event_id)
                 continue
 
@@ -164,7 +170,7 @@ class RuntimeReconciler:
         ctx: ProcessManagerContext,
     ) -> list[OperationDomainEventDraft]:
         """Poll supervisor for background run status changes and detect stale runs."""
-        if self._supervisor is None:
+        if self._supervisor is None or isinstance(self._supervisor, AgentRunSupervisorV2):
             return []
 
         events: list[OperationDomainEventDraft] = []

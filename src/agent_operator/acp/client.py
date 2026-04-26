@@ -31,7 +31,7 @@ class AcpConnection(Protocol):
 
     async def respond(
         self,
-        request_id: int,
+        request_id: str | int,
         *,
         result: JsonObject | None = None,
         error: JsonObject | None = None,
@@ -163,7 +163,7 @@ class AcpSubprocessConnection:
 
     async def respond(
         self,
-        request_id: int,
+        request_id: str | int,
         *,
         result: JsonObject | None = None,
         error: JsonObject | None = None,

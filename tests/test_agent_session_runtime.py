@@ -669,6 +669,147 @@ async def test_acp_agent_session_runtime_permission_request_requires_request_id(
 
 
 @pytest.mark.anyio
+async def test_acp_agent_session_runtime_routes_string_id_permission_request() -> None:
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="codex_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+    class EscalatingPermissionEvaluator:
+        async def evaluate(self, **_: object) -> PermissionEvaluationResult:
+            return PermissionEvaluationResult(
+                decision=AcpPermissionDecision.ESCALATE,
+                rationale="Brain chose to escalate.",
+                suggested_options=("Approve once", "Reject"),
+                decision_source="brain",
+            )
+
+    adapter = CodexAcpAgentAdapter(
+        connection_factory=lambda _cwd, _log_path: connection,
+        permission_evaluator=EscalatingPermissionEvaluator(),
+    )
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+        handle_server_request=adapter._runner._hooks.handle_server_request,  # type: ignore[attr-defined]
+    )
+
+    request_id = "5cba607c-697f-402e-8e84-067f2a432fdb"
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+                metadata={"operation_id": "op-1"},
+            )
+        )
+        _started = await asyncio.wait_for(anext(stream), timeout=1.0)
+        next_fact_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0.02)
+        connection.drained_notifications.append(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Tool: codex_apps/github_create_blob",
+                        "kind": "mcp",
+                        "rawInput": {
+                            "server": "codex_apps",
+                            "tool": "github_create_blob",
+                            "arguments": {
+                                "repository_full_name": "uthunderbird/vibechord",
+                            },
+                        },
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            }
+        )
+        facts = [await asyncio.wait_for(next_fact_task, timeout=1.0)]
+        for _ in range(3):
+            facts.append(await asyncio.wait_for(anext(stream), timeout=1.0))
+
+    assert [fact.fact_type for fact in facts] == [
+        "permission.request.observed",
+        "permission.request.escalated",
+        "permission.request.followup_required",
+        "session.waiting_input_observed",
+    ]
+    assert connection.responses == [
+        (
+            request_id,
+            {"outcome": {"outcome": "selected", "optionId": "abort"}},
+            None,
+        )
+    ]
+
+
+@pytest.mark.anyio
+async def test_acp_agent_session_runtime_known_permission_request_never_silently_noops() -> None:
+    connection = FakeAcpConnection()
+    adapter_runtime = AcpAdapterRuntime(
+        adapter_key="codex_acp",
+        working_directory=Path.cwd(),
+        connection=connection,
+        poll_interval_seconds=0.01,
+    )
+
+    async def handle_server_request(_session, _payload: dict) -> None:
+        return None
+
+    runtime = AcpAgentSessionRuntime(
+        adapter_runtime=adapter_runtime,
+        working_directory=Path.cwd(),
+        handle_server_request=handle_server_request,
+    )
+
+    async with runtime:
+        stream = runtime.events()
+        await runtime.send(
+            AgentSessionCommand(
+                command_type=AgentSessionCommandType.START_SESSION,
+                instruction="Inspect the repository",
+                metadata={"operation_id": "op-1"},
+            )
+        )
+        _started = await asyncio.wait_for(anext(stream), timeout=1.0)
+        next_fact_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0.02)
+        connection.drained_notifications.append(
+            {
+                "jsonrpc": "2.0",
+                "id": "known-permission-noop",
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "sess-1",
+                    "toolCall": {
+                        "title": "Tool: codex_apps/github_create_blob",
+                        "kind": "mcp",
+                        "rawInput": {"server": "codex_apps", "tool": "github_create_blob"},
+                    },
+                    "options": [
+                        {"optionId": "approved", "kind": "allow_once"},
+                        {"optionId": "abort", "kind": "reject_once"},
+                    ],
+                },
+            }
+        )
+        fact = await asyncio.wait_for(next_fact_task, timeout=1.0)
+
+    assert fact.fact_type == "session.failed"
+    assert fact.payload["error_code"] == "agent_server_request_unrecognized"
+
+
+@pytest.mark.anyio
 async def test_acp_agent_session_runtime_forwards_opencode_permission_requests_through_shared_hook(
 ) -> None:
     connection = FakeAcpConnection()

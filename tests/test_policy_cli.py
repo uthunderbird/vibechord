@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anyio
@@ -8,6 +9,9 @@ from typer.testing import CliRunner
 
 from agent_operator.cli.main import app
 from agent_operator.domain import (
+    ObjectiveState,
+    OperationCheckpoint,
+    OperationCheckpointRecord,
     OperationGoal,
     OperationPolicy,
     OperationState,
@@ -90,6 +94,38 @@ def _seed_operation_with_policy_scope(tmp_path: Path) -> str:
         )
 
     anyio.run(_seed)
+    return operation_id
+
+
+def _seed_event_sourced_operation_with_policy_scope(tmp_path: Path) -> str:
+    operation_id = "op-policy-explain-v2"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(
+        objective="Prepare the testing checklist.",
+        harness_instructions="Keep deployment steps explicit.",
+        metadata={"policy_scope": "profile:alpha"},
+    )
+    checkpoint.allowed_agents = ["codex_acp"]
+    checkpoint.policy_coverage = checkpoint.policy_coverage.model_copy(
+        update={"project_scope": "profile:alpha"}
+    )
+    checkpoint.updated_at = datetime(2026, 4, 26, 12, 0, tzinfo=UTC)
+    checkpoint.created_at = checkpoint.updated_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir(exist_ok=True)
+    (event_dir / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
     return operation_id
 
 
@@ -214,4 +250,22 @@ def test_policy_explain_is_deterministic_and_distinguishes_matched_from_skipped(
     assert payload["skipped_policy_entries"][0]["applies_now"] is False
     assert payload["skipped_policy_entries"][0]["skip_reasons"] == [
         "objective missing release"
+    ]
+
+
+def test_policy_explain_reads_event_sourced_operation_without_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _seed_policy_entries(tmp_path)
+    operation_id = _seed_event_sourced_operation_with_policy_scope(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["policy", "explain", "op-policy-explain", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["project_scope"] == "profile:alpha"
+    assert [entry["policy_id"] for entry in payload["matched_policy_entries"]] == [
+        "policy-alpha-testing"
     ]

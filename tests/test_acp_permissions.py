@@ -130,6 +130,40 @@ def test_render_codex_reject_uses_abort_option() -> None:
     ) == {"outcome": {"outcome": "selected", "optionId": "abort"}}
 
 
+def test_normalize_permission_request_accepts_string_jsonrpc_id() -> None:
+    request = normalize_permission_request(
+        adapter_key="codex_acp",
+        working_directory=Path("/tmp/repo"),
+        payload={
+            "jsonrpc": "2.0",
+            "id": "5cba607c-697f-402e-8e84-067f2a432fdb",
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "sess-1",
+                "toolCall": {
+                    "title": "Tool: codex_apps/github_create_blob",
+                    "kind": "mcp",
+                    "rawInput": {
+                        "server": "codex_apps",
+                        "tool": "github_create_blob",
+                        "arguments": {
+                            "repository_full_name": "uthunderbird/vibechord",
+                        },
+                    },
+                },
+                "options": [
+                    {"optionId": "approved", "kind": "allow_once"},
+                    {"optionId": "abort", "kind": "reject_once"},
+                ],
+            },
+        },
+    )
+
+    assert request is not None
+    assert request.request_id == "5cba607c-697f-402e-8e84-067f2a432fdb"
+    assert request.title == "Tool: codex_apps/github_create_blob"
+
+
 def test_permission_decision_prompt_for_auto_forbids_escalation() -> None:
     from agent_operator.domain import OperationGoal, OperationState
     from agent_operator.providers.prompting import build_permission_decision_prompt

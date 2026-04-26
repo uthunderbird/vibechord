@@ -31,7 +31,7 @@ class AcpPermissionOptionView:
 
 @dataclass(frozen=True)
 class AcpPermissionRequest:
-    request_id: int
+    request_id: str | int
     adapter_key: str
     method: str
     interaction: AcpPermissionInteraction
@@ -54,7 +54,7 @@ def normalize_permission_request(
 ) -> AcpPermissionRequest | None:
     request_id = payload.get("id")
     method = payload.get("method")
-    if not isinstance(request_id, int) or not isinstance(method, str):
+    if not isinstance(request_id, (str, int)) or not isinstance(method, str):
         return None
     params = payload.get("params")
     if not isinstance(params, dict):

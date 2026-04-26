@@ -44,7 +44,7 @@ class AdapterCommand(BaseModel):
     command_type: str
     method: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
-    request_id: int | None = None
+    request_id: str | int | None = None
     result: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
 

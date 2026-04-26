@@ -9,6 +9,7 @@ is removed in Layer 3 when the brain protocol is updated to accept OperationAggr
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -299,11 +300,7 @@ class PolicyExecutor:
             if hasattr(self._supervisor, "spawn"):
                 pass  # Background spawning handled by DriveService for resumable runs
 
-            try:
-                agent_result = await self._session_manager.collect(handle)
-            finally:
-                with suppress(Exception):
-                    await self._session_manager.close(handle)
+            agent_result = await self._session_manager.collect(handle)
             result.agent_result = agent_result
             completed_at = datetime.now(UTC)
 
@@ -355,8 +352,19 @@ class PolicyExecutor:
                     },
                 )
             )
+            self._close_session_nonblocking(handle)
 
         return result
+
+    def _close_session_nonblocking(self, handle: AgentSessionHandle) -> None:
+        if self._session_manager is None:
+            return
+
+        async def _close() -> None:
+            with suppress(Exception):
+                await self._session_manager.close(handle)
+
+        asyncio.create_task(_close())
 
     def _session_observed_state_payload(
         self,
