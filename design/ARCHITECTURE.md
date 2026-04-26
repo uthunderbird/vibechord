@@ -1171,17 +1171,11 @@ The following named items are known tech debt — a contributor encountering the
   in-process supervisor share one app-scoped manager instance, and runtime `close()` is separated
   from semantic `cancel()`. Under ADR 0170, the remaining work is now follow-on cleanup and
   feature expansion, not ownership ambiguity around `active_session` or `context_exit`.
-- **`ObjectiveState.status` is a redundant synchronized copy of `OperationState.status`.**
-  `ObjectiveState` carries a `status: OperationStatus` field kept in sync via `sync_derived_state()`
-  and the checkpoint projector. This is the only status that should be read from `OperationState.status`
-  directly. `ObjectiveState` is otherwise a useful goal-config accessor (`objective`,
-  `harness_instructions`, `success_criteria`). The status field and its sync logic should be
-  removed. Tracked in ADR 0150.
-- **`SessionState.desired_state` is a dead field.** `desired_state: SessionDesiredState` has zero
-  usages outside the domain layer — it is aspirational Kubernetes-style desired/observed split
-  that was never wired to a reconciliation loop. Should be removed. Tracked in ADR 0150.
-- **`FeatureStatus.READY_FOR_REVIEW` and `NEEDS_REWORK` are dead enum values.** Never assigned or
-  checked anywhere in the codebase. Should be removed from `FeatureStatus`. Tracked in ADR 0150.
+- **ADR 0150 simplification tranche is verified.** `ObjectiveState.status` has been removed, the
+  dead `SessionState.desired_state` field is gone, and `FeatureStatus` now exposes only the
+  runtime values that are actually used. The remaining follow-on from ADR 0150 is the separate
+  two-field session lifecycle simplification (`observed_state + terminal_state` to a single stored
+  `SessionStatus`), not the already-closed dead-field cleanup.
 
 ## Agent Adapters
 
