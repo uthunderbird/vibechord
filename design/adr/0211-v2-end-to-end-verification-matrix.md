@@ -48,6 +48,13 @@ Acceptance grounding on 2026-04-26:
   `tests/test_live_mixed_code_agent_selection.py`.
 - `verified`: a static regression now fails if the procedure references a missing evidence
   template. Evidence: `tests/test_v2_verification_docs.py`.
+- `implemented`: the published procedure now explicitly enumerates the previously implicit
+  `targeted query/read-model tests`, `stream/TUI visibility smoke`, and `restart/resume smoke`
+  rows, so the document matches this ADR's required matrix more closely instead of leaving those
+  rows buried only in later prose sections.
+- `verified`: static regressions now fail if the procedure drops those required row names or the
+  canonical `status` / `watch --once` / `debug inspect --full` visibility commands. Evidence:
+  `tests/test_v2_verification_docs.py`.
 - `blocked`: this ADR still lacks the fresh operator-on-operator and external-project live
   evidence required for `Verified`, so implementation status remains `Partial`.
 

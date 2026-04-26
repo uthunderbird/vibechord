@@ -62,8 +62,11 @@ verification, but it does weaken commit-anchored closure claims.
 | --- | --- | --- |
 | full suite | repository-wide regression baseline | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` |
 | targeted control plane | prove `ADR 0205` local command/control behavior | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_event_sourced_command_application.py tests/test_operator_service_v2.py` |
+| targeted query/read-model tests | prove replay-backed status, resolution, and projector surfaces still hold | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_operation_status_queries.py tests/test_operation_resolution.py tests/test_operation_projector.py` |
 | targeted smoke shape | verify smoke-goal definitions still match the intended live surfaces | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_smoke_goal.py` |
 | live Codex ACP roundtrip | narrow ACP transport preflight before larger smokes | `OPERATOR_RUN_CODEX_ACP_LIVE=1 UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q -rs tests/test_live_codex_acp.py` |
+| stream/TUI visibility smoke | prove the same live operation exposes coherent status/watch/inspect evidence | see `Stream / Visibility Capture` below |
+| restart/resume smoke | prove one live v2 operation completes, resumes, or cancels through the approved follow-up path | see `Restart / Resume / Cancel Follow-up` below |
 | operator-on-operator continuation smoke | fresh v2 run that reuses the same Codex session | `OPERATOR_RUN_CODEX_CONTINUATION_SMOKE=1 UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q -rs tests/test_live_codex_continuation.py` |
 | operator-on-operator mixed-code smoke | fresh v2 run that chooses a real coding agent for this repo | `OPERATOR_RUN_MIXED_CODE_AGENT_SMOKE=1 UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q -rs tests/test_live_mixed_code_agent_selection.py` |
 | external project baseline | prove `operator run --v2` works against problem `625` | see `External Project Baseline` below |
@@ -75,11 +78,31 @@ verification, but it does weaken commit-anchored closure claims.
 Run the local rows first:
 
 ```sh
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_smoke_goal.py tests/test_event_sourced_command_application.py tests/test_operator_service_v2.py
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q \
+tests/test_smoke_goal.py \
+tests/test_event_sourced_command_application.py \
+tests/test_operator_service_v2.py \
+tests/test_operation_status_queries.py \
+tests/test_operation_resolution.py \
+tests/test_operation_projector.py
 ```
 
 If the full suite is too expensive for the current wave, record that it was not run. Do not count
 the targeted subset as full-suite evidence.
+
+## Stream / Visibility Capture
+
+For any live row used as evidence, capture the same operation id through all three supervisory
+surfaces:
+
+```sh
+UV_CACHE_DIR=/tmp/uv-cache uv run operator status last --json
+UV_CACHE_DIR=/tmp/uv-cache uv run operator watch last --once --json
+UV_CACHE_DIR=/tmp/uv-cache uv run operator debug inspect last --json --full
+```
+
+If one surface lags or disagrees, record that as a failed or blocked visibility row rather than
+folding it into a generic smoke result.
 
 ## Operator-on-Operator Rows
 
