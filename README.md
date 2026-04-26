@@ -115,6 +115,7 @@ current keymap, supported actions, and known limitations, see
 ## Where to go next
 
 - [Quickstart](docs/quickstart.md)
+- [Public release reference](docs/reference/public-release.md)
 - [TUI Workbench](docs/tui-workbench.md)
 - [CLI reference](docs/reference/cli.md)
 - [Configuration reference](docs/reference/config.md)

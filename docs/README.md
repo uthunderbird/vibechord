@@ -9,6 +9,7 @@ Start here if you want to use the project, evaluate it, or integrate with it.
 - [Quickstart](quickstart.md)
 - [Run your first operation](how-to/run-first-operation.md)
 - [Resume and inspect operations](how-to/resume-and-inspect.md)
+- [Public release reference](reference/public-release.md)
 - [CLI reference](reference/cli.md)
 - [Configuration reference](reference/config.md)
 - [Integrations](integrations.md)
