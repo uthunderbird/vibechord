@@ -4,11 +4,30 @@
 
 ## Decision Status
 
-Accepted
+Superseded
 
 ## Implementation Status
 
-Implemented
+N/A
+
+Skim-safe current truth on 2026-04-27:
+
+- `superseded`: the repository no longer carries a durable `active_session` field whose initial
+  value must be made canonical at birth
+- `implemented`: initial attached sessions are still born canonically through `session.created`
+  events
+- `implemented`: the operator now exposes only a derived `active_session_record` view from
+  canonical session truth, focus, and task linkage
+- `verified`: structural regression coverage now enforces that canonical birth must not emit
+  `operation.active_session_updated`
+
+Supersession note:
+
+This ADR recorded a transitional gap in the earlier `active_session` dual-write model. Current
+repository truth has moved past that model: `active_session` has been retired from durable state,
+birth does not emit `operation.active_session_updated`, and the operator derives the active-session
+view from canonical session truth instead. The live-session ownership and active-session retirement
+direction now lives under [ADR 0170](./0170-session-manager-live-session-ownership-boundary.md).
 
 ## Context
 
