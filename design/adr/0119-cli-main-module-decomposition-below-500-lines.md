@@ -26,13 +26,17 @@ Skim-safe current truth on 2026-04-27:
   `src/agent_operator/cli/tui/model_fleet.py` (240 lines),
   `src/agent_operator/cli/tui/model_sessions.py` (413 lines), and
   `src/agent_operator/cli/tui/model_text.py` (98 lines)
+- `implemented`: text rendering now keeps `agent_operator.cli.rendering.text` as a 25-line public
+  compatibility facade, with live/event formatting in
+  `src/agent_operator/cli/rendering/text_live.py` (342 lines), inspect/status summaries in
+  `src/agent_operator/cli/rendering/text_status.py` (274 lines), and inspect context rendering in
+  `src/agent_operator/cli/rendering/text_context.py` (140 lines)
 - `partial`: ADR 0119's material-satisfaction bar is not yet met because multiple CLI source files
   still exceed the 500-line limit
 - `partial`: the largest remaining files are
   `src/agent_operator/cli/tui/controller.py` (1347),
   `src/agent_operator/cli/workflows/views.py` (859),
   `src/agent_operator/cli/workflows/converse.py` (803),
-  `src/agent_operator/cli/rendering/text.py` (690),
   `src/agent_operator/cli/workflows/control_runtime.py` (557)
 
 Verification evidence for this slice:
@@ -46,11 +50,14 @@ Verification evidence for this slice:
   now also fails if `src/agent_operator/cli/tui/models.py`,
   `src/agent_operator/cli/tui/model_types.py`,
   `src/agent_operator/cli/tui/model_attention.py`,
-  `src/agent_operator/cli/tui/model_display.py`,
   `src/agent_operator/cli/tui/model_fleet.py`,
   `src/agent_operator/cli/tui/model_sessions.py`,
-  `src/agent_operator/cli/tui/model_text.py`, or
-  `src/agent_operator/cli/tui/model_views.py` regresses above the ADR ceiling
+  or `src/agent_operator/cli/tui/model_text.py` regresses above the ADR ceiling
+- `verified`: `tests/test_adr_0119_cli_line_budget.py::test_adr_0119_split_cli_modules_stay_under_500_lines`
+  now also fails if `src/agent_operator/cli/rendering/text.py`,
+  `src/agent_operator/cli/rendering/text_live.py`,
+  `src/agent_operator/cli/rendering/text_status.py`, or
+  `src/agent_operator/cli/rendering/text_context.py` regresses above the ADR ceiling
 - `verified`: `tests/test_adr_0119_control_line_budget.py::test_control_workflow_modules_stay_under_500_lines`
   now fails if `src/agent_operator/cli/workflows/control.py` or
   `src/agent_operator/cli/workflows/control_converse.py` regresses above the ADR ceiling
@@ -67,9 +74,12 @@ Verification evidence for this slice:
 - `verified`: focused TUI/models regressions passed with
   `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_adr_0119_cli_line_budget.py tests/test_tui.py tests/test_tui_language_slice.py tests/test_tui_session_summary_jump_to.py`
   (`84 passed`)
+- `verified`: focused rendering regressions passed with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_adr_0119_cli_line_budget.py tests/test_cli_rendering_imports.py tests/test_cli.py -k "test_format_live_snapshot_surfaces_typed_attention_brief or test_format_live_snapshot_surfaces_attention_absence_explicitly or test_render_watch_snapshot_keeps_compact_live_summary or test_render_watch_snapshot_omits_recent_line_without_update" tests/test_operation_projections.py -k "test_build_live_snapshot_and_format_live_snapshot"`
+  (`7 passed`)
 - `verified`: full repository verification passed with
   `UV_CACHE_DIR=/tmp/uv-cache uv run pytest`
-  (`1030 passed, 11 skipped`)
+  (`1032 passed, 11 skipped`)
 
 This ADR is accepted but only partially implemented.
 
@@ -291,11 +301,10 @@ This ADR is materially satisfied only when all of the following are true:
 ### Evidence
 
 - As of 2026-04-27, `wc -l` over `src/agent_operator/cli/**/*.py` shows the CLI is decomposed into
-  focused modules, but the 500-line budget is still violated by five files:
+  focused modules, but the 500-line budget is still violated by four files:
   `tui/controller.py` (1347),
   `workflows/views.py` (859),
   `workflows/converse.py` (803),
-  `rendering/text.py` (690),
   `workflows/control_runtime.py` (557).
 - As of 2026-04-27, `wc -l` for the extracted TUI models slice is:
   `tui/models.py` (172),
@@ -316,6 +325,10 @@ This ADR is materially satisfied only when all of the following are true:
   `src/agent_operator/cli/tui/model_fleet.py`,
   `src/agent_operator/cli/tui/model_sessions.py`, and
   `src/agent_operator/cli/tui/model_text.py` own the extracted implementation.
+- `src/agent_operator/cli/rendering/text.py` now retains the public rendering seam at 25 lines
+  while `src/agent_operator/cli/rendering/text_live.py`,
+  `src/agent_operator/cli/rendering/text_status.py`, and
+  `src/agent_operator/cli/rendering/text_context.py` own the extracted implementation.
 - `src/agent_operator/cli/workflows/control.py` now retains the public workflow seam at 461 lines
   while `src/agent_operator/cli/workflows/control_converse.py` owns the extracted
   converse-command dispatch logic.
