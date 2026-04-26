@@ -4,11 +4,39 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Implementation grounding on 2026-04-26:
+
+- `implemented`: the repository now has one explicit in-repo cutover governance artifact at
+  `design/internal/v2-cutover-governance-checklist.md`. That artifact records the required gate
+  checklist, the current legacy inventory, the required removal order, the rollback boundary, and
+  the rehearsal procedure for this ADR instead of leaving cutover approval as oral tradition.
+- `implemented`: the artifact grounds the current repository inventory against real surfaces that
+  still exist today, including the named snapshot fallback seams in
+  `src/agent_operator/application/queries/operation_resolution.py`,
+  `src/agent_operator/application/queries/operation_status_queries.py`, and
+  `src/agent_operator/application/commands/operation_delivery_commands.py`, plus the transitional
+  CLI aliases still published in `docs/reference/cli-command-contracts.md`.
+- `implemented`: the same artifact also records already-removed slices that matter to the gate,
+  including the package-root public API cleanup from `ADR 0215` and the guarded v2 mutation-path
+  removal of direct `FileOperationStore.save_operation()` authority covered by
+  `tests/test_application_structure.py`.
+- `verified`: static regressions now fail if `ADR 0213` stops referencing the governance artifact,
+  if the artifact drops a required gate section, or if it loses the canonical rehearsal commands
+  and current inventory classifications. Evidence:
+  `tests/test_v2_cutover_governance_docs.py`.
+- `partial`: the final cutover gate is still not satisfied in repository truth. This slice defines
+  and locks the governance procedure, but it does not claim that all `ADR 0203` through
+  `ADR 0211` acceptance conditions are already closed for one pinned wave.
+- `blocked`: one rehearsed cutover run tied to a pinned clean repository state is not yet recorded
+  in-repo.
+- `blocked`: the current worktree already contains unrelated local modifications outside this ADR
+  slice, so this wave is not itself the clean final-cutover acceptance state.
 
 ## Context
 
@@ -28,6 +56,11 @@ cutover is a governance event as well as a code change:
 Without a dedicated cutover-governance ADR, the repository can reach an ambiguous state where
 individual v2 tranche ADRs are accepted, but no single document defines the merge gate for
 destructive removal of the remaining v1 load-bearing surfaces.
+
+Current repository truth on 2026-04-26 is better than that but still incomplete: the repository
+now has an explicit governance checklist and inventory artifact at
+`design/internal/v2-cutover-governance-checklist.md`, yet the final cutover wave has not been
+rehearsed and accepted on a pinned clean state.
 
 ## Decision
 
@@ -97,6 +130,14 @@ The cutover gate is not satisfied until all of the following are true:
 - one verification pass showing that the accepted repository state satisfies ADRs 0203 through 0211
 - one docs/code/API search proving that no stale "current" v1 authority claims remain
 - one post-removal regression run showing the repository still supports the approved v2 workflows
+
+Current repository evidence for this ADR slice:
+
+- `design/internal/v2-cutover-governance-checklist.md` provides the explicit checklist, current
+  legacy inventory, removal order, rollback boundary, and rehearsal procedure.
+- `tests/test_v2_cutover_governance_docs.py` statically verifies that the artifact exists, is
+  referenced by this ADR, retains the required gate sections, and includes the canonical rehearsal
+  commands and inventory classifications.
 
 ## Related
 
