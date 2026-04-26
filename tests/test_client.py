@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +34,15 @@ from agent_operator.domain import (
 from agent_operator.runtime import FileOperationCommandInbox, FileOperationStore, JsonlEventSink
 
 pytestmark = pytest.mark.anyio
+
+
+def test_agent_operator_package_root_exports_only_operator_client() -> None:
+    module = importlib.import_module("agent_operator")
+
+    assert module.__all__ == ["OperatorClient"]
+    assert module.OperatorClient is OperatorClient
+    assert not hasattr(module, "OperatorService")
+    assert not hasattr(module, "build_service")
 
 
 def state_settings(

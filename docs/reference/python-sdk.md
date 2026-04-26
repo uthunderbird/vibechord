@@ -1,7 +1,7 @@
 # Python SDK reference
 
-`agent_operator.client.OperatorClient` is the stable Python SDK surface for embedding `operator`
-without subprocess orchestration.
+`agent_operator.OperatorClient` is the stable Python SDK surface for embedding `operator` without
+subprocess orchestration.
 
 ## Stability contract
 
@@ -18,7 +18,7 @@ This SDK surface follows the public stability contract from ADR 0145.
 ```python
 from pathlib import Path
 
-from agent_operator.client import OperatorClient
+from agent_operator import OperatorClient
 
 
 async def main() -> None:
