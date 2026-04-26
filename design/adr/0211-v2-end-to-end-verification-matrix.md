@@ -4,7 +4,7 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
@@ -32,6 +32,24 @@ Implementation grounding on 2026-04-24:
   filesystem inspection
 - `noted`: the current `operator` worktree is dirty outside this ADR slice, so any future e2e
   evidence should be captured from a clean or intentionally pinned repository state
+
+Acceptance grounding on 2026-04-26:
+
+- `implemented`: the repository now has one canonical in-repo verification procedure document at
+  `docs/reference/v2-verification.md` that names the matrix rows, preflight, live commands, and
+  promotion rules for this ADR rather than leaving them implicit.
+- `implemented`: the procedure's referenced evidence artifact now exists at
+  `design/internal/v2-verification-evidence-template.md`, so the recorded-evidence workflow is a
+  real repository artifact rather than a broken reference.
+- `implemented`: smoke-goal and live-smoke entrypoints already exist in code for the documented
+  local and live rows. Evidence: `src/agent_operator/smoke.py`,
+  `tests/test_smoke_goal.py`, `tests/test_live_codex_acp.py`,
+  `tests/test_live_codex_continuation.py`, and
+  `tests/test_live_mixed_code_agent_selection.py`.
+- `verified`: a static regression now fails if the procedure references a missing evidence
+  template. Evidence: `tests/test_v2_verification_docs.py`.
+- `blocked`: this ADR still lacks the fresh operator-on-operator and external-project live
+  evidence required for `Verified`, so implementation status remains `Partial`.
 
 ## Context
 
