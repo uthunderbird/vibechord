@@ -14,18 +14,22 @@ Skim-safe current truth on 2026-04-27:
   `src/agent_operator/cli/app.py` is a 119-line Typer assembly module
 - `implemented`: command registration, helpers, workflows, rendering, and TUI logic now live in
   separate CLI subpackages under `src/agent_operator/cli/`
-- `implemented`: TUI rendering now keeps `agent_operator.cli.tui.rendering` as a 61-line public
+- `implemented`: TUI rendering now keeps `agent_operator.cli.tui.rendering` as a 65-line public
   compatibility facade, with list/timeline/task-board rendering split into
   `src/agent_operator/cli/tui/rendering_lists.py` (176 lines), chrome/overlay rendering in
   `src/agent_operator/cli/tui/rendering_chrome.py` (413 lines), and operation/session detail
   rendering in `src/agent_operator/cli/tui/rendering_detail.py` (393 lines)
-- `implemented`: TUI models now keep `agent_operator.cli.tui.models` as a 172-line public
+- `implemented`: TUI models now keep `agent_operator.cli.tui.models` as a 135-line public
   compatibility facade, with extracted helpers in
   `src/agent_operator/cli/tui/model_types.py` (180 lines),
   `src/agent_operator/cli/tui/model_attention.py` (164 lines),
   `src/agent_operator/cli/tui/model_fleet.py` (240 lines),
   `src/agent_operator/cli/tui/model_sessions.py` (413 lines), and
   `src/agent_operator/cli/tui/model_text.py` (98 lines)
+- `implemented`: TUI display/query glue now also lives in
+  `src/agent_operator/cli/tui/model_display.py` (140 lines) and
+  `src/agent_operator/cli/tui/model_views.py` (460 lines), keeping transcript/detail helpers and
+  grouped payload/session view assembly below the ADR ceiling without widening into controller work
 - `implemented`: text rendering now keeps `agent_operator.cli.rendering.text` as a 25-line public
   compatibility facade, with live/event formatting in
   `src/agent_operator/cli/rendering/text_live.py` (342 lines), inspect/status summaries in
@@ -52,7 +56,9 @@ Verification evidence for this slice:
   `src/agent_operator/cli/tui/model_attention.py`,
   `src/agent_operator/cli/tui/model_fleet.py`,
   `src/agent_operator/cli/tui/model_sessions.py`,
-  or `src/agent_operator/cli/tui/model_text.py` regresses above the ADR ceiling
+  `src/agent_operator/cli/tui/model_text.py`,
+  `src/agent_operator/cli/tui/model_display.py`, or
+  `src/agent_operator/cli/tui/model_views.py` regresses above the ADR ceiling
 - `verified`: `tests/test_adr_0119_cli_line_budget.py::test_adr_0119_split_cli_modules_stay_under_500_lines`
   now also fails if `src/agent_operator/cli/rendering/text.py`,
   `src/agent_operator/cli/rendering/text_live.py`,

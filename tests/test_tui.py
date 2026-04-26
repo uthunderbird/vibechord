@@ -39,8 +39,58 @@ def test_tui_package_models_exports_state() -> None:
     assert tui_models_pkg.FleetWorkbenchState is FleetWorkbenchState
 
 
+def test_tui_models_facade_exports_split_helpers() -> None:
+    assert tui_models_pkg.filtered_raw_transcript_lines is not None
+    assert tui_models_pkg.filtered_session_timeline_events is not None
+    assert tui_models_pkg.task_attention_titles is not None
+
+
+def test_tui_models_facade_selected_task_uses_facade_filter_for_monkeypatching(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    task = tui_models_pkg.OperationTaskItem.from_payload(
+        {
+            "task_id": "task-1",
+            "task_short_id": "t1",
+            "title": "Task 1",
+            "goal": "Goal",
+            "definition_of_done": "Done",
+            "status": "running",
+        }
+    )
+    monkeypatch.setattr(
+        tui_models_pkg,
+        "filtered_dashboard_tasks",
+        lambda payload, query: [task],
+    )
+
+    state = FleetWorkbenchState(selected_operation_payload={"tasks": []})
+
+    assert state.selected_task is task
+
+
+def test_payload_items_rewrites_bucket_for_legacy_grouped_payloads() -> None:
+    items = tui_models_pkg.payload_items(
+        {
+            "active": [
+                {
+                    "operation_id": "op-1",
+                    "bucket": "recent",
+                    "status": "running",
+                    "scheduler_state": "active",
+                }
+            ]
+        }
+    )
+
+    assert len(items) == 1
+    assert items[0].bucket == "active"
+
+
 def test_tui_package_exports_rendering_module() -> None:
     assert tui_rendering_pkg.render_help_overlay is render_help_overlay
+    assert tui_rendering_pkg.render_session_timeline is render_session_timeline
+    assert tui_rendering_pkg.render_forensic_transcript_panel is render_forensic_transcript_panel
 
 
 def test_human_header_lines_use_human_first_scope_counts() -> None:
