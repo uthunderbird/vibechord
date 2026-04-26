@@ -1173,9 +1173,10 @@ The following named items are known tech debt — a contributor encountering the
   feature expansion, not ownership ambiguity around `active_session` or `context_exit`.
 - **ADR 0150 simplification tranche is verified.** `ObjectiveState.status` has been removed, the
   dead `SessionState.desired_state` field is gone, and `FeatureStatus` now exposes only the
-  runtime values that are actually used. The remaining follow-on from ADR 0150 is the separate
-  two-field session lifecycle simplification (`observed_state + terminal_state` to a single stored
-  `SessionStatus`) tracked in ADR 0217, not the already-closed dead-field cleanup.
+  runtime values that are actually used. The formerly deferred two-field session lifecycle
+  simplification (`observed_state + terminal_state` to a single stored `SessionStatus`) has also
+  now been completed in ADR 0217, so ADR 0150 should be read as the dead-field cleanup tranche,
+  not as an open session-storage migration tracker.
 
 ## Agent Adapters
 

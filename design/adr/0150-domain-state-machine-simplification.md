@@ -122,10 +122,10 @@ status.
 
 `SessionDesiredState` enum should be removed from `domain/enums.py`.
 
-`SessionState` lifecycle should be expressed through `observed_state + terminal_state` (current
-behavior) or, preferably, migrated to a single `status: SessionStatus` field in a follow-up
-simplification pass. The existing `.status` computed property is the right interface; making it
-the storage field is the direction.
+`SessionState` lifecycle was still expressed through `observed_state + terminal_state` at the time
+of this ADR. The existing `.status` computed property was the right interface, and the follow-on
+direction was to make `status: SessionStatus` the durable storage field. That follow-on has since
+been completed by ADR 0217.
 
 If a future reconciliation loop needs to express "we want this session to stop", the correct
 model is an explicit command or a runtime flag, not a desired-state field on the persisted domain
@@ -138,11 +138,11 @@ These two enum values should be removed from `FeatureStatus`. The remaining valu
 
 ### What is deferred
 
-**`SessionState` two-field → single `status` migration.** Collapsing `observed_state +
-terminal_state` into a single `status: SessionStatus` is the correct direction but requires
-migrating all read sites (commands, reconciliation, queries) that pattern-match on
-`observed_state` and `terminal_state` separately. This is a follow-up refactor, not part of this
-ADR.
+**`SessionState` two-field → single `status` migration.** At the time of this ADR, collapsing
+`observed_state + terminal_state` into a single `status: SessionStatus` required migrating read
+sites (commands, reconciliation, queries) that pattern-matched on those two stored fields
+separately. That follow-on migration was intentionally excluded from this ADR and has since been
+completed by ADR 0217.
 
 **`SchedulerState.PAUSE_REQUESTED` as runtime-only state.** `PAUSE_REQUESTED` is a transient
 state in persisted domain — cleaner as a runtime flag. But it is used correctly and causes no
@@ -200,22 +200,25 @@ when they are not.
 | Remove objective-status mirror writes from projection/reconciliation paths | `src/agent_operator/projectors/operation.py` `DefaultOperationProjector._apply_operation_slice`; `src/agent_operator/application/runtime/operation_runtime_reconciliation.py` `OperationRuntimeReconciliationService.reconcile_state` | `tests/test_operation_projector.py::test_operation_projector_projects_operation_and_task_slices` |
 | Retain `ObjectiveState` as a goal-config convenience accessor with summary/root-task support | `src/agent_operator/domain/operation.py` `ObjectiveState`; `OperationState.objective_state`; `src/agent_operator/application/loaded_operation.py` | `tests/test_runtime.py::test_operation_state_uses_objective_only_for_root_task_goal` |
 | Remove `SessionState.desired_state` and `SessionDesiredState` | `src/agent_operator/domain/operation.py` `SessionState`; `src/agent_operator/domain/enums.py`; `src/agent_operator/domain/__init__.py` | `tests/test_runtime.py::test_legacy_session_status_upgrades_without_desired_state` |
-| Preserve the computed `SessionState.status` interface over `observed_state + terminal_state` | `src/agent_operator/domain/operation.py` `SessionState.status` | `tests/test_runtime.py::test_legacy_session_status_upgrades_without_desired_state`; `tests/test_operation_projector.py::test_operation_projector_coordinates_execution_and_session_slices` |
+| Preserve the `SessionState.status` interface while the then-current storage model still used `observed_state + terminal_state` | `src/agent_operator/domain/operation.py` `SessionState.status` | `tests/test_runtime.py::test_legacy_session_status_upgrades_without_desired_state`; `tests/test_operation_projector.py::test_operation_projector_coordinates_execution_and_session_slices` |
 | Remove dead `FeatureStatus.READY_FOR_REVIEW` and `FeatureStatus.NEEDS_REWORK` values | `src/agent_operator/domain/enums.py` `FeatureStatus` | `tests/test_runtime.py::test_feature_status_exposes_only_runtime_values` |
 | Event-sourced birth and replay remain grounded in the simplified objective/session models | `src/agent_operator/application/event_sourcing/event_sourced_birth.py` `EventSourcedOperationBirthService.birth`; `src/agent_operator/projectors/operation.py`; `src/agent_operator/application/operation_entrypoints.py` `OperationEntrypointService._load_event_sourced` | `tests/test_operation_entrypoints.py::test_operation_entrypoint_service_replays_event_sourced_run_state`; `tests/test_operation_entrypoints.py::test_operation_entrypoint_service_replays_event_sourced_resume_state` |
 | ADR closure is verified against the current repository state | changed implementation under `src/agent_operator/...`; this ADR document | `uv run pytest tests/test_runtime.py tests/test_operation_projector.py tests/test_operation_entrypoints.py tests/test_operation_runtime_reconciliation_service.py -q`; `uv run pytest` |
 
 ## Implementation Notes
 
-1. `SessionState` still stores `observed_state + terminal_state`; only the dead desired-state field
-   is removed in this ADR.
+1. At the time of this ADR, `SessionState` still stored `observed_state + terminal_state`; only
+   the dead desired-state field was removed in this ADR.
 2. `ObjectiveState` still duplicates goal-config fields from `OperationGoal`; only the redundant
    operation-status mirror is removed here.
-3. The follow-up simplification remains the same: migrate `SessionState` to a single stored
-   `status: SessionStatus` field in a separate ADR/PR.
+3. The follow-up simplification identified here was later completed by
+   [ADR 0217](./0217-sessionstate-stored-sessionstatus-migration.md), which migrated
+   `SessionState` to a single stored `status: SessionStatus` field.
 
 ## Related
 
 - [ADR 0144](./0144-event-sourcing-write-path-contract-and-rfc-0009-closure.md) — dual-write debt; `active_session`, `SessionState` fields as resume failure sources
+- [ADR 0217](./0217-sessionstate-stored-sessionstatus-migration.md) — completes the deferred
+  `SessionState` stored-`status` migration referenced here
 - [design/ARCHITECTURE.md](../ARCHITECTURE.md) — Known Technical Debt section
 - [BACKLOG.md](../BACKLOG.md)
