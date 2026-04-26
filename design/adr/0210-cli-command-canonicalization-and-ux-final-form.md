@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 Implementation grounding on 2026-04-26:
 
@@ -25,6 +25,17 @@ Implementation grounding on 2026-04-26:
   `tests/test_cli_command_inventory.py::test_cli_command_inventory_keeps_debug_aliases_out_of_stable_set`.
 - `implemented`: the main CLI reference now links to the canonical inventory instead of forcing
   readers to infer command status from scattered sections. Evidence: `docs/reference/cli.md`.
+- `implemented`: the repository now has a command-by-command contract matrix at
+  `docs/reference/cli-command-contracts.md` that names stability, JSON-reference coverage, and the
+  currently published semantic exit-code/error contract for every registered CLI path.
+- `implemented`: `docs/reference/cli-json-schemas.md` now covers the full current `--json` command
+  surface rather than only the narrow ADR 0145 agent-facing subset. The added sections now include
+  agenda/history/inspect/report/dashboard/log/session, project/profile surfaces, policy surfaces,
+  admin surfaces, and the current debug/repair JSON payloads.
+- `verified`: dedicated doc-guard regressions bind ADR 0210's reference docs to the live command
+  inventory and the current JSON-capable surface. Evidence:
+  `tests/test_cli_contract_docs.py::test_cli_command_contract_matrix_covers_inventory_paths`,
+  `tests/test_cli_contract_docs.py::test_cli_json_schema_reference_lists_current_json_surfaces`.
 - `verified`: existing CLI help tests already prove the progressive-disclosure contract required by
   ADR 0093 and relied on here: default help hides debug/runtime commands, `operator debug` lists
   them, and `--help --all` reveals the hidden surface. Evidence:
@@ -40,10 +51,13 @@ Implementation grounding on 2026-04-26:
   `tests/test_cli.py::test_run_wait_uses_needs_human_exit_code`,
   `tests/test_cli.py::test_watch_once_json_emits_live_snapshot`,
   `tests/test_cli.py::test_default_help_hides_debug_commands`.
-- `partial`: not every CLI command yet has an explicit schema contract in
-  `docs/reference/cli-json-schemas.md`, and ADR 0210 still does not have one focused command-by-command
-  exit-code/error-consistency matrix for the entire surface. The decision is now anchored, but the
-  full final-form implementation is not yet complete.
+- `verified`: focused ADR 0210 verification passed on 2026-04-26:
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_cli_contract_docs.py tests/test_cli_command_inventory.py -q`
+  (`5 passed`) and
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_cli.py -k "json or help or ambiguous or wait or cancel or project or policy or agent or session or watch or status or ask or answer or report or history or list or attention or tasks or memory or artifacts or dashboard or agenda" -q`
+  (`146 passed, 66 deselected`).
+- `verified`: full repository verification passed on 2026-04-26:
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1011 passed, 11 skipped`).
 
 ## Context
 

@@ -6,6 +6,9 @@ inspection and forensic commands.
 For the command-by-command stability inventory used by ADR 0210, see
 [CLI Command Inventory](cli-command-inventory.md).
 
+For the command-by-command machine-readable and exit/error contract matrix used by ADR 0210, see
+[CLI Command Contracts](cli-command-contracts.md).
+
 The workspace shell and lifecycle family is:
 
 - `operator` / `fleet` — enter supervision for the current workspace
