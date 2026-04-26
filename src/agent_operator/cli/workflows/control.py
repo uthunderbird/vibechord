@@ -465,7 +465,10 @@ async def enqueue_command_async(
         auto_resume_blocked_attention_id=auto_resume_blocked_attention_id,
     )
     if wait_for_ack:
-        operation = await service.store.load_operation(operation_id)
+        operation = await _control_runtime.load_canonical_operation_state_async(
+            load_settings(),
+            operation_id,
+        )
         if operation is not None and (
             operation.status
             in {

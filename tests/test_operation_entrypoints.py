@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -408,6 +410,42 @@ async def test_operation_entrypoint_service_resumes_event_sourced_only_operation
     assert loaded.operation_id == "op-es-resume-only"
     assert loaded.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
     assert loaded.goal.objective == "Resume event-sourced only operation."
+
+
+@pytest.mark.anyio
+async def test_operation_entrypoint_service_loads_canonical_state_without_snapshot(
+    tmp_path: Any,
+) -> None:
+    store = MemoryStore()
+    event_store = FileOperationEventStore(tmp_path / "operation_events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "operation_checkpoints")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    replay = EventSourcedReplayService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    service = OperationEntrypointService(
+        store=store,
+        event_sourced_operation_birth_service=birth,
+        event_sourced_replay_service=replay,
+    )
+    state = OperationState(
+        operation_id="op-es-read-only",
+        goal=OperationGoal(objective="Load canonical read state."),
+    )
+    await birth.birth(state)
+
+    loaded = await service.load_canonical_state("op-es-read-only")
+
+    assert loaded.operation_id == "op-es-read-only"
+    assert loaded.canonical_persistence_mode is CanonicalPersistenceMode.EVENT_SOURCED
+    assert loaded.goal.objective == "Load canonical read state."
 
 
 @pytest.mark.anyio
@@ -979,3 +1017,37 @@ async def test_operation_cancellation_service_cancels_whole_operation() -> None:
     persisted = await store.load_outcome("op-1")
     assert persisted is not None
     assert persisted.status is OperationStatus.CANCELLED
+
+
+def test_operation_entrypoint_service_isolates_snapshot_reads_to_named_fallback() -> None:
+    source = Path("src/agent_operator/application/operation_entrypoints.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+    callers = sorted(
+        {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and any(
+                isinstance(child, ast.Attribute) and child.attr == "load_operation"
+                for child in ast.walk(node)
+            )
+        }
+    )
+
+    assert callers == ["_load_snapshot_fallback"]
+
+    helper_calls = sorted(
+        {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and any(
+                isinstance(child, ast.Attribute) and child.attr == "_load_snapshot_fallback"
+                for child in ast.walk(node)
+            )
+        }
+    )
+
+    assert helper_calls == ["_load_resume_ready_state", "load_canonical_state"]

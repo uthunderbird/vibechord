@@ -456,4 +456,8 @@ class OperationDeliveryCommandService:
             operation = await self.state_loader.load_canonical_operation_state(operation_id)
             if operation is not None:
                 return operation
+        return await self._load_snapshot_fallback(operation_id)
+
+    async def _load_snapshot_fallback(self, operation_id: str) -> OperationState | None:
+        """Load snapshot-era state only as an explicit delivery fallback."""
         return await self.store.load_operation(operation_id)

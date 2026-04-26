@@ -160,11 +160,18 @@ def build_delivery_commands_service(
     service_factory: Callable[[], OperatorServiceLike] | None = None,
 ) -> OperationDeliveryCommandService:
     factory = service_factory or (lambda: _current_build_service()(settings))
+    resolver = OperationResolutionService(
+        store=build_store(settings),
+        replay_service=build_replay_service(settings),
+        event_root=settings.data_dir / "operation_events",
+        state_view_service=OperationStateViewService(),
+    )
     return OperationDeliveryCommandService(
         store=build_store(settings),
         command_inbox=build_command_inbox(settings),
         service_factory=factory,
         find_task_by_display_id=find_task_by_display_id,
+        state_loader=resolver,
     )
 
 

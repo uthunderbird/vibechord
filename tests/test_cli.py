@@ -46,6 +46,7 @@ from agent_operator.domain import (
     FeaturePatch,
     FeatureStatus,
     FocusKind,
+    FocusMode,
     FocusState,
     InvolvementLevel,
     IterationBrief,
@@ -195,6 +196,7 @@ def test_run_cli_startup_connect_error_marks_operation_failed(tmp_path: Path, mo
 
     class _ExplodingService:
         _store = store
+        _operation_entrypoint_service = SimpleNamespace(load_canonical_state=store.load_operation)
         _operation_lifecycle_coordinator = _LifecycleCoordinator()
 
         async def run(self, goal, **kwargs):
@@ -338,6 +340,7 @@ def test_run_cli_startup_exception_does_not_overwrite_completed_operation(
 
     class _ExplodingService:
         _store = store
+        _operation_entrypoint_service = SimpleNamespace(load_canonical_state=store.load_operation)
         _operation_lifecycle_coordinator = _LifecycleCoordinator()
 
         async def run(self, goal, **kwargs):
@@ -3898,6 +3901,41 @@ def test_debug_wakeups_json_derives_pending_wakeups_without_serializing_run_even
     assert payload["pending"][0]["session_id"] == "session-1"
 
 
+def test_debug_wakeups_reads_event_sourced_operation_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = "op-debug-wakeups-v2"
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        operation_id,
+        objective="Canonical debug wakeups operation",
+    )
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+
+    async def _seed_pending() -> None:
+        await inbox.enqueue(
+            RunEvent(
+                event_type="background_run.completed",
+                operation_id=operation_id,
+                iteration=1,
+                session_id="session-v2",
+                payload={"result": "done"},
+                category="trace",
+            )
+        )
+
+    anyio.run(_seed_pending)
+
+    result = runner.invoke(app, ["debug", "wakeups", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["pending"][0]["event_type"] == "background_run.completed"
+    assert payload["claimed"] == []
+
+
 def test_sessions_json_shows_sessions_and_background_runs(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -3975,6 +4013,44 @@ def test_sessions_json_derives_live_progress_without_overlaying_session_models(
     assert persisted is not None
     assert persisted.sessions[0].updated_at.isoformat() != "2026-04-14T12:05:00+00:00"
     assert persisted.sessions[0].last_event_at is None
+
+
+def test_debug_sessions_reads_event_sourced_operation_without_runs_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = "op-debug-sessions-v2"
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _seed_event_sourced_checkpoint(
+        tmp_path,
+        operation_id,
+        objective="Canonical debug sessions operation",
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    checkpoint_payload["checkpoint_payload"]["sessions"] = [
+        {
+            "handle": {
+                "session_id": "session-v2",
+                "adapter_key": "codex_acp",
+                "session_name": "canonical-session",
+            },
+            "status": "running",
+            "started_at": "2026-04-24T00:00:00+00:00",
+            "updated_at": "2026-04-24T00:00:00+00:00",
+            "bound_task_ids": [],
+            "waiting_reason": "Awaiting canonical progress.",
+        }
+    ]
+    checkpoint_path.write_text(json.dumps(checkpoint_payload, indent=2), encoding="utf-8")
+
+    result = runner.invoke(app, ["debug", "sessions", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == operation_id
+    assert payload["sessions"][0]["session_id"] == "session-v2"
+    assert payload["sessions"][0]["status"] == "running"
+    assert payload["background_runs"] == []
 
 
 def test_debug_namespace_surfaces_recovery_runtime_and_forensic_commands(
@@ -5259,6 +5335,99 @@ def test_patch_objective_command_reports_acceptance_after_immediate_tick(
     )
 
     assert result.exit_code == 0
+    assert "accepted: patch_objective [" in result.stdout
+
+
+def test_patch_objective_command_wait_for_ack_uses_canonical_operation_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = "op-cli-v2"
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    inbox = FileOperationCommandInbox(tmp_path / "commands")
+
+    class FakeDeliveryService:
+        def __init__(self) -> None:
+            self.command_inbox = inbox
+            self.store = FileOperationStore(tmp_path / "runs")
+            self.tick_calls: list[str] = []
+
+        async def enqueue_command(
+            self,
+            operation_id: str,
+            command_type: OperationCommandType,
+            payload: dict[str, object],
+            *,
+            target_scope: CommandTargetScope,
+            target_id: str,
+            auto_resume_when_paused: bool = False,
+            auto_resume_blocked_attention_id: str | None = None,
+        ):
+            command = OperationCommand(
+                operation_id=operation_id,
+                command_type=command_type,
+                target_scope=target_scope,
+                target_id=target_id,
+                payload=payload,
+            )
+            await inbox.enqueue(command)
+            return command, None, None
+
+        async def tick(self, operation_id: str) -> OperationOutcome:
+            self.tick_calls.append(operation_id)
+            commands = await inbox.list(operation_id)
+            assert len(commands) == 1
+            await inbox.update_status(commands[0].command_id, CommandStatus.APPLIED)
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="processed canonical patch command",
+            )
+
+        def build_command_payload(
+            self,
+            command_type: OperationCommandType,
+            text: str | None,
+            success_criteria: list[str] | None = None,
+            clear_success_criteria: bool = False,
+            allowed_agents: list[str] | None = None,
+            max_iterations: int | None = None,
+        ) -> dict[str, object]:
+            assert command_type is OperationCommandType.PATCH_OBJECTIVE
+            assert text is not None
+            return {"text": text}
+
+    delivery_service = FakeDeliveryService()
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control.delivery_commands_service",
+        lambda: delivery_service,
+    )
+    monkeypatch.setattr(
+        "agent_operator.cli.commands.operation_control.resolve_operation_id",
+        lambda operation_ref: operation_ref,
+    )
+
+    async def _load_canonical_operation_state(settings: OperatorSettings, op_id: str):
+        assert settings.data_dir == tmp_path
+        assert op_id == operation_id
+        return OperationState(
+            operation_id=op_id,
+            goal=OperationGoal(objective="Canonical v2 operation"),
+            status=OperationStatus.COMPLETED,
+            **state_settings(),
+        )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.workflows.control._control_runtime.load_canonical_operation_state_async",
+        _load_canonical_operation_state,
+    )
+
+    result = runner.invoke(
+        app,
+        ["patch-objective", operation_id, "Audit the release flow and trim dead steps."],
+    )
+
+    assert result.exit_code == 0
+    assert delivery_service.tick_calls == [operation_id]
     assert "accepted: patch_objective [" in result.stdout
 
 
@@ -7510,6 +7679,72 @@ def test_watch_once_emits_single_snapshot_and_exits(tmp_path: Path, monkeypatch)
     assert payload["status"] == "running"
 
 
+def test_watch_reads_canonical_v2_events_without_legacy_event_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-watch-v2"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Inspect canonical v2 stream")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = datetime(2026, 4, 25, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=2,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text(
+        "\n".join(
+            [
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=1,
+                    event_type="operation.created",
+                    payload={"objective": "Inspect canonical v2 stream"},
+                    timestamp=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+                ).model_dump_json(),
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=2,
+                    event_type="operation.status.changed",
+                    payload={"status": "completed", "iteration": 2},
+                    timestamp=datetime(2026, 4, 25, 10, 1, tzinfo=UTC),
+                ).model_dump_json(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    outcome_store = FileOperationStore(tmp_path / "runs")
+
+    async def _seed_outcome() -> None:
+        await outcome_store.save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Canonical watch completed.",
+            )
+        )
+
+    anyio.run(_seed_outcome)
+
+    result = runner.invoke(app, ["watch", operation_id, "--poll-interval", "0.05"])
+
+    assert result.exit_code == 0
+    assert "Operation op-watch-v2" in result.stdout
+    assert "completed: Canonical watch completed." in result.stdout
+
+
 def test_watch_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
     operation_id = "op-watch-last"
     runs_dir = tmp_path / "runs"
@@ -7751,6 +7986,77 @@ def test_answer_resumes_blocked_attached_operation(tmp_path: Path, monkeypatch) 
     assert result.exit_code == 0
     assert "enqueued: answer_attention_request" in result.stdout
     assert "running: Replanned after attention answer." in result.stdout
+
+
+def test_answer_uses_canonical_operation_state_without_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    operation_id = "op-cli-answer-v2"
+    attention_id = "att-cli-answer-v2"
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Canonical CLI answer operation")
+    checkpoint.allowed_agents = ["codex_acp"]
+    checkpoint.involvement_level = InvolvementLevel.AUTO
+    checkpoint.status = OperationStatus.NEEDS_HUMAN
+    checkpoint.current_focus = FocusState(
+        kind=FocusKind.ATTENTION_REQUEST,
+        target_id=attention_id,
+        mode=FocusMode.BLOCKING,
+        blocking_reason="Awaiting operator answer.",
+    )
+    checkpoint.attention_requests = [
+        AttentionRequest(
+            attention_id=attention_id,
+            operation_id=operation_id,
+            attention_type=AttentionType.QUESTION,
+            title="Need input",
+            question="Proceed with the canonical path?",
+            blocking=True,
+            status=AttentionStatus.OPEN,
+            target_scope=CommandTargetScope.OPERATION,
+            target_id=operation_id,
+        )
+    ]
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=0,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text("", encoding="utf-8")
+
+    class FakeService:
+        async def resume(self, operation_id: str, *, options):
+            assert options.run_mode.value == "attached"
+            return OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.RUNNING,
+                summary="Replanned after canonical attention answer.",
+            )
+
+    monkeypatch.setattr(
+        "agent_operator.cli.main.build_service",
+        lambda settings, event_sink=None: FakeService(),
+    )
+
+    result = runner.invoke(
+        app,
+        ["answer", "op-cli-answer", attention_id, "--text", "Use the canonical path."],
+    )
+
+    assert result.exit_code == 0
+    assert "enqueued: answer_attention_request" in result.stdout
+    assert "running: Replanned after canonical attention answer." in result.stdout
 
 
 def test_answer_without_attention_id_uses_oldest_blocking_attention(

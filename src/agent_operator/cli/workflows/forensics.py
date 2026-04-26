@@ -46,6 +46,7 @@ from ..helpers.rendering import (
     shorten_live_text,
     summarize_task_counts,
 )
+from ..helpers.resolution import load_required_canonical_operation_state_async
 from ..helpers.services import build_status_query_service, load_settings
 
 if TYPE_CHECKING:
@@ -56,11 +57,11 @@ if TYPE_CHECKING:
 
 async def wakeups_async(operation_id: str, json_mode: bool) -> None:
     settings = load_settings()
-    store = build_store(settings)
     inbox = build_wakeup_inbox(settings)
-    operation = await store.load_operation(operation_id)
-    if operation is None:
-        raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
+    try:
+        operation = await load_required_canonical_operation_state_async(settings, operation_id)
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     pending = await inbox.list_pending(operation_id)
     claimed = [wakeup_ref_payload(item) for item in operation.pending_wakeups]
     if json_mode:
@@ -214,11 +215,11 @@ async def sessions_async(
     ),
 ) -> None:
     settings = load_settings()
-    store = build_store(settings)
     supervisor = inspection_store_factory(settings)
-    operation = await store.load_operation(operation_id)
-    if operation is None:
-        raise typer.BadParameter(f"Operation {operation_id!r} was not found.")
+    try:
+        operation = await load_required_canonical_operation_state_async(settings, operation_id)
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     runs = await supervisor.list_runs(operation_id)
     run_by_id = {run.run_id: run for run in runs}
     session_views: list[dict[str, object]] = []

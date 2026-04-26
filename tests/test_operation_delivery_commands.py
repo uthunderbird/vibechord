@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -66,6 +69,21 @@ class _Service:
             status=OperationStatus.RUNNING,
             summary="recovered",
         )
+
+
+class _CanonicalStateLoader:
+    def __init__(self, operation: OperationState | None) -> None:
+        self.operation = operation
+        self.requested: list[str] = []
+
+    async def load_canonical_operation_state(self, operation_id: str) -> OperationState | None:
+        self.requested.append(operation_id)
+        return self.operation
+
+
+class _FailOnLoadStore(MemoryStore):
+    async def load_operation(self, operation_id: str) -> OperationState | None:
+        raise AssertionError(f"snapshot fallback should not be used for {operation_id}")
 
 
 def _operation() -> OperationState:
@@ -201,6 +219,80 @@ async def test_answer_attention_persists_answer_before_auto_resume_connect_error
     assert listed[0].payload["text"] == "Take path A"
 
 
+@pytest.mark.anyio
+async def test_answer_attention_prefers_canonical_state_loader_over_snapshot_store() -> None:
+    store = _FailOnLoadStore()
+    inbox = MemoryCommandInbox()
+
+    canonical = _operation()
+    canonical.status = OperationStatus.NEEDS_HUMAN
+    canonical.current_focus = FocusState(
+        kind=FocusKind.ATTENTION_REQUEST,
+        target_id="att-1",
+        mode=FocusMode.BLOCKING,
+        blocking_reason="Awaiting answer.",
+    )
+    state_loader = _CanonicalStateLoader(canonical)
+    service = OperationDeliveryCommandService(
+        store=store,
+        command_inbox=inbox,
+        service_factory=lambda: _Service(),
+        find_task_by_display_id=lambda operation, task_id: None,
+        state_loader=state_loader,
+    )
+
+    answer_command, policy_command, outcome = await service.answer_attention(
+        "op-1",
+        attention_id="att-1",
+        text="Take path A",
+        promote=False,
+        policy_payload={},
+    )
+
+    assert answer_command.command_type is OperationCommandType.ANSWER_ATTENTION_REQUEST
+    assert policy_command is None
+    assert outcome is not None
+    assert outcome.summary == "resumed"
+    assert state_loader.requested == ["op-1", "op-1", "op-1"]
+
+
+@pytest.mark.anyio
+async def test_answer_attention_uses_snapshot_fallback_when_canonical_state_missing() -> None:
+    store = MemoryStore()
+    inbox = MemoryCommandInbox()
+
+    snapshot_only = _operation()
+    snapshot_only.status = OperationStatus.NEEDS_HUMAN
+    snapshot_only.current_focus = FocusState(
+        kind=FocusKind.ATTENTION_REQUEST,
+        target_id="att-1",
+        mode=FocusMode.BLOCKING,
+        blocking_reason="Awaiting answer.",
+    )
+    await store.save_operation(snapshot_only)
+
+    state_loader = _CanonicalStateLoader(None)
+    service = OperationDeliveryCommandService(
+        store=store,
+        command_inbox=inbox,
+        service_factory=lambda: _Service(),
+        find_task_by_display_id=lambda operation, task_id: None,
+        state_loader=state_loader,
+    )
+
+    _, _, outcome = await service.answer_attention(
+        "op-1",
+        attention_id="att-1",
+        text="Take path A",
+        promote=False,
+        policy_payload={},
+    )
+
+    assert outcome is not None
+    assert outcome.summary == "resumed"
+    assert state_loader.requested == ["op-1", "op-1", "op-1"]
+
+
 def test_build_policy_decision_payload_requires_promote() -> None:
     service = _service(MemoryStore(), MemoryCommandInbox())
 
@@ -217,6 +309,46 @@ def test_build_policy_decision_payload_requires_promote() -> None:
             involvement=None,
             rationale=None,
         )
+
+
+def test_operation_delivery_command_service_isolates_snapshot_reads_to_named_fallback() -> None:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "agent_operator"
+        / "application"
+        / "commands"
+        / "operation_delivery_commands.py"
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+
+    class_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OperationDeliveryCommandService"
+    )
+    callers: list[str] = []
+    direct_store_reads: list[str] = []
+
+    for node in class_node.body:
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        for child in ast.walk(node):
+            if (
+                isinstance(child, ast.Attribute)
+                and child.attr == "load_operation"
+                and isinstance(child.value, ast.Attribute)
+                and child.value.attr == "store"
+            ):
+                direct_store_reads.append(node.name)
+            if (
+                isinstance(child, ast.Attribute)
+                and child.attr == "_load_snapshot_fallback"
+            ):
+                callers.append(node.name)
+
+    assert direct_store_reads == ["_load_snapshot_fallback"]
+    assert callers == ["_load_operation"]
 
 
 @pytest.mark.anyio
