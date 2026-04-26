@@ -16,10 +16,8 @@ from agent_operator.domain import (
     OperationOutcome,
     OperationState,
     OperationStatus,
-    SessionObservedState,
     SessionState,
     SessionStatus,
-    SessionTerminalState,
     TaskState,
 )
 from agent_operator.protocols import OperationEventStore, OperationStore
@@ -213,8 +211,7 @@ class OperationLifecycleCoordinator:
                         event_type="session.observed_state.changed",
                         payload={
                             "session_id": record.session_id,
-                            "observed_state": SessionObservedState.TERMINAL.value,
-                            "terminal_state": SessionTerminalState.CANCELLED.value,
+                            "status": SessionStatus.CANCELLED.value,
                             "current_execution_id": None,
                             "last_terminal_execution_id": record.current_execution_id,
                             "updated_at": state.updated_at.isoformat(),
@@ -294,8 +291,7 @@ class OperationLifecycleCoordinator:
                     event_type="session.observed_state.changed",
                     payload={
                         "session_id": record.session_id,
-                        "observed_state": SessionObservedState.TERMINAL.value,
-                        "terminal_state": SessionTerminalState.CANCELLED.value,
+                        "status": SessionStatus.CANCELLED.value,
                         "current_execution_id": None,
                         "last_terminal_execution_id": run_id,
                         "updated_at": state.updated_at.isoformat(),

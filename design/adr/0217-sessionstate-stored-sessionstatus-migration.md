@@ -4,22 +4,22 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Verified
 
 Skim-safe current truth on 2026-04-27:
 
-- `implemented`: `SessionState` still stores `observed_state` plus `terminal_state` in
+- `implemented`: `SessionState` now stores one durable `status: SessionStatus` field in
   `src/agent_operator/domain/operation.py`
-- `implemented`: callers already consume the computed `SessionState.status` interface widely across
-  domain, application, runtime, and query code
-- `verified`: regression coverage already locks in the current computed-status behavior and legacy
-  upgrade path
-- `planned`: the stored two-field session lifecycle should collapse to one stored
-  `status: SessionStatus` field in a separate migration slice
+- `implemented`: legacy serialized two-field session payloads still load through a compatibility
+  upgrade path into the one-field stored model
+- `implemented`: projector, lifecycle, cancellation, aggregate, and replay paths in this slice no
+  longer require stored `observed_state` / `terminal_state` fields
+- `verified`: targeted migration regressions and the full `uv run pytest` suite pass at the
+  repository state that closes this ADR
 
 ## Context
 
@@ -33,12 +33,12 @@ That ADR deliberately deferred the larger session-lifecycle storage simplificati
 
 > `SessionState` two-field → single `status` migration
 
-Current repository truth still stores session lifecycle in two fields:
+Before this slice, repository truth stored session lifecycle in two fields:
 
 - `observed_state: SessionObservedState`
 - `terminal_state: SessionTerminalState | None`
 
-This shape lives in `src/agent_operator/domain/operation.py` and still requires conversion logic:
+That shape lived in `src/agent_operator/domain/operation.py` and required conversion logic:
 
 - `_upgrade_legacy_session_record()` maps legacy serialized `status` values into the two-field
   storage shape
@@ -47,8 +47,8 @@ This shape lives in `src/agent_operator/domain/operation.py` and still requires 
 - the `status` setter maps the public `SessionStatus` interface back down into
   `observed_state` plus `terminal_state`
 
-Repository truth therefore already exposes the simpler interface while keeping the more complex
-storage model underneath it.
+Repository truth at proposal time therefore already exposed the simpler interface while keeping the
+more complex storage model underneath it.
 
 Current code evidence:
 
@@ -183,14 +183,16 @@ Rejected for this slice.
 That would raise the blast radius unnecessarily. The truthful next step is the smaller
 `SessionState` storage simplification only.
 
-## Current Evidence Matrix
+## Closure Evidence Matrix
 
 | Follow-on claim | Current repository evidence | Verification evidence |
 | --- | --- | --- |
-| Repository still stores the session lifecycle in two fields | `src/agent_operator/domain/operation.py:226` | direct code inspection |
-| Repository already exposes `SessionStatus` as the effective public interface | `src/agent_operator/domain/operation.py:287`; `src/agent_operator/domain/operation.py:301` | `tests/test_runtime.py::test_legacy_session_status_upgrades_without_desired_state` |
-| Legacy serialized session payloads already upgrade through the current compatibility path | `src/agent_operator/domain/operation.py:250` | `tests/test_runtime.py::test_legacy_session_status_upgrades_without_desired_state` |
-| The follow-on remains unimplemented and therefore should stay proposed/planned | no committed code stores `status: SessionStatus` as the sole durable session lifecycle field | `uv run pytest` can only verify current truth, not missing implementation |
+| `SessionState` persists one durable `status: SessionStatus` field | `src/agent_operator/domain/operation.py` `SessionState.status` | direct code inspection |
+| Legacy serialized two-field payloads still load into the new stored model | `src/agent_operator/domain/operation.py` `_upgrade_legacy_session_record()` | `tests/test_runtime.py::test_legacy_two_field_session_status_upgrades_to_stored_status_only` |
+| Legacy serialized `status` payloads still load without reintroducing removed fields | `src/agent_operator/domain/operation.py` `_upgrade_legacy_session_record()` | `tests/test_runtime.py::test_legacy_session_status_upgrades_without_desired_state` |
+| Projector and replay paths reconstruct canonical session truth without stored two-field state | `src/agent_operator/projectors/operation.py`; `src/agent_operator/application/operation_lifecycle.py` | `tests/test_operation_projector.py::test_operation_projector_coordinates_execution_and_session_slices`; `tests/test_operation_entrypoints.py::test_targeted_cancel_persists_session_status_via_event_sourced_replay` |
+| Aggregate session event application stays compatible with legacy event payloads while storing canonical `status` | `src/agent_operator/domain/aggregate.py` | `tests/test_operation_aggregate.py::test_session_registered_via_event` |
+| ADR closure is verified against the current repository state | changed implementation under `src/agent_operator/...`; this ADR document | `uv run pytest tests/test_runtime.py tests/test_operation_projector.py tests/test_operation_entrypoints.py tests/test_operation_aggregate.py`; `uv run pytest` |
 
 ## Related
 

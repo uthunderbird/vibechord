@@ -614,7 +614,7 @@ async def test_operation_cancellation_service_cancels_targeted_run() -> None:
 
 
 @pytest.mark.anyio
-async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced_replay(
+async def test_targeted_cancel_persists_session_status_via_event_sourced_replay(
     tmp_path: Any,
 ) -> None:
     store = FileOperationStore(tmp_path / "operations")
@@ -718,7 +718,9 @@ async def test_targeted_cancel_persists_session_terminal_state_via_event_sourced
     ]
     assert resumed.sessions[0].status is SessionStatus.CANCELLED
     assert resumed.sessions[0].waiting_reason == "Cancelled by operator."
-    assert resumed.sessions[0].terminal_state is not None
+    assert resumed.sessions[0].model_dump()["status"] == SessionStatus.CANCELLED
+    assert "observed_state" not in resumed.sessions[0].model_dump()
+    assert "terminal_state" not in resumed.sessions[0].model_dump()
     assert resumed.sessions[0].current_execution_id is None
     assert resumed.sessions[0].last_terminal_execution_id == "run-1"
 

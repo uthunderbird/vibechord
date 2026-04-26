@@ -169,6 +169,9 @@ def test_session_registered_via_event() -> None:
 
     assert len(result.sessions) == 1
     assert result.sessions[0].handle.session_id == "sess-1"
+    assert result.sessions[0].status is SessionStatus.IDLE
+    assert "observed_state" not in result.sessions[0].model_dump()
+    assert "terminal_state" not in result.sessions[0].model_dump()
 
 
 # ── coordination state ────────────────────────────────────────────────────────

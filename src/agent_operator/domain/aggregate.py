@@ -278,8 +278,41 @@ class OperationAggregate:
                     session_updates = {
                         key: value
                         for key, value in payload.items()
-                        if key != "session_id" and value is not None
+                        if key
+                        in {
+                            "current_execution_id",
+                            "last_terminal_execution_id",
+                            "waiting_reason",
+                            "updated_at",
+                        }
+                        and value is not None
                     }
+                    if payload.get("status") is not None:
+                        session_updates["status"] = payload["status"]
+                    else:
+                        observed_state = payload.get("observed_state")
+                        terminal_state = payload.get("terminal_state")
+                        normalized_observed_state = (
+                            str(observed_state).lower() if observed_state is not None else None
+                        )
+                        normalized_terminal_state = (
+                            str(terminal_state).lower() if terminal_state is not None else None
+                        )
+                        if normalized_observed_state in {"idle", "running", "waiting"}:
+                            session_updates["status"] = normalized_observed_state
+                        elif normalized_observed_state in {
+                            "terminal",
+                            "completed",
+                            "failed",
+                            "cancelled",
+                            "interrupted",
+                        }:
+                            normalized_terminal = (
+                                normalized_terminal_state or normalized_observed_state
+                            )
+                            if normalized_terminal == "interrupted":
+                                normalized_terminal = "cancelled"
+                            session_updates["status"] = normalized_terminal
                     s = s.model_copy(update=session_updates)
                 updated_sessions.append(s)
             return dataclasses.replace(self, sessions=updated_sessions, updated_at=now)

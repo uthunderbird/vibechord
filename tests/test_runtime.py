@@ -48,9 +48,11 @@ from agent_operator.domain import (
     ProjectProfileMcpServer,
     RunEvent,
     RunEventKind,
+    SessionObservedState,
     SessionReusePolicy,
     SessionState,
     SessionStatus,
+    SessionTerminalState,
     TraceRecord,
     TypedRefs,
 )
@@ -438,6 +440,28 @@ def test_legacy_session_status_upgrades_without_desired_state() -> None:
 
     assert session.status is SessionStatus.CANCELLED
     assert "desired_state" not in session.model_dump()
+    assert "observed_state" not in session.model_dump()
+    assert "terminal_state" not in session.model_dump()
+
+
+def test_legacy_two_field_session_status_upgrades_to_stored_status_only() -> None:
+    session = SessionState.model_validate(
+        {
+            "handle": {
+                "adapter_key": "codex_acp",
+                "session_id": "session-legacy",
+            },
+            "observed_state": "terminal",
+            "terminal_state": "failed",
+        }
+    )
+
+    assert session.status is SessionStatus.FAILED
+    assert session.observed_state is SessionObservedState.TERMINAL
+    assert session.terminal_state is SessionTerminalState.FAILED
+    assert session.model_dump()["status"] == SessionStatus.FAILED
+    assert "observed_state" not in session.model_dump()
+    assert "terminal_state" not in session.model_dump()
 
 
 def test_feature_status_exposes_only_runtime_values() -> None:

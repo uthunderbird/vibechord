@@ -17,8 +17,8 @@ from agent_operator.domain import (
     OperatorMessage,
     PolicyCoverage,
     SchedulerState,
-    SessionObservedState,
     SessionState,
+    SessionStatus,
     SessionTerminalState,
     StoredOperationDomainEvent,
     TaskState,
@@ -134,8 +134,10 @@ def test_operation_projector_coordinates_execution_and_session_slices() -> None:
     assert projected.executions[0].observed_state is ExecutionObservedState.COMPLETED
     assert projected.sessions[0].current_execution_id is None
     assert projected.sessions[0].last_terminal_execution_id == "execution-1"
-    assert projected.sessions[0].observed_state is SessionObservedState.TERMINAL
-    assert projected.sessions[0].terminal_state is SessionTerminalState.COMPLETED
+    assert projected.sessions[0].status is SessionStatus.COMPLETED
+    assert projected.sessions[0].model_dump()["status"] == SessionStatus.COMPLETED
+    assert "observed_state" not in projected.sessions[0].model_dump()
+    assert "terminal_state" not in projected.sessions[0].model_dump()
 
 
 def test_operation_projector_projects_permission_events_for_replay_visibility() -> None:
@@ -209,7 +211,7 @@ def test_operation_projector_normalizes_legacy_interrupted_terminal_state() -> N
         ],
     )
 
-    assert projected.sessions[0].observed_state is SessionObservedState.TERMINAL
+    assert projected.sessions[0].status is SessionStatus.CANCELLED
     assert projected.sessions[0].terminal_state is SessionTerminalState.CANCELLED
 
 

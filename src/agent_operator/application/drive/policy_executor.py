@@ -371,12 +371,12 @@ class PolicyExecutor:
         status: AgentResultStatus,
     ) -> dict[str, str]:
         if status is AgentResultStatus.SUCCESS:
-            return {"observed_state": "terminal", "terminal_state": "completed"}
+            return {"status": "completed"}
         if status is AgentResultStatus.CANCELLED:
-            return {"observed_state": "terminal", "terminal_state": "cancelled"}
+            return {"status": "cancelled"}
         if status is AgentResultStatus.INCOMPLETE:
-            return {"observed_state": "waiting"}
-        return {"observed_state": "terminal", "terminal_state": "failed"}
+            return {"status": "waiting"}
+        return {"status": "failed"}
 
     def _permission_events_from_agent_result(
         self,

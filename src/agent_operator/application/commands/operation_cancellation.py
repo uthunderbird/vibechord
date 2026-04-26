@@ -166,8 +166,7 @@ class OperationCancellationService:
                     record.latest_iteration or len(state.iterations),
                     {
                         "session_id": record.session_id,
-                        "observed_state": "TERMINAL",
-                        "terminal_state": "CANCELLED",
+                        "status": "cancelled",
                     },
                     session_id=record.session_id,
                 )

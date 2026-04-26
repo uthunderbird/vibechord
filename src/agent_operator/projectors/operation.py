@@ -25,6 +25,7 @@ from agent_operator.domain import (
     SchedulerState,
     SessionObservedState,
     SessionState,
+    SessionStatus,
     SessionTerminalState,
     StoredOperationDomainEvent,
     TaskState,
@@ -193,18 +194,10 @@ class DefaultOperationProjector:
                 event.payload["session_id"],
             )
             if session is not None:
-                observed_state, terminal_state = self._session_observed_state(
-                    event.payload["observed_state"],
+                session.status = self._session_status_from_payload(
+                    event.payload.get("status"),
+                    event.payload.get("observed_state"),
                     self._payload_optional_string(event.payload, "terminal_state"),
-                )
-                session.observed_state = observed_state
-                _terminal_state_value = (
-                    "cancelled" if terminal_state == "interrupted" else terminal_state
-                )
-                session.terminal_state = (
-                    SessionTerminalState(_terminal_state_value)
-                    if _terminal_state_value is not None
-                    else None
                 )
                 self._assign_if_present(session, event.payload, "current_execution_id")
                 self._assign_if_present(session, event.payload, "last_terminal_execution_id")
@@ -223,8 +216,8 @@ class DefaultOperationProjector:
                 session.cooldown_until = None
                 session.cooldown_reason = None
                 session.waiting_reason = None
-                if session.observed_state is SessionObservedState.WAITING:
-                    session.observed_state = SessionObservedState.IDLE
+                if session.status is SessionStatus.WAITING:
+                    session.status = SessionStatus.IDLE
                 session.updated_at = self._payload_datetime(
                     event.payload,
                     "updated_at",
@@ -232,19 +225,36 @@ class DefaultOperationProjector:
                 )
         return checkpoint
 
-    def _session_observed_state(
+    def _session_status_from_payload(
         self,
+        status: object | None,
         observed_state: object,
         terminal_state: str | None,
-    ) -> tuple[SessionObservedState, str | None]:
-        if observed_state in {
+    ) -> SessionStatus:
+        if status is not None:
+            return SessionStatus(str(status).lower())
+        normalized_observed_state = str(observed_state).lower()
+        normalized_terminal_state = terminal_state.lower() if terminal_state is not None else None
+        if normalized_observed_state in {
+            SessionObservedState.TERMINAL.value,
             SessionTerminalState.COMPLETED.value,
             SessionTerminalState.FAILED.value,
             SessionTerminalState.CANCELLED.value,
             "interrupted",  # legacy value from older event schema
         }:
-            return SessionObservedState.TERMINAL, terminal_state or str(observed_state)
-        return SessionObservedState(str(observed_state)), terminal_state
+            normalized_terminal_state = normalized_terminal_state or normalized_observed_state
+            if normalized_terminal_state == "interrupted":
+                normalized_terminal_state = SessionTerminalState.CANCELLED.value
+            return {
+                SessionTerminalState.COMPLETED.value: SessionStatus.COMPLETED,
+                SessionTerminalState.FAILED.value: SessionStatus.FAILED,
+                SessionTerminalState.CANCELLED.value: SessionStatus.CANCELLED,
+            }[normalized_terminal_state]
+        return {
+            SessionObservedState.IDLE.value: SessionStatus.IDLE,
+            SessionObservedState.RUNNING.value: SessionStatus.RUNNING,
+            SessionObservedState.WAITING.value: SessionStatus.WAITING,
+        }[normalized_observed_state]
 
     def _apply_execution_slice(
         self,
@@ -297,14 +307,11 @@ class DefaultOperationProjector:
                         if session.current_execution_id is None:
                             session.last_terminal_execution_id = execution.execution_id
                             if execution.observed_state is ExecutionObservedState.COMPLETED:
-                                session.terminal_state = SessionTerminalState.COMPLETED
-                                session.observed_state = SessionObservedState.TERMINAL
+                                session.status = SessionStatus.COMPLETED
                             elif execution.observed_state is ExecutionObservedState.FAILED:
-                                session.terminal_state = SessionTerminalState.FAILED
-                                session.observed_state = SessionObservedState.TERMINAL
+                                session.status = SessionStatus.FAILED
                             elif execution.observed_state is ExecutionObservedState.CANCELLED:
-                                session.terminal_state = SessionTerminalState.CANCELLED
-                                session.observed_state = SessionObservedState.TERMINAL
+                                session.status = SessionStatus.CANCELLED
                         session.updated_at = self._payload_datetime(
                             event.payload,
                             "updated_at",

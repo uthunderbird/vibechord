@@ -225,8 +225,7 @@ class TaskState(BaseModel):
 
 class SessionState(BaseModel):
     handle: AgentSessionHandle
-    observed_state: SessionObservedState = SessionObservedState.IDLE
-    terminal_state: SessionTerminalState | None = None
+    status: SessionStatus = SessionStatus.IDLE
     current_execution_id: str | None = None
     last_terminal_execution_id: str | None = None
     bound_task_ids: list[str] = Field(default_factory=list)
@@ -253,27 +252,63 @@ class SessionState(BaseModel):
         if not isinstance(data, dict):
             return data
         upgraded = dict(data)
-        legacy_status = upgraded.pop("status", None)
-        if legacy_status is not None and "observed_state" not in upgraded:
-            status = (
+        legacy_status = upgraded.get("status")
+        if legacy_status is not None:
+            upgraded["status"] = (
                 legacy_status
                 if isinstance(legacy_status, SessionStatus)
                 else SessionStatus(legacy_status)
             )
-            if status is SessionStatus.IDLE:
-                upgraded["observed_state"] = SessionObservedState.IDLE
-            elif status is SessionStatus.RUNNING:
-                upgraded["observed_state"] = SessionObservedState.RUNNING
-            elif status is SessionStatus.WAITING:
-                upgraded["observed_state"] = SessionObservedState.WAITING
-            else:
-                upgraded["observed_state"] = SessionObservedState.TERMINAL
-                upgraded["terminal_state"] = {
-                    SessionStatus.COMPLETED: SessionTerminalState.COMPLETED,
-                    SessionStatus.FAILED: SessionTerminalState.FAILED,
-                    SessionStatus.CANCELLED: SessionTerminalState.CANCELLED,
-                }[status]
+            upgraded.pop("observed_state", None)
+            upgraded.pop("terminal_state", None)
+            return upgraded
+        observed_state = upgraded.pop("observed_state", None)
+        terminal_state = upgraded.pop("terminal_state", None)
+        if observed_state is not None or terminal_state is not None:
+            upgraded["status"] = cls._status_from_legacy_fields(
+                observed_state=observed_state,
+                terminal_state=terminal_state,
+            )
         return upgraded
+
+    @classmethod
+    def _status_from_legacy_fields(
+        cls,
+        *,
+        observed_state: object | None,
+        terminal_state: object | None,
+    ) -> SessionStatus:
+        del cls
+        if observed_state in {None, SessionObservedState.IDLE, SessionObservedState.IDLE.value}:
+            return SessionStatus.IDLE
+        if observed_state in {
+            SessionObservedState.RUNNING,
+            SessionObservedState.RUNNING.value,
+        }:
+            return SessionStatus.RUNNING
+        if observed_state in {
+            SessionObservedState.WAITING,
+            SessionObservedState.WAITING.value,
+        }:
+            return SessionStatus.WAITING
+        normalized_terminal_state = (
+            terminal_state.value
+            if isinstance(terminal_state, SessionTerminalState)
+            else terminal_state
+        )
+        if normalized_terminal_state == "interrupted":
+            normalized_terminal_state = SessionTerminalState.CANCELLED.value
+        if normalized_terminal_state in {
+            SessionTerminalState.CANCELLED,
+            SessionTerminalState.CANCELLED.value,
+        }:
+            return SessionStatus.CANCELLED
+        if normalized_terminal_state in {
+            SessionTerminalState.FAILED,
+            SessionTerminalState.FAILED.value,
+        }:
+            return SessionStatus.FAILED
+        return SessionStatus.COMPLETED
 
     @property
     def session_id(self) -> str:
@@ -284,38 +319,48 @@ class SessionState(BaseModel):
         return self.handle.adapter_key
 
     @property
-    def status(self) -> SessionStatus:
-        if self.observed_state is SessionObservedState.IDLE:
-            return SessionStatus.IDLE
-        if self.observed_state is SessionObservedState.RUNNING:
-            return SessionStatus.RUNNING
-        if self.observed_state is SessionObservedState.WAITING:
-            return SessionStatus.WAITING
-        if self.terminal_state is SessionTerminalState.CANCELLED:
-            return SessionStatus.CANCELLED
-        if self.terminal_state is SessionTerminalState.FAILED:
-            return SessionStatus.FAILED
-        return SessionStatus.COMPLETED
+    def observed_state(self) -> SessionObservedState:
+        if self.status is SessionStatus.IDLE:
+            return SessionObservedState.IDLE
+        if self.status is SessionStatus.RUNNING:
+            return SessionObservedState.RUNNING
+        if self.status is SessionStatus.WAITING:
+            return SessionObservedState.WAITING
+        return SessionObservedState.TERMINAL
 
-    @status.setter
-    def status(self, value: SessionStatus) -> None:
-        if value is SessionStatus.IDLE:
-            self.observed_state = SessionObservedState.IDLE
-            self.terminal_state = None
+    @observed_state.setter
+    def observed_state(self, value: SessionObservedState) -> None:
+        if value is SessionObservedState.IDLE:
+            self.status = SessionStatus.IDLE
+        elif value is SessionObservedState.RUNNING:
+            self.status = SessionStatus.RUNNING
+        elif value is SessionObservedState.WAITING:
+            self.status = SessionStatus.WAITING
+        elif self.status not in {
+            SessionStatus.COMPLETED,
+            SessionStatus.FAILED,
+            SessionStatus.CANCELLED,
+        }:
+            self.status = SessionStatus.COMPLETED
+
+    @property
+    def terminal_state(self) -> SessionTerminalState | None:
+        if self.status is SessionStatus.COMPLETED:
+            return SessionTerminalState.COMPLETED
+        if self.status is SessionStatus.FAILED:
+            return SessionTerminalState.FAILED
+        if self.status is SessionStatus.CANCELLED:
+            return SessionTerminalState.CANCELLED
+        return None
+
+    @terminal_state.setter
+    def terminal_state(self, value: SessionTerminalState | None) -> None:
+        if value is None:
             return
-        if value is SessionStatus.RUNNING:
-            self.observed_state = SessionObservedState.RUNNING
-            self.terminal_state = None
-            return
-        if value is SessionStatus.WAITING:
-            self.observed_state = SessionObservedState.WAITING
-            self.terminal_state = None
-            return
-        self.observed_state = SessionObservedState.TERMINAL
-        self.terminal_state = {
-            SessionStatus.COMPLETED: SessionTerminalState.COMPLETED,
-            SessionStatus.FAILED: SessionTerminalState.FAILED,
-            SessionStatus.CANCELLED: SessionTerminalState.CANCELLED,
+        self.status = {
+            SessionTerminalState.COMPLETED: SessionStatus.COMPLETED,
+            SessionTerminalState.FAILED: SessionStatus.FAILED,
+            SessionTerminalState.CANCELLED: SessionStatus.CANCELLED,
         }[value]
 
 
