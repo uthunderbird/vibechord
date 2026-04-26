@@ -17,8 +17,17 @@ from agent_operator.runtime import (
     load_claude_log_events,
     load_codex_log_events,
 )
+from agent_operator.runtime import (
+    iter_claude_log_events as _iter_claude_log_events,
+)
+from agent_operator.runtime import (
+    iter_codex_log_events as _iter_codex_log_events,
+)
 
 from .rendering import shorten_live_text
+
+iter_claude_log_events = _iter_claude_log_events
+iter_codex_log_events = _iter_codex_log_events
 
 
 def resolve_claude_log_path_for_session(session: AgentSessionHandle) -> Path:
