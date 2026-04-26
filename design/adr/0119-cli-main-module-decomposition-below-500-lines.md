@@ -8,24 +8,68 @@ Accepted
 
 Partial
 
-Skim-safe current truth on 2026-04-14:
+Skim-safe current truth on 2026-04-27:
 
 - `implemented`: `src/agent_operator/cli/main.py` is now a 16-line compatibility facade and
   `src/agent_operator/cli/app.py` is a 119-line Typer assembly module
 - `implemented`: command registration, helpers, workflows, rendering, and TUI logic now live in
   separate CLI subpackages under `src/agent_operator/cli/`
+- `implemented`: TUI rendering now keeps `agent_operator.cli.tui.rendering` as a 61-line public
+  compatibility facade, with list/timeline/task-board rendering split into
+  `src/agent_operator/cli/tui/rendering_lists.py` (176 lines), chrome/overlay rendering in
+  `src/agent_operator/cli/tui/rendering_chrome.py` (413 lines), and operation/session detail
+  rendering in `src/agent_operator/cli/tui/rendering_detail.py` (393 lines)
+- `implemented`: TUI models now keep `agent_operator.cli.tui.models` as a 172-line public
+  compatibility facade, with extracted helpers in
+  `src/agent_operator/cli/tui/model_types.py` (180 lines),
+  `src/agent_operator/cli/tui/model_attention.py` (164 lines),
+  `src/agent_operator/cli/tui/model_fleet.py` (240 lines),
+  `src/agent_operator/cli/tui/model_sessions.py` (413 lines), and
+  `src/agent_operator/cli/tui/model_text.py` (98 lines)
 - `partial`: ADR 0119's material-satisfaction bar is not yet met because multiple CLI source files
   still exceed the 500-line limit
 - `partial`: the largest remaining files are
   `src/agent_operator/cli/tui/controller.py` (1347),
-  `src/agent_operator/cli/tui/rendering.py` (979),
-  `src/agent_operator/cli/tui/models.py` (956),
-  `src/agent_operator/cli/workflows/control.py` (868),
-  `src/agent_operator/cli/workflows/views.py` (826),
-  `src/agent_operator/cli/commands/operation_detail.py` (737),
-  `src/agent_operator/cli/rendering/text.py` (630),
-  `src/agent_operator/cli/commands/debug.py` (543), and
-  `src/agent_operator/cli/workflows/converse.py` (523)
+  `src/agent_operator/cli/workflows/views.py` (859),
+  `src/agent_operator/cli/workflows/converse.py` (803),
+  `src/agent_operator/cli/rendering/text.py` (690),
+  `src/agent_operator/cli/workflows/control_runtime.py` (557)
+
+Verification evidence for this slice:
+
+- `verified`: `tests/test_adr_0119_cli_line_budget.py::test_adr_0119_split_cli_modules_stay_under_500_lines`
+  now fails if `src/agent_operator/cli/tui/rendering.py`,
+  `src/agent_operator/cli/tui/rendering_chrome.py`,
+  `src/agent_operator/cli/tui/rendering_detail.py`, or
+  `src/agent_operator/cli/tui/rendering_lists.py` regresses above the ADR ceiling
+- `verified`: `tests/test_adr_0119_cli_line_budget.py::test_adr_0119_split_cli_modules_stay_under_500_lines`
+  now also fails if `src/agent_operator/cli/tui/models.py`,
+  `src/agent_operator/cli/tui/model_types.py`,
+  `src/agent_operator/cli/tui/model_attention.py`,
+  `src/agent_operator/cli/tui/model_display.py`,
+  `src/agent_operator/cli/tui/model_fleet.py`,
+  `src/agent_operator/cli/tui/model_sessions.py`,
+  `src/agent_operator/cli/tui/model_text.py`, or
+  `src/agent_operator/cli/tui/model_views.py` regresses above the ADR ceiling
+- `verified`: `tests/test_adr_0119_control_line_budget.py::test_control_workflow_modules_stay_under_500_lines`
+  now fails if `src/agent_operator/cli/workflows/control.py` or
+  `src/agent_operator/cli/workflows/control_converse.py` regresses above the ADR ceiling
+- `verified`: the TUI facade import surface now has a direct regression assertion in
+  `tests/test_tui.py::test_tui_package_exports_rendering_module` covering
+  `render_help_overlay`, `render_session_timeline`, and
+  `render_forensic_transcript_panel`
+- `verified`: the TUI models facade and grouped-payload bucket rewrite now have direct regression
+  assertions in
+  `tests/test_tui.py::test_tui_models_facade_exports_split_helpers`,
+  `tests/test_tui.py::test_tui_models_facade_selected_task_uses_facade_filter_for_monkeypatching`
+  and
+  `tests/test_tui.py::test_payload_items_rewrites_bucket_for_legacy_grouped_payloads`
+- `verified`: focused TUI/models regressions passed with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_adr_0119_cli_line_budget.py tests/test_tui.py tests/test_tui_language_slice.py tests/test_tui_session_summary_jump_to.py`
+  (`84 passed`)
+- `verified`: full repository verification passed with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest`
+  (`1030 passed, 11 skipped`)
 
 This ADR is accepted but only partially implemented.
 
@@ -246,18 +290,36 @@ This ADR is materially satisfied only when all of the following are true:
 
 ### Evidence
 
-- As of 2026-04-14, `wc -l` over `src/agent_operator/cli/**/*.py` shows the CLI is decomposed into
-  focused modules, but the 500-line budget is still violated by nine files:
+- As of 2026-04-27, `wc -l` over `src/agent_operator/cli/**/*.py` shows the CLI is decomposed into
+  focused modules, but the 500-line budget is still violated by five files:
   `tui/controller.py` (1347),
-  `tui/rendering.py` (979),
-  `tui/models.py` (956),
-  `workflows/control.py` (868),
-  `workflows/views.py` (826),
-  `commands/operation_detail.py` (737),
-  `rendering/text.py` (630),
-  `commands/debug.py` (543), and
-  `workflows/converse.py` (523).
+  `workflows/views.py` (859),
+  `workflows/converse.py` (803),
+  `rendering/text.py` (690),
+  `workflows/control_runtime.py` (557).
+- As of 2026-04-27, `wc -l` for the extracted TUI models slice is:
+  `tui/models.py` (172),
+  `tui/model_types.py` (180),
+  `tui/model_attention.py` (164),
+  `tui/model_fleet.py` (240),
+  `tui/model_sessions.py` (413), and
+  `tui/model_text.py` (98).
 - `src/agent_operator/cli/main.py` now re-exports through `app.py` and no longer centralizes the
   former kitchen-sink responsibilities.
+- `src/agent_operator/cli/tui/rendering.py` now retains the public TUI rendering seam at 61 lines
+  while `src/agent_operator/cli/tui/rendering_chrome.py`,
+  `src/agent_operator/cli/tui/rendering_detail.py`, and
+  `src/agent_operator/cli/tui/rendering_lists.py` own the extracted implementation.
+- `src/agent_operator/cli/tui/models.py` now retains the public TUI models seam at 172 lines
+  while `src/agent_operator/cli/tui/model_types.py`,
+  `src/agent_operator/cli/tui/model_attention.py`,
+  `src/agent_operator/cli/tui/model_fleet.py`,
+  `src/agent_operator/cli/tui/model_sessions.py`, and
+  `src/agent_operator/cli/tui/model_text.py` own the extracted implementation.
+- `src/agent_operator/cli/workflows/control.py` now retains the public workflow seam at 461 lines
+  while `src/agent_operator/cli/workflows/control_converse.py` owns the extracted
+  converse-command dispatch logic.
 - `tests/test_cli.py` still imports `agent_operator.cli.main:app` and exercises the decomposed CLI
-  surface, but ADR 0119 cannot be reported as `Verified` unless `uv run pytest` is green.
+  surface, but ADR 0119 cannot be reported as `Verified` because multiple CLI source files still
+  exceed the 500-line ceiling even though the post-extraction focused tests and
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` are green for this tranche.

@@ -67,3 +67,22 @@ def test_cli_json_schema_reference_lists_current_json_surfaces() -> None:
 
     for heading in required_headings:
         assert heading in schemas_doc
+
+
+def test_cli_json_schema_reference_keeps_transitional_aliases_out_of_stable_section() -> None:
+    """Catches a transitional alias being documented as a stable JSON surface."""
+    schemas_doc = SCHEMAS_DOC.read_text(encoding="utf-8")
+
+    stable_section, transitional_section = schemas_doc.split(
+        "## Transitional And Debug JSON Surfaces", maxsplit=1
+    )
+
+    assert "### `operator inspect --json`" not in stable_section
+    assert "### `operator inspect --json`" in transitional_section
+
+
+def test_cli_json_schema_reference_does_not_duplicate_ask_contract() -> None:
+    """Catches doc drift that invents extra JSON fields for `operator ask --json`."""
+    schemas_doc = SCHEMAS_DOC.read_text(encoding="utf-8")
+
+    assert schemas_doc.count("### `operator ask --json`") == 1

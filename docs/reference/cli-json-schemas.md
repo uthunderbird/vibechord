@@ -72,12 +72,6 @@ with `runtime_alert`.
 - `policy_command`: object or null
 - `outcome`: object or null
 
-### `operator ask --json`
-
-- `operation_id`: string
-- `question`: string
-- `answer`: string
-
 ### `operator cancel --json`
 
 - `operation_id`: string
@@ -104,13 +98,6 @@ Single snapshot object as emitted by `build_live_snapshot(...)`.
 
 Agenda payload object as emitted by the agenda workflow, including grouped actionable and recent
 operation summaries.
-
-### `operator inspect --json`
-
-- `operation_id`: string
-- `summary`: object
-- `durable_truth`: object
-- optional forensic arrays when `--full` is used
 
 ### `operator report --json`
 
@@ -279,6 +266,10 @@ Resume payload as emitted by `resume_async(...)`.
 
 Forensic inspection payload for one operation; `--full` includes stored state, trace, events,
 wakeups, and background runs.
+
+### `operator inspect --json`
+
+Top-level transitional alias. Reuses the same payload as `operator debug inspect --json`.
 
 ### `operator debug context --json`
 
