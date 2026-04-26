@@ -1175,7 +1175,7 @@ The following named items are known tech debt — a contributor encountering the
   dead `SessionState.desired_state` field is gone, and `FeatureStatus` now exposes only the
   runtime values that are actually used. The remaining follow-on from ADR 0150 is the separate
   two-field session lifecycle simplification (`observed_state + terminal_state` to a single stored
-  `SessionStatus`), not the already-closed dead-field cleanup.
+  `SessionStatus`) tracked in ADR 0217, not the already-closed dead-field cleanup.
 
 ## Agent Adapters
 
