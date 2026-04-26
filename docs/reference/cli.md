@@ -3,6 +3,9 @@
 `operator` exposes a fleet-first CLI organized around a few primary entry surfaces plus deeper
 inspection and forensic commands.
 
+For the command-by-command stability inventory used by ADR 0210, see
+[CLI Command Inventory](cli-command-inventory.md).
+
 The workspace shell and lifecycle family is:
 
 - `operator` / `fleet` — enter supervision for the current workspace
