@@ -106,7 +106,7 @@ class OperationResolutionService:
         operation = await self._load_event_sourced_operation_state(operation_id)
         if operation is not None:
             return operation
-        operation = await self.store.load_operation(operation_id)
+        operation = await self._load_snapshot_fallback(operation_id)
         if operation is not None:
             return operation
         return None
@@ -123,7 +123,7 @@ class OperationResolutionService:
         for summary in await self.store.list_operations():
             if summary.operation_id in seen_operation_ids:
                 continue
-            operation = await self.store.load_operation(summary.operation_id)
+            operation = await self._load_snapshot_fallback(summary.operation_id)
             if operation is None:
                 continue
             states.append(operation)
@@ -149,3 +149,8 @@ class OperationResolutionService:
         if checkpoint is None:
             return None
         return self.state_view_service.from_checkpoint(checkpoint)
+
+    async def _load_snapshot_fallback(self, operation_id: str) -> OperationState | None:
+        """Load snapshot-era state only as an explicit resolution fallback."""
+
+        return await self.store.load_operation(operation_id)

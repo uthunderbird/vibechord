@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import json
+from pathlib import Path
 
 import pytest
 
@@ -259,6 +261,41 @@ async def test_status_payload_prefers_event_sourced_replay_over_stale_snapshot()
     assert operation is not None
     assert operation.goal.objective == "Canonical event objective."
     assert operation.status is OperationStatus.COMPLETED
+
+
+def test_operation_status_query_service_isolates_snapshot_reads_to_named_fallback() -> None:
+    source = Path("src/agent_operator/application/queries/operation_status_queries.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+
+    callers = sorted(
+        {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and any(
+                isinstance(child, ast.Attribute) and child.attr == "load_operation"
+                for child in ast.walk(node)
+            )
+        }
+    )
+
+    assert callers == ["_load_snapshot_fallback"]
+
+    helper_calls = sorted(
+        {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and any(
+                isinstance(child, ast.Attribute) and child.attr == "_load_snapshot_fallback"
+                for child in ast.walk(node)
+            )
+        }
+    )
+
+    assert helper_calls == ["build_read_payload"]
 
 
 @pytest.mark.anyio

@@ -167,7 +167,7 @@ class OperationStatusQueryService:
         operation = await self._load_event_sourced_operation(operation_id)
         source = "event_sourced" if operation is not None else "legacy_snapshot"
         if operation is None:
-            operation = await self.store.load_operation(operation_id)
+            operation = await self._load_snapshot_fallback(operation_id)
         outcome = await self.store.load_outcome(operation_id)
         if operation is None and outcome is None:
             raise RuntimeError(f"Operation {operation_id!r} was not found.")
@@ -244,6 +244,11 @@ class OperationStatusQueryService:
         if checkpoint is None:
             return None
         return self.state_view_service.from_checkpoint(checkpoint)
+
+    async def _load_snapshot_fallback(self, operation_id: str) -> OperationState | None:
+        """Load snapshot-era state only as an explicit status-query fallback."""
+
+        return await self.store.load_operation(operation_id)
 
     async def render_status_output(
         self,

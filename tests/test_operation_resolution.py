@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -92,3 +93,38 @@ async def test_operation_resolution_does_not_match_profile_name(
 
     assert exc_info.value.code == "not_found"
     assert str(exc_info.value) == "Operation 'femtobot' was not found."
+
+
+def test_operation_resolution_service_isolates_snapshot_reads_to_named_fallback() -> None:
+    source = Path("src/agent_operator/application/queries/operation_resolution.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+
+    callers = sorted(
+        {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and any(
+                isinstance(child, ast.Attribute) and child.attr == "load_operation"
+                for child in ast.walk(node)
+            )
+        }
+    )
+
+    assert callers == ["_load_snapshot_fallback"]
+
+    helper_calls = sorted(
+        {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and any(
+                isinstance(child, ast.Attribute) and child.attr == "_load_snapshot_fallback"
+                for child in ast.walk(node)
+            )
+        }
+    )
+
+    assert helper_calls == ["list_canonical_operation_states", "load_canonical_operation_state"]

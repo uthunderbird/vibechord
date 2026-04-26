@@ -39,14 +39,33 @@ Implementation grounding on 2026-04-26:
   `tests/test_operation_delivery_commands.py::test_answer_attention_prefers_canonical_state_loader_over_snapshot_store`,
   `tests/test_operation_delivery_commands.py::test_answer_attention_uses_snapshot_fallback_when_canonical_state_missing`,
   `tests/test_operation_delivery_commands.py::test_operation_delivery_command_service_isolates_snapshot_reads_to_named_fallback`.
+- `implemented`: `operator policy explain` now resolves operation references through the shared
+  canonical resolver and loads event-sourced operation state before any legacy snapshot fallback,
+  so policy explainability works for v2-only operations without `.operator/runs`. Evidence:
+  `src/agent_operator/cli/commands/policy.py`,
+  `tests/test_policy_cli.py::test_policy_explain_reads_event_sourced_operation_without_snapshot`.
+- `implemented`: shared canonical resolution and status-query loading now also keep direct snapshot
+  reads behind explicit `_load_snapshot_fallback()` helpers, so all covered canonical read/query
+  seams in this wave expose legacy fallback as a named migration boundary instead of an inline read
+  dependency. Evidence:
+  `src/agent_operator/application/queries/operation_resolution.py`,
+  `src/agent_operator/application/queries/operation_status_queries.py`,
+  `tests/test_operation_resolution.py::test_operation_resolution_service_isolates_snapshot_reads_to_named_fallback`,
+  `tests/test_operation_status_queries.py::test_operation_status_query_service_isolates_snapshot_reads_to_named_fallback`.
 - `partial`: snapshot fallback still exists in shared resolution/query and delivery-command loader
-  code for mixed-mode and migration cases. The repository truth is therefore "legacy constrained and
-  explicitly bounded," not "legacy removed." Evidence:
+  helpers for mixed-mode and migration cases. The repository truth is therefore "legacy constrained
+  and explicitly bounded," not "legacy removed." Evidence:
   `src/agent_operator/application/queries/operation_resolution.py`,
   `src/agent_operator/application/queries/operation_status_queries.py`,
   `src/agent_operator/application/commands/operation_delivery_commands.py`.
 - `blocked`: this ADR's stronger removal gate is not yet closed because the repository still keeps
   `.operator/runs` as legacy or migration input and still contains many legacy-fixture tests.
+- `verified`: targeted regressions for the new shared query fallback boundaries passed with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_operation_resolution.py tests/test_operation_status_queries.py tests/test_application_structure.py -q`
+  (`35 passed`) and changed-file lint passed with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent_operator/application/queries/operation_resolution.py src/agent_operator/application/queries/operation_status_queries.py tests/test_operation_resolution.py tests/test_operation_status_queries.py`.
+- `verified`: the full repository suite passed in this wave with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1006 passed, 11 skipped`).
 
 ## Context
 
