@@ -4,15 +4,36 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Planned
+Partial
+
+Implementation grounding on 2026-04-26:
+
+- `implemented`: the repository already contains the accepted v2 replacement direction in code:
+  `OperationAggregate` exists at `src/agent_operator/domain/aggregate.py`,
+  `DriveService` and its decomposed collaborators exist under
+  `src/agent_operator/application/drive/`, and `OperatorServiceV2` exists at
+  `src/agent_operator/application/operator_service_v2.py`.
+- `implemented`: the public CLI already exposes the tranche entrypoint for the rewrite through
+  `operator run --v2` in `src/agent_operator/cli/commands/run.py`.
+- `implemented`: accepted tranche ADRs `0203` through `0213` already treat the no-long-lived-
+  compatibility v2 migration as repository direction rather than a hypothetical branch-local
+  experiment.
+- `verified`: repository tests already exercise the v2 stack directly, including
+  `tests/test_operation_aggregate.py`, `tests/test_operator_service_v2.py`,
+  `tests/test_runtime_reconciler.py`, and the v2 CLI smoke in
+  `tests/test_cli.py::test_v2_cli_smoke_creates_observes_and_cancels_without_runs_dir`.
+- `partial`: the repository has not completed the rewrite. Snapshot-era `OperationState`,
+  `OperatorService`, and mixed-mode fallback paths still exist, and the final cutover/removal gate
+  remains explicitly open under `ADR 0209` and `ADR 0213`.
 
 ## Context
 
-`ARCHITECTURE_v2.md` describes a target architecture that differs from the current codebase in several load-bearing ways:
+The repository has already committed to a v2 architecture that differs from the snapshot-era
+runtime in several load-bearing ways:
 
 - `OperationAggregate` replaces `OperationState` (ADR 0193)
 - `DriveService` with four decomposed sub-services replaces `OperationDriveService` and its 25+ mixin services
@@ -21,7 +42,8 @@ Planned
 - `OperatorServiceV2` replaces `OperatorService`
 - `Commander` is a separate process managing epoch fencing and fleet coordination
 
-The question is how to get from the current codebase to this target.
+The open question was how to get from the current mixed repository to that target without
+reintroducing long-lived compatibility shims.
 
 ### Two approaches were considered
 
@@ -67,7 +89,11 @@ Specifically:
 
 6. **No feature flags, no `if v2:` branches.** The codebase at any point in time runs either v1 or v2, not both.
 
-7. **The migration is performed on a dedicated feature branch.** The main branch continues to run v1 until the migration branch is merged. The migration branch is non-runnable from the moment Layer 1 is replaced until all four layers are complete. This is expected and acceptable — the branch exists solely to accumulate the full rewrite before it can be tested end-to-end.
+7. **The migration proceeds by explicit tranche ADRs, not by long-lived compatibility mode.**
+   Intermediate repository states may remain mixed while accepted tranche ADRs close one authority
+   boundary at a time, but those states must keep the zero-fallback rule, name remaining legacy
+   seams explicitly, and route final destructive removal through the cutover governance gates in
+   `ADR 0209` and `ADR 0213`.
 
 ## Alternatives Considered
 
@@ -77,9 +103,23 @@ Specifically:
 
 **Data migration**: Translate existing `OperationState` snapshots to `OperationAggregate` checkpoints. Not needed: existing operations are stored as events; the `EventSourcedReplayService` already replays them into the checkpoint format.
 
+## Current Repository Truth
+
+The repository no longer matches the earlier assumption that the rewrite would live only on a
+dedicated non-runnable migration branch. Current truth is:
+
+- v2 code ships in-tree today and is exercised by tests
+- the repository is still mixed rather than fully cut over
+- compatibility is being removed by tranche, not preserved indefinitely
+- the final destructive removal wave is governed by `ADR 0209` and `ADR 0213`
+
+Acceptance of this ADR therefore records the migration strategy and the anti-compatibility policy,
+not completion of the rewrite itself.
+
 ## Cutover Strategy
 
-The full rewrite implies a hard cutover, not a gradual rollout. The following constraints apply:
+The full rewrite still implies a hard final cutover rather than a gradual compatibility promise.
+The following constraints apply:
 
 1. **Drain before cutover.** All running operations must complete under v1 before the v2 process starts. No hot-swap. The operator must enter a drain state (no new operation assignments accepted; existing operations run to completion or cancellation) before the v1 process is stopped. The drain procedure requires a migration runbook (outside the scope of this ADR) specifying: (a) how to signal the operator to stop accepting new assignments, (b) how to confirm zero active operations before stopping v1, and (c) what to do if an operation is stuck and will not complete within a timeout. The cutover must not proceed until this runbook exists and has been rehearsed.
 
