@@ -8,9 +8,9 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
-Skim-safe current truth on 2026-04-12:
+Skim-safe current truth on 2026-04-26:
 
 - `implemented`: attached runtime reconciliation now re-checks already-terminal background runs
   during supervisor polling instead of leaving them in a stale active state
@@ -25,8 +25,16 @@ Skim-safe current truth on 2026-04-12:
   `tests/test_operation_traceability_service.py`
 - `verified`: focused entrypoint/projection coverage for continuity-vs-invocation runtime metadata
   now exists in `tests/test_operation_entrypoints.py` and `tests/test_operation_projections.py`
+- `verified`: status/runtime-alert coverage now explicitly guards the no-`resume`-while-live rule
+  through `tests/test_operation_status_queries.py::test_build_runtime_alert_ignores_terminal_background_run_when_live_run_exists`
 - `verified`: full end-to-end attached-live progression across repeated background turns without
   manual recovery covered in `tests/test_operation_drive_service.py::test_attached_live_progresses_across_repeated_background_turns_without_resume`
+- `verified`: focused attached-live regression coverage passed on 2026-04-26 with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_operation_status_queries.py -q`
+  (`9 passed`)
+- `verified`: full repository verification passed on 2026-04-26 with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest`
+  (`1034 passed, 11 skipped`)
 
 ## Commands Covered
 
@@ -208,8 +216,15 @@ Current evidence for the landed slice:
 
 - `verified`: targeted regression coverage for adapter-setting continuity and stale-wait/runtime-alert
   truth in `tests/test_cli.py` and `tests/test_operation_traceability_service.py`
+- `verified`: `tests/test_operation_status_queries.py::test_build_runtime_alert_ignores_terminal_background_run_when_live_run_exists`
+  now catches the regression where `status`/`watch` style runtime alerts would suggest
+  `operator resume` even though another background run is still actively advancing
 - `verified`: full end-to-end attached-live progression across repeated background turns without
   manual recovery in `tests/test_operation_drive_service.py`
+- `verified`: local verification completed on 2026-04-26 with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_operation_status_queries.py -q`
+  (`9 passed`) and `UV_CACHE_DIR=/tmp/uv-cache uv run pytest`
+  (`1034 passed, 11 skipped`)
 
 When the full ADR is implemented, the repository should preserve these conditions:
 

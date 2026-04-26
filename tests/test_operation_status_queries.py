@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_operator.application import OperationProjectionService, OperationStatusQueryService
+from agent_operator.cli.helpers.rendering import build_runtime_alert
 from agent_operator.domain import (
     AgentSessionHandle,
     ExecutionProfileStamp,
@@ -46,6 +47,20 @@ class _ReplayService:
     async def load(self, operation_id: str) -> _ReplayState:
         assert operation_id == self._checkpoint.operation_id
         return _ReplayState(self._checkpoint)
+
+
+def test_build_runtime_alert_ignores_terminal_background_run_when_live_run_exists() -> None:
+    """Catches the mutation where resume guidance appears during active progress."""
+    alert = build_runtime_alert(
+        status=OperationStatus.RUNNING,
+        wakeups=[],
+        background_runs=[
+            {"status": "completed"},
+            {"status": "running"},
+        ],
+    )
+
+    assert alert is None
 
 
 @pytest.mark.anyio
