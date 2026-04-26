@@ -31,15 +31,31 @@ Implementation grounding on 2026-04-26:
   `src/agent_operator/client.py`,
   `tests/test_cli.py::test_watch_reads_canonical_v2_events_without_legacy_event_file`,
   `tests/test_client.py::test_operator_client_stream_events_reads_canonical_v2_operation_events`.
+- `implemented`: CLI `watch` and SDK event-stream parsing now share one typed
+  `LiveFeedEnvelope` family under `src/agent_operator/application/live_feed.py`, so canonical live
+  events and synthetic warning records use one cross-surface shape instead of each reader
+  improvising its own parser state. Evidence:
+  `src/agent_operator/application/live_feed.py`,
+  `src/agent_operator/cli/workflows/control_runtime.py`,
+  `src/agent_operator/client.py`,
+  `tests/test_live_feed.py::test_iter_live_feed_emits_sequence_gap_warning_for_canonical_stream`.
+- `implemented`: CLI `watch` now surfaces explicit sequence-gap warnings for canonical event
+  streams and explicit stale-attention overlay warnings when an answered attention still appears
+  open in replay-derived status. Evidence:
+  `src/agent_operator/application/live_feed.py`,
+  `src/agent_operator/cli/workflows/control_runtime.py`,
+  `tests/test_cli.py::test_watch_surfaces_canonical_sequence_gap_warning`,
+  `tests/test_live_feed.py::test_build_attention_stale_warning_reports_answered_attention_still_open`.
 - `implemented`: JSON status-like surfaces already expose overlay provenance and staleness
   explicitly through `runtime_overlay.authorities` and `runtime_overlay.staleness`. Evidence:
   `src/agent_operator/application/queries/operation_status_queries.py`,
   `src/agent_operator/mcp/service.py`,
   `tests/test_operation_status_queries.py::test_status_json_uses_shared_read_payload_overlay_metadata`.
-- `partial`: the repository still does not emit one typed cross-surface streaming payload family
-  that marks every live payload as canonical, overlay-derived, or forensic.
-- `partial`: explicit lag/drop signaling and answered-attention stale-warning coverage described in
-  this ADR are not yet implemented as a closed repository contract.
+- `partial`: the new typed live-feed family currently closes CLI `watch` plus shared SDK/CLI
+  parsing, but TUI and other future supervisory consumers do not yet consume the same envelope
+  contract directly.
+- `partial`: explicit gap/stale warnings now exist for CLI `watch`, but SDK/TUI parity for those
+  warnings is not yet a closed repository contract.
 - `blocked`: the live verification row still depends on the fresh end-to-end evidence captured by
   ADR 0211, which remains partial.
 

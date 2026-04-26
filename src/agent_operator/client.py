@@ -12,6 +12,11 @@ from agent_operator.application.commands.operation_delivery_commands import (
     OperatorServiceLike,
 )
 from agent_operator.application.delivery_surface import DeliverySurfaceService
+from agent_operator.application.live_feed import (
+    LiveFeedEnvelope,
+    parse_canonical_live_feed_line,
+    parse_legacy_live_feed_line,
+)
 from agent_operator.application.queries.operation_projections import OperationProjectionService
 from agent_operator.application.queries.operation_resolution import OperationResolutionService
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
@@ -50,12 +55,10 @@ from agent_operator.domain import (
     RunMode,
     RunOptions,
     SessionStatus,
-    StoredOperationDomainEvent,
     TaskStatus,
 )
 from agent_operator.protocols import OperationCommandInbox, OperationStore
 from agent_operator.runtime import prepare_operator_settings
-from agent_operator.runtime.events import parse_event_file_line
 
 
 class OperatorClient:
@@ -561,7 +564,9 @@ class OperatorClient:
                     handle.seek(position)
                     await anyio.sleep(self._stream_poll_interval_seconds)
                     continue
-                event = parser(resolved_operation_id, line)
+                envelope = parser(resolved_operation_id, line)
+                assert envelope.event is not None
+                event = envelope.event
                 yield event
                 if event.event_type in self._TERMINAL_EVENT_TYPES:
                     terminal_deadline = anyio.current_time() + self._stream_drain_window_seconds
@@ -572,38 +577,13 @@ class OperatorClient:
     def _resolve_stream_path(
         self,
         operation_id: str,
-    ) -> tuple[Path, Callable[[str, str], RunEvent]]:
+    ) -> tuple[Path, Callable[[str, str], LiveFeedEnvelope]]:
         settings = self._require_settings()
         canonical_path = settings.data_dir / "operation_events" / f"{operation_id}.jsonl"
         if canonical_path.exists():
-            return canonical_path, self._parse_canonical_stream_line
+            return canonical_path, parse_canonical_live_feed_line
         legacy_path = settings.data_dir / "events" / f"{operation_id}.jsonl"
-        return legacy_path, self._parse_legacy_stream_line
-
-    def _parse_legacy_stream_line(self, operation_id: str, raw_line: str) -> RunEvent:
-        del operation_id
-        return parse_event_file_line(raw_line)
-
-    def _parse_canonical_stream_line(self, operation_id: str, raw_line: str) -> RunEvent:
-        event = StoredOperationDomainEvent.model_validate_json(raw_line)
-        payload = dict(event.payload)
-        iteration = payload.get("iteration")
-        if not isinstance(iteration, int) or iteration < 0:
-            iteration = 0
-        task_id = payload.get("task_id")
-        session_id = payload.get("session_id")
-        return RunEvent(
-            event_id=f"{operation_id}:{event.sequence}",
-            event_type=event.event_type,
-            kind="trace",
-            category="domain",
-            operation_id=operation_id,
-            iteration=iteration,
-            task_id=task_id if isinstance(task_id, str) else None,
-            session_id=session_id if isinstance(session_id, str) else None,
-            timestamp=event.timestamp,
-            payload=payload,
-        )
+        return legacy_path, parse_legacy_live_feed_line
 
     def _require_settings(self) -> OperatorSettings:
         if self._settings is None:

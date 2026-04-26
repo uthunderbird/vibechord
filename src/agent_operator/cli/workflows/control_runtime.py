@@ -10,16 +10,22 @@ import typer
 from rich.console import Console as RichConsole
 from rich.live import Live
 
+from agent_operator.application.live_feed import (
+    LiveFeedEnvelope,
+    iter_live_feed,
+    parse_canonical_live_feed_line,
+    parse_legacy_live_feed_line,
+)
 from agent_operator.bootstrap import build_wakeup_inbox
 from agent_operator.config import OperatorSettings
 from agent_operator.domain import (
     AgentSessionHandle,
+    AttentionStatus,
     OperationOutcome,
+    OperationState,
     OperationStatus,
     ProjectProfile,
     ResolvedProjectRunConfig,
-    RunEvent,
-    StoredOperationDomainEvent,
 )
 from agent_operator.runtime import (
     apply_effective_adapter_settings_snapshot,
@@ -27,7 +33,6 @@ from agent_operator.runtime import (
     load_project_profile_from_path,
     snapshot_effective_adapter_settings,
 )
-from agent_operator.runtime.events import parse_event_file_line
 
 from ..helpers.exit_codes import EXIT_INTERNAL_ERROR, raise_for_operation_status
 from ..helpers.rendering import (
@@ -139,11 +144,15 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
     use_live_tty = not json_mode and sys.stdout.isatty() and sys.stdin.isatty()
     if not use_live_tty and not (once and json_mode):
         projector.emit_operation(operation_id)
-    seen_event_ids: set[str] = set()
+    seen_record_ids: set[str] = set()
     latest_update: str | None = None
-    for event in _iter_watch_events(event_stream_path, operation_id, event_parser):
-        seen_event_ids.add(event.event_id)
-        rendered = format_live_event(event)
+    pending_answered_attention_id: str | None = None
+    for envelope in _iter_watch_feed(event_stream_path, operation_id, event_parser):
+        seen_record_ids.add(envelope.record_id)
+        rendered, pending_answered_attention_id = _handle_watch_envelope(
+            envelope,
+            pending_answered_attention_id=pending_answered_attention_id,
+        )
         if rendered is not None:
             latest_update = rendered
             if not use_live_tty:
@@ -174,14 +183,24 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
             refresh_per_second=4,
         ) as live:
             while True:
-                for event in _iter_watch_events(event_stream_path, operation_id, event_parser):
-                    if event.event_id in seen_event_ids:
+                for envelope in _iter_watch_feed(event_stream_path, operation_id, event_parser):
+                    if envelope.record_id in seen_record_ids:
                         continue
-                    seen_event_ids.add(event.event_id)
-                    rendered = format_live_event(event)
+                    seen_record_ids.add(envelope.record_id)
+                    rendered, pending_answered_attention_id = _handle_watch_envelope(
+                        envelope,
+                        pending_answered_attention_id=pending_answered_attention_id,
+                    )
                     if rendered is not None:
                         latest_update = rendered
                 operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
+                stale_warning = _build_attention_stale_warning(
+                    operation,
+                    attention_id=pending_answered_attention_id,
+                )
+                if stale_warning is not None and stale_warning.record_id not in seen_record_ids:
+                    seen_record_ids.add(stale_warning.record_id)
+                    latest_update = stale_warning.message
                 snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
                 if snapshot != last_snapshot:
                     last_snapshot = snapshot
@@ -194,12 +213,27 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
                     return
                 await anyio.sleep(poll_interval)
     while True:
-        for event in _iter_watch_events(event_stream_path, operation_id, event_parser):
-            if event.event_id in seen_event_ids:
+        for envelope in _iter_watch_feed(event_stream_path, operation_id, event_parser):
+            if envelope.record_id in seen_record_ids:
                 continue
-            seen_event_ids.add(event.event_id)
-            projector.handle_event(event)
+            seen_record_ids.add(envelope.record_id)
+            rendered, pending_answered_attention_id = _handle_watch_envelope(
+                envelope,
+                pending_answered_attention_id=pending_answered_attention_id,
+            )
+            if envelope.record_type == "event":
+                assert envelope.event is not None
+                projector.handle_event(envelope.event)
+            elif rendered is not None:
+                typer.echo(rendered)
         operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
+        stale_warning = _build_attention_stale_warning(
+            operation,
+            attention_id=pending_answered_attention_id,
+        )
+        if stale_warning is not None and stale_warning.record_id not in seen_record_ids:
+            seen_record_ids.add(stale_warning.record_id)
+            typer.echo(stale_warning.message)
         snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
         if snapshot != last_snapshot:
             projector.emit_snapshot(snapshot)
@@ -213,54 +247,61 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
 def _resolve_watch_stream(
     settings: OperatorSettings,
     operation_id: str,
-) -> tuple[Path, Callable[[str, str], RunEvent]]:
+) -> tuple[Path, Callable[[str, str], LiveFeedEnvelope]]:
     canonical_path = settings.data_dir / "operation_events" / f"{operation_id}.jsonl"
     if canonical_path.exists():
-        return canonical_path, _parse_canonical_watch_event
+        return canonical_path, parse_canonical_live_feed_line
     legacy_path = settings.data_dir / "events" / f"{operation_id}.jsonl"
-    return legacy_path, _parse_legacy_watch_event
+    return legacy_path, parse_legacy_live_feed_line
 
 
-def _iter_watch_events(
+def _iter_watch_feed(
     path: Path,
     operation_id: str,
-    parser: Callable[[str, str], RunEvent],
-) -> Iterator[RunEvent]:
-    if not path.exists():
-        return iter(())
-    def _events() -> Iterator[RunEvent]:
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                yield parser(operation_id, line)
-    return _events()
+    parser: Callable[[str, str], LiveFeedEnvelope],
+) -> Iterator[LiveFeedEnvelope]:
+    return iter_live_feed(path, operation_id=operation_id, parser=parser)
 
 
-def _parse_legacy_watch_event(operation_id: str, raw_line: str) -> RunEvent:
-    del operation_id
-    return parse_event_file_line(raw_line)
+def _handle_watch_envelope(
+    envelope: LiveFeedEnvelope,
+    *,
+    pending_answered_attention_id: str | None,
+) -> tuple[str | None, str | None]:
+    if envelope.record_type == "warning":
+        return envelope.message, pending_answered_attention_id
+    assert envelope.event is not None
+    event = envelope.event
+    if event.event_type == "attention.request.answered":
+        attention_id = event.payload.get("attention_id")
+        if isinstance(attention_id, str) and attention_id:
+            pending_answered_attention_id = attention_id
+    rendered = format_live_event(event)
+    return rendered, pending_answered_attention_id
 
 
-def _parse_canonical_watch_event(operation_id: str, raw_line: str) -> RunEvent:
-    event = StoredOperationDomainEvent.model_validate_json(raw_line)
-    payload = dict(event.payload)
-    iteration = payload.get("iteration")
-    if not isinstance(iteration, int) or iteration < 0:
-        iteration = 0
-    task_id = payload.get("task_id")
-    session_id = payload.get("session_id")
-    return RunEvent(
-        event_id=f"{operation_id}:{event.sequence}",
-        event_type=event.event_type,
-        kind="trace",
-        category="domain",
-        operation_id=operation_id,
-        iteration=iteration,
-        task_id=task_id if isinstance(task_id, str) else None,
-        session_id=session_id if isinstance(session_id, str) else None,
-        timestamp=event.timestamp,
-        payload=payload,
+def _build_attention_stale_warning(
+    operation: OperationState | None,
+    *,
+    attention_id: str | None,
+) -> LiveFeedEnvelope | None:
+    if operation is None or attention_id is None:
+        return None
+    stale_attention_open = any(
+        item.attention_id == attention_id and item.status is AttentionStatus.OPEN
+        for item in operation.attention_requests
+    )
+    if not stale_attention_open:
+        return None
+    return LiveFeedEnvelope.warning(
+        operation_id=operation.operation_id,
+        layer="overlay",
+        warning_code="answered_attention_stale",
+        message=(
+            "Overlay warning: attention "
+            f"{attention_id} was answered in the event stream but still appears open in status."
+        ),
+        record_suffix=f"overlay-stale-attention:{attention_id}",
     )
 
 

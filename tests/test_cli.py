@@ -7968,6 +7968,69 @@ def test_watch_prefers_canonical_v2_events_over_legacy_event_file(
     assert "legacy-name" not in result.stdout
 
 
+def test_watch_surfaces_canonical_sequence_gap_warning(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-watch-gap"
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Inspect sequence gap warning")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = datetime(2026, 4, 26, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=3,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text(
+        "\n".join(
+            [
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=1,
+                    event_type="operation.created",
+                    payload={"objective": "Inspect sequence gap warning"},
+                    timestamp=datetime(2026, 4, 26, 10, 0, tzinfo=UTC),
+                ).model_dump_json(),
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=3,
+                    event_type="operation.status.changed",
+                    payload={"status": "completed", "iteration": 1},
+                    timestamp=datetime(2026, 4, 26, 10, 1, tzinfo=UTC),
+                ).model_dump_json(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    async def _seed_outcome() -> None:
+        await FileOperationStore(tmp_path / "runs").save_outcome(
+            OperationOutcome(
+                operation_id=operation_id,
+                status=OperationStatus.COMPLETED,
+                summary="Canonical watch completed with a gap warning.",
+            )
+        )
+
+    anyio.run(_seed_outcome)
+
+    result = runner.invoke(app, ["watch", operation_id, "--poll-interval", "0.05"])
+
+    assert result.exit_code == 0
+    assert "missing sequence 2" in result.stdout
+    assert "completed: Canonical watch completed with a gap warning." in result.stdout
+
+
 def test_watch_resolves_last_operation_reference(tmp_path: Path, monkeypatch) -> None:
     operation_id = "op-watch-last"
     runs_dir = tmp_path / "runs"
