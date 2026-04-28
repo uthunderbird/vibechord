@@ -343,6 +343,11 @@ class DriveService:
                 if checkpoint.current_focus is not None
                 else None
             ),
+            parked_execution=(
+                checkpoint.parked_execution.model_copy(deep=True)
+                if checkpoint.parked_execution is not None
+                else None
+            ),
             scheduler_state=checkpoint.scheduler_state,
             operator_messages=[
                 message.model_copy(deep=True)

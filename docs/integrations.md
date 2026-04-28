@@ -7,8 +7,7 @@
 - CLI commands
 - JSON-capable CLI output surfaces
 - MCP stdio server via `operator mcp`
-- Python package imports for selected stable modules
-- ACP-related client/runtime utilities
+- package-root Python SDK entrypoint `agent_operator.OperatorClient`
 
 ## Start points
 

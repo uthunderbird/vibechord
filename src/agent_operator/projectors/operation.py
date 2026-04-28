@@ -20,6 +20,7 @@ from agent_operator.domain import (
     OperationCheckpoint,
     OperationStatus,
     OperatorMessage,
+    ParkedExecutionState,
     PolicyCoverage,
     PolicyEntry,
     SchedulerState,
@@ -449,6 +450,13 @@ class DefaultOperationProjector:
             focus_payload = event.payload.get("focus")
             checkpoint.current_focus = (
                 None if focus_payload is None else self._payload_model(focus_payload, FocusState)
+            )
+        elif event.event_type == "operation.parked.updated":
+            parked_payload = event.payload.get("parked_execution")
+            checkpoint.parked_execution = (
+                None
+                if parked_payload is None
+                else self._payload_model(parked_payload, ParkedExecutionState)
             )
         elif event.event_type == "session.waiting_reason.updated":
             session = self._find_by_attr(

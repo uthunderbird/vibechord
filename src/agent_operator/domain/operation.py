@@ -402,6 +402,17 @@ class FocusState(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class ParkedExecutionState(BaseModel):
+    kind: str
+    fingerprint: str
+    reason: str
+    wake_predicates: list[str] = Field(default_factory=list)
+    related_task_id: str | None = None
+    related_agent: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_confirmed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class WakeupRef(BaseModel):
     event_id: str
     event_type: str
@@ -593,6 +604,7 @@ class OperationState(BaseModel):
     agent_turn_briefs: list[AgentTurnBrief] = Field(default_factory=list)
     permission_events: list[dict[str, object]] = Field(default_factory=list)
     current_focus: FocusState | None = None
+    parked_execution: ParkedExecutionState | None = None
     pending_wakeups: list[WakeupRef] = Field(default_factory=list)
     attention_requests: list[AttentionRequest] = Field(default_factory=list)
     active_policies: list[PolicyEntry] = Field(default_factory=list)

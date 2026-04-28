@@ -17,9 +17,12 @@ each adapter.
 
 ## Intentional Gaps
 
-- `operator watch` and `OperatorClient.stream_events()` still read `.operator/events/<operation_id>.jsonl`.
-  They resolve operation references through the shared resolver, but the event source is the legacy
-  run event file rather than canonical v2 operation events.
+- `operator watch` and `OperatorClient.stream_events()` now prefer canonical
+  `.operator/operation_events/<operation_id>.jsonl` and fall back to legacy
+  `.operator/events/<operation_id>.jsonl` only when no canonical stream exists.
+- TUI parity for explicit sequence-gap and stale-stream warnings still trails CLI `watch`; the
+  shared live-feed parsing path exists, but warning/rendering parity remains incomplete across every
+  supervisory surface.
 - TUI keeps callback injection at the controller boundary for UI tests. Production callback
   construction is backed by `DeliverySurfaceService`; controller tests may still pass fakes.
 

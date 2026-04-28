@@ -34,6 +34,7 @@ from agent_operator.domain.operation import (
     ObjectiveState,
     OperationGoal,
     OperationPolicy,
+    ParkedExecutionState,
     RuntimeHints,
     SessionState,
     TaskState,
@@ -73,6 +74,7 @@ class OperationAggregate:
 
     # ── Coordination state (event-sourced, crash-safe) ────────────────────────
     current_focus: FocusState | None
+    parked_execution: ParkedExecutionState | None
     scheduler_state: SchedulerState
     operator_messages: list[OperatorMessage]
     attention_requests: list[AttentionRequest]
@@ -118,6 +120,7 @@ class OperationAggregate:
             created_at=now,
             updated_at=now,
             current_focus=None,
+            parked_execution=None,
             scheduler_state=SchedulerState.ACTIVE,
             operator_messages=[],
             attention_requests=[],
@@ -426,6 +429,13 @@ class OperationAggregate:
             focus_data = payload.get("focus")
             new_focus = FocusState(**focus_data) if focus_data else None
             return dataclasses.replace(self, current_focus=new_focus, updated_at=now)
+
+        if event_type == "operation.parked.updated":
+            parked_data = payload.get("parked_execution")
+            new_parked = (
+                None if parked_data is None else ParkedExecutionState(**parked_data)
+            )
+            return dataclasses.replace(self, parked_execution=new_parked, updated_at=now)
 
         if event_type == "session.waiting_reason.updated":
             session_id = payload.get("session_id")

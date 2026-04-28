@@ -171,7 +171,13 @@ class DecisionExecutionService:
                 "Recorded non-blocking attention request ",
             )
 
-        if decision.action_type is BrainActionType.APPLY_POLICY or options.dry_run:
+        if (
+            decision.action_type in {
+                BrainActionType.APPLY_POLICY,
+                BrainActionType.WAIT_FOR_MATERIAL_CHANGE,
+            }
+            or options.dry_run
+        ):
             iteration.notes.append("No side-effectful action executed.")
             return False
 
@@ -369,6 +375,24 @@ class DecisionExecutionService:
             )
             iteration.notes.append(str(exc))
             return True
+
+        continuation_record = self._loaded_operation.resolve_session_for_continuation(
+            state,
+            decision.session_id,
+            task,
+        )
+        if continuation_record is not None:
+            mismatch_summary = self._loaded_operation.execution_profile_mismatch_summary(
+                state,
+                continuation_record,
+                adapter_key,
+            )
+            if mismatch_summary is not None:
+                self._lifecycle_coordinator.mark_failed(
+                    state,
+                    summary=mismatch_summary,
+                )
+                return True
 
         if (
             self._runtime_context.should_use_background_runtime(options)

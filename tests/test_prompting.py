@@ -158,6 +158,8 @@ def test_decision_prompt_requires_instruction_to_be_only_final_agent_message() -
     assert "Answered Attention Pending Replan:" in prompt
     assert "WAIT_FOR_AGENT is valid only when there is a real in-flight dependency" in prompt
     assert "do not use WAIT_FOR_AGENT to monopolize the run on one agent" in prompt
+    assert "Use APPLY_POLICY only for an actual policy/context application step." in prompt
+    assert "use WAIT_FOR_MATERIAL_CHANGE with a blocking_focus" in prompt
     assert "Use FAIL when the objective should end as failed" in prompt
 
 

@@ -10,6 +10,8 @@ UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
 ## Resume a previous operation
 
 Use the operation ID shown by `operator list`, or `last` when the current project has a recent run.
+The current manual resume surface is a debug/repair command rather than part of the default stable
+day-to-day CLI story.
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator debug resume last

@@ -23,6 +23,7 @@ class BrainActionType(StrEnum):
     START_AGENT = "start_agent"
     CONTINUE_AGENT = "continue_agent"
     WAIT_FOR_AGENT = "wait_for_agent"
+    WAIT_FOR_MATERIAL_CHANGE = "wait_for_material_change"
     REQUEST_CLARIFICATION = "request_clarification"
     APPLY_POLICY = "apply_policy"
     FAIL = "fail"

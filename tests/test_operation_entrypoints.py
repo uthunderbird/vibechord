@@ -26,6 +26,7 @@ from agent_operator.domain import (
     AgentResult,
     AgentResultStatus,
     AgentSessionHandle,
+    BackgroundRunHandle,
     BackgroundRunStatus,
     BackgroundRuntimeMode,
     CanonicalPersistenceMode,
@@ -540,6 +541,46 @@ async def test_prepare_run_replays_event_sourced_attached_initial_session(
     assert state.sessions[0].session_id == "session-1"
     assert state.active_session_record is not None
     assert state.active_session_record.session_id == "session-1"
+
+
+def test_decorate_background_session_reuse_merges_request_execution_profile_metadata() -> None:
+    loaded_operation = LoadedOperation(attached_session_registry=AttachedSessionManager({}))
+    state = OperationState(
+        operation_id="op-1",
+        goal=OperationGoal(objective="Continue the session."),
+        policy=OperationPolicy(allowed_agents=["codex_acp"]),
+    )
+    fallback = AgentSessionHandle(
+        adapter_key="codex_acp",
+        session_id="session-1",
+        session_name="codex session",
+        metadata={
+            "execution_profile_model": "gpt-5.4",
+            "execution_profile_reasoning_effort": "low",
+        },
+    )
+    run = BackgroundRunHandle(
+        execution_id="run-1",
+        operation_id="op-1",
+        adapter_key="codex_acp",
+        session_id="session-1",
+    )
+
+    decorated = loaded_operation.decorate_background_session(
+        run,
+        "codex session",
+        state,
+        fallback=fallback,
+        request_metadata={
+            "execution_profile_model": "gpt-5.4",
+            "execution_profile_reasoning_effort": "low",
+            "execution_profile_approval_policy": "auto",
+            "execution_profile_sandbox_mode": "danger-full-access",
+        },
+    )
+
+    assert decorated.metadata["execution_profile_approval_policy"] == "auto"
+    assert decorated.metadata["execution_profile_sandbox_mode"] == "danger-full-access"
 
 
 @pytest.mark.anyio

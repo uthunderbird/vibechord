@@ -192,9 +192,6 @@ class PolicyExecutor:
             result.should_break = True
             return result
 
-        if decision.action_type is BrainActionType.APPLY_POLICY:
-            return result
-
         # ── Focus update ──────────────────────────────────────────────────────
 
         if decision.blocking_focus is not None:
@@ -214,6 +211,49 @@ class PolicyExecutor:
                 )
             )
             await flush_events()
+
+        if decision.action_type is BrainActionType.WAIT_FOR_MATERIAL_CHANGE:
+            barrier_kind = (
+                decision.blocking_focus.kind.value
+                if decision.blocking_focus is not None
+                else "unknown"
+            )
+            related_task_id = decision.focus_task_id
+            fingerprint = (
+                f"{barrier_kind}:{related_task_id or '-'}:"
+                f"{decision.target_agent or '-'}:{decision.rationale}"
+            )
+            wake_predicates = decision.metadata.get("wake_predicates")
+            if not isinstance(wake_predicates, list):
+                wake_predicates = []
+            result.events.append(
+                OperationDomainEventDraft(
+                    event_type="operation.parked.updated",
+                    payload={
+                        "parked_execution": {
+                            "kind": barrier_kind,
+                            "fingerprint": fingerprint,
+                            "reason": decision.rationale,
+                            "wake_predicates": [
+                                str(item) for item in wake_predicates if isinstance(item, str)
+                            ],
+                            "related_task_id": related_task_id,
+                            "related_agent": decision.target_agent,
+                            "created_at": now.isoformat(),
+                            "last_confirmed_at": now.isoformat(),
+                        }
+                    },
+                )
+            )
+            await flush_events()
+            result.should_break = True
+            return result
+
+        if decision.action_type is BrainActionType.APPLY_POLICY:
+            if decision.blocking_focus is not None:
+                result.should_break = True
+            return result
+
         elif decision.focus_task_id is not None:
             result.events.append(
                 OperationDomainEventDraft(

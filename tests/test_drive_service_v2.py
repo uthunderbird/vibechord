@@ -83,6 +83,28 @@ class RecentDecisionsBrain:
         )
 
 
+class DependencyBarrierApplyPolicyBrain:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def decide_next_action(self, state) -> BrainDecision:
+        self.calls += 1
+        return BrainDecision(
+            action_type=BrainActionType.WAIT_FOR_MATERIAL_CHANGE,
+            rationale="Runtime execution is unavailable until ACP health changes.",
+            blocking_focus={
+                "kind": "dependency_barrier",
+                "target_id": "task-1",
+                "blocking_reason": (
+                    "Repeated ACP subprocess-closed failures; "
+                    "wait for runtime health change."
+                ),
+                "interrupt_policy": "material_wakeup",
+                "resume_policy": "replan",
+            },
+        )
+
+
 class StubSessionManager:
     def __init__(self) -> None:
         self.collected = False
@@ -946,6 +968,80 @@ async def test_drive_service_stops_continuation_series_at_max_consecutive_action
     assert checkpoint_store.saved
     assert brain.calls == 10
     assert outcome.status is OperationStatus.FAILED
+
+
+@pytest.mark.anyio
+async def test_drive_service_parks_wait_for_material_change_dependency_barrier_without_spinning(
+) -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    brain = DependencyBarrierApplyPolicyBrain()
+
+    created = OperationDomainEventDraft(
+        event_type="operation.created",
+        payload={
+            "objective": "wait for ACP runtime health",
+            "allowed_agents": ["codex_acp"],
+            "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+            "execution_budget": {
+                "max_iterations": 10,
+                "timeout_seconds": None,
+                "max_task_retries": 2,
+            },
+            "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+        },
+    )
+    await event_store.append("op-1", 0, [created])
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(brain=brain),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        max_cycles=10,
+    )
+
+    outcome = await drive.drive("op-1", RunOptions(max_cycles=10))
+
+    decision_events = [
+        event
+        for event in event_store.streams["op-1"]
+        if event.event_type == "brain.decision.made"
+    ]
+    focus_events = [
+        event
+        for event in event_store.streams["op-1"]
+        if event.event_type == "operation.focus.updated"
+    ]
+    parked_events = [
+        event
+        for event in event_store.streams["op-1"]
+        if event.event_type == "operation.parked.updated"
+    ]
+    status_events = [
+        event
+        for event in event_store.streams["op-1"]
+        if event.event_type == "operation.status.changed"
+        and event.payload.get("final_summary") == "Maximum iterations reached."
+    ]
+
+    assert len(decision_events) == 1
+    assert len(focus_events) == 1
+    assert len(parked_events) == 1
+    assert focus_events[0].payload["focus"]["kind"] == "dependency_barrier"
+    assert parked_events[0].payload["parked_execution"]["kind"] == "dependency_barrier"
+    assert (
+        parked_events[0].payload["parked_execution"]["reason"]
+        == "Runtime execution is unavailable until ACP health changes."
+    )
+    assert not status_events
+    assert brain.calls == 1
+    assert outcome.status is OperationStatus.RUNNING
 
 
 @pytest.mark.anyio

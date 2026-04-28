@@ -376,6 +376,7 @@ class OperationTurnExecutionService:
                 run,
                 request.session_name,
                 state,
+                request_metadata=request.metadata,
                 one_shot=request.one_shot,
             )
             record = self._loaded_operation.upsert_session_record(state, session, task)
@@ -423,6 +424,7 @@ class OperationTurnExecutionService:
                 request.session_name,
                 state,
                 fallback=record.handle,
+                request_metadata=request.metadata,
                 one_shot=request.one_shot,
             )
             record.handle = session

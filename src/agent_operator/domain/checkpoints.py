@@ -13,6 +13,7 @@ from agent_operator.domain.operation import (
     ExternalTicketLink,
     FocusState,
     ObjectiveState,
+    ParkedExecutionState,
     SessionState,
     TaskState,
 )
@@ -62,6 +63,7 @@ class OperationCheckpoint(BaseModel):
     permission_events: list[dict[str, object]] = Field(default_factory=list)
     processed_command_ids: list[str] = Field(default_factory=list)
     current_focus: FocusState | None = None
+    parked_execution: ParkedExecutionState | None = None
     external_ticket: ExternalTicketLink | None = None
     final_summary: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

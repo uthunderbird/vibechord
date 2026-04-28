@@ -426,6 +426,55 @@ async def test_operator_service_can_start_with_attached_session() -> None:
 
 
 @pytest.mark.anyio
+async def test_operator_service_fails_when_attached_session_profile_is_incompatible() -> None:
+    store = MemoryStore()
+    agent = FakeAgent(key="codex_acp", supports_follow_up=True)
+    service = make_service(
+        brain=ContinueAttachedSessionBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"codex_acp": agent}),
+    )
+
+    outcome = await service.run(
+        OperationGoal(
+            objective="continue existing work",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                        "approval_policy": "auto",
+                        "sandbox_mode": "danger-full-access",
+                    }
+                }
+            },
+        ),
+        **run_settings(max_iterations=3, allowed_agents=["codex_acp"]),
+        attached_sessions=[
+            AgentSessionHandle(
+                adapter_key="codex_acp",
+                session_id="attached-1",
+                session_name="femtobot",
+                metadata={
+                    "working_directory": "../femtobot",
+                    "execution_profile_model": "gpt-5.4",
+                    "execution_profile_reasoning_effort": "low",
+                    "execution_profile_approval_policy": "never",
+                    "execution_profile_sandbox_mode": "workspace-write",
+                },
+            )
+        ],
+    )
+
+    assert outcome.status is OperationStatus.FAILED
+    assert "observed execution profile does not match the desired contract" in outcome.summary
+    assert agent.sent_messages == []
+    assert agent.started_requests == []
+
+
+@pytest.mark.anyio
 async def test_background_replacement_session_preserves_attached_working_directory() -> None:
     supervisor = FakeSupervisor()
     store = MemoryStore()

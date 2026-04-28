@@ -186,6 +186,33 @@ class LoadedOperation:
             return False
         return current == expected
 
+    def execution_profile_mismatch_summary(
+        self,
+        state: OperationState,
+        session: SessionRecord,
+        adapter_key: str,
+    ) -> str | None:
+        expected = self.effective_execution_profile_stamp(state, adapter_key)
+        if expected is None:
+            return None
+        current = session.execution_profile_stamp
+        if current == expected:
+            return None
+        if current is None:
+            return (
+                f"Session {session.session_id} cannot continue because it has no observed "
+                f"execution profile, but adapter {adapter_key!r} requires "
+                f"{expected.model}."
+            )
+        return (
+            f"Session {session.session_id} cannot continue because its observed execution "
+            f"profile does not match the desired contract for adapter {adapter_key!r}: "
+            f"observed={current.model}/{current.effort_value or '-'} approval="
+            f"{current.approval_policy or '-'} sandbox={current.sandbox_mode or '-'}; "
+            f"desired={expected.model}/{expected.effort_value or '-'} approval="
+            f"{expected.approval_policy or '-'} sandbox={expected.sandbox_mode or '-'}."
+        )
+
     def apply_task_mutations(
         self,
         state: OperationState,
@@ -418,6 +445,7 @@ class LoadedOperation:
         state: OperationState,
         *,
         fallback: AgentSessionHandle | None = None,
+        request_metadata: dict[str, str] | None = None,
         one_shot: bool = False,
     ) -> AgentSessionHandle:
         if fallback is not None:
@@ -432,6 +460,8 @@ class LoadedOperation:
                 metadata={},
             )
         metadata = dict(handle.metadata)
+        if request_metadata:
+            metadata.update(request_metadata)
         metadata["background_run_id"] = run.run_id
         if run.raw_ref:
             metadata["background_log_path"] = run.raw_ref
