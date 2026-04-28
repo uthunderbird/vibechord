@@ -72,14 +72,20 @@ Implementation closure on 2026-04-25:
   `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_cli.py -k "answer or pause or unpause or message or patch or involvement or allowed_agents or execution_profile or stop_turn"`
   (`30 passed, 175 deselected`).
 - `verified`: full suite passed:
-  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`968 passed, 11 skipped`).
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1043 passed, 11 skipped`) on 2026-04-28.
 - `verified`: changed-file lint passed:
   `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent_operator/application/drive/process_manager_context.py src/agent_operator/application/drive/runtime_reconciler.py src/agent_operator/application/drive/drive_service.py src/agent_operator/application/event_sourcing/event_sourced_commands.py src/agent_operator/bootstrap.py tests/test_runtime_reconciler.py tests/test_event_sourced_command_application.py`.
-- `noted`: changed-file `mypy` still reports repository-wide pre-existing typing debt outside this
-  closure path, including the previously observed bootstrap/runtime protocol mismatch at
-  `src/agent_operator/bootstrap.py:720` and many unrelated imported-module errors. Because those
-  failures are not isolated to ADR 0205 behavior, this ADR is marked `Implemented` rather than
-  `Verified`.
+- `blocked`: targeted `mypy` still fails on 2026-04-28, so this ADR cannot truthfully move to
+  `Verified` yet. Current failures are in the touched slice itself, not only unrelated imports:
+  `tests/test_runtime_reconciler.py:57`,
+  `tests/test_runtime_reconciler.py:274`,
+  `tests/test_runtime_reconciler.py:315`,
+  `tests/test_runtime_reconciler.py:377`,
+  `tests/test_runtime_reconciler.py:401`,
+  `tests/test_runtime_reconciler.py:426`,
+  `src/agent_operator/application/drive/drive_service.py:374`,
+  `src/agent_operator/bootstrap.py:233`, and
+  `src/agent_operator/bootstrap.py:661`.
 
 ## Context
 

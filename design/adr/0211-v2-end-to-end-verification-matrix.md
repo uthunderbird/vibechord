@@ -10,7 +10,7 @@ Accepted
 
 Partial
 
-Implementation grounding on 2026-04-24:
+Implementation grounding on 2026-04-28:
 
 - `implemented`: the repository already exposes the core verification surfaces this ADR depends on:
   `operator run --v2`, `operator status --json`, `operator watch --once --json`,
@@ -19,19 +19,17 @@ Implementation grounding on 2026-04-24:
 - `partial`: this ADR now records a minimal manual verification matrix and bounded procedures for
   one fresh operator-on-operator smoke in this repository and one fresh external-project smoke in
   `../erdosreshala/problems/625`
+- `verified`: the repository-wide baseline row was rerun in this wave with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1043 passed, 11 skipped`)
 - `blocked`: this evidence wave did not run a fresh operator-on-operator v2 smoke
 - `blocked`: this evidence wave did not run a fresh external-project v2 smoke against
   `../erdosreshala/problems/625`
-- `blocked`: the current verification wave observed a replay/query crash where public surfaces such
-  as `operator status`, `operator answer`, and operation resolution can fail with projector
-  validation errors while materializing canonical `operation.created` payloads; this is a real
-  blocker for truthful v2 verification, not just a docs gap
 - `noted`: `../erdosreshala/problems/625` exists locally and already contains `.operator/`,
   including `.operator/runs/`; that existing directory is not itself proof of v2 dependency, so
   the no-`.operator/runs` matrix row still requires outcome-based verification rather than simple
   filesystem inspection
-- `noted`: the current `operator` worktree is dirty outside this ADR slice, so any future e2e
-  evidence should be captured from a clean or intentionally pinned repository state
+- `noted`: the current `operator` worktree is clean (`git status --short` returned no entries), so
+  the remaining blockers in this wave are live-evidence gaps rather than repository-state hygiene
 
 Acceptance grounding on 2026-04-26:
 
@@ -99,9 +97,9 @@ needed to do so later without guessing.
 
 ## Required Matrix
 
-| Matrix row | Required evidence | Current state on 2026-04-24 |
+| Matrix row | Required evidence | Current state on 2026-04-28 |
 | --- | --- | --- |
-| full `uv run pytest` | one recorded green repository-wide run tied to the repo state under review | partially grounded elsewhere; not rerun in this slice |
+| full `uv run pytest` | one recorded green repository-wide run tied to the repo state under review | rerun on 2026-04-28: `1043 passed, 11 skipped` |
 | targeted command/control tests | explicit green commands for the touched v2 control-plane tests | grounded by ADR 0205, not rerun here |
 | targeted query/read-model tests | explicit green commands for read-model/query tests | grounded by existing ADR/test references, not rerun here |
 | restart/resume smoke | one fresh v2 operation survives restart/resume path or records the blocker | not verified in this slice |
@@ -297,8 +295,6 @@ Expected positive signals include:
 
 - No fresh operator-on-operator run has been recorded for this ADR wave.
 - No fresh `../erdosreshala/problems/625` run has been recorded for this ADR wave.
-- The `operator` repository worktree is currently dirty outside this ADR slice; a future evidence
-  run should use a clean or intentionally pinned state so the result is auditable.
 - The external target already contains `.operator/` state, including `.operator/runs/`; a future
   run must distinguish reused legacy artifacts from actual v2 runtime requirements.
 - If normal CLI lifecycle control fails during a verification run, record the blocker first. Use

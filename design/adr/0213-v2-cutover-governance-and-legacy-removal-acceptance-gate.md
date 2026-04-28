@@ -10,7 +10,7 @@ Accepted
 
 Partial
 
-Implementation grounding on 2026-04-26:
+Implementation grounding on 2026-04-28:
 
 - `implemented`: the repository now has one explicit in-repo cutover governance artifact at
   `design/internal/v2-cutover-governance-checklist.md`. That artifact records the required gate
@@ -30,13 +30,16 @@ Implementation grounding on 2026-04-26:
   if the artifact drops a required gate section, or if it loses the canonical rehearsal commands
   and current inventory classifications. Evidence:
   `tests/test_v2_cutover_governance_docs.py`.
+- `verified`: the current repository baseline is clean and green in this wave:
+  `git status --short` returned no entries and `UV_CACHE_DIR=/tmp/uv-cache uv run pytest`
+  passed with `1043 passed, 11 skipped` on 2026-04-28.
 - `partial`: the final cutover gate is still not satisfied in repository truth. This slice defines
   and locks the governance procedure, but it does not claim that all `ADR 0203` through
   `ADR 0211` acceptance conditions are already closed for one pinned wave.
 - `blocked`: one rehearsed cutover run tied to a pinned clean repository state is not yet recorded
   in-repo.
-- `blocked`: the current worktree already contains unrelated local modifications outside this ADR
-  slice, so this wave is not itself the clean final-cutover acceptance state.
+- `blocked`: upstream prerequisite ADRs in the required `ADR 0203` through `ADR 0211` set still
+  remain below truthful cutover closure, including `ADR 0207`, `ADR 0209`, and `ADR 0211`.
 
 ## Context
 
