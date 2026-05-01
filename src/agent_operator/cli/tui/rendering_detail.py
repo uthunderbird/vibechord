@@ -53,6 +53,9 @@ def render_fleet_detail_table(state: FleetWorkbenchState) -> Table:
         nonblocking = selected.brief.get("review") if isinstance(selected.brief, dict) else None
         if _optional_text(nonblocking) != "-":
             table.add_row("Review", _optional_text(nonblocking))
+        sync_text = _sync_health_text(selected.sync_health)
+        if sync_text is not None:
+            table.add_row("Sync", sync_text)
         table.add_row("Recent", selected.latest_outcome_brief or "-")
         return table
     table.add_row("Operation", selected.operation_id)
@@ -67,6 +70,9 @@ def render_fleet_detail_table(state: FleetWorkbenchState) -> Table:
     table.add_row("Attention", _optional_text(brief.get("attention")))
     if _optional_text(brief.get("review")) != "-":
         table.add_row("Review", _optional_text(brief.get("review")))
+    sync_text = _sync_health_text(selected.sync_health)
+    if sync_text is not None:
+        table.add_row("Sync", sync_text)
     table.add_row("Recent", _optional_text(brief.get("recent")))
     return table
 
@@ -375,6 +381,24 @@ def _optional_text(value: object) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return "-"
+
+
+def _sync_health_text(sync_health: dict[str, object] | None) -> str | None:
+    if not isinstance(sync_health, dict):
+        return None
+    lag = sync_health.get("persisted_read_model_projection_lag")
+    if isinstance(lag, int) and lag > 0:
+        projection_type = sync_health.get("persisted_read_model_projection_type")
+        label = (
+            projection_type
+            if isinstance(projection_type, str) and projection_type.strip()
+            else "read-model"
+        )
+        return f"{label} projection lag: {lag}"
+    alert = sync_health.get("sync_alert")
+    if isinstance(alert, str) and alert.strip():
+        return alert.strip()
+    return None
 
 
 def _progress_text(progress: object) -> str:

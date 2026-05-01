@@ -24,6 +24,7 @@ from agent_operator.cli.tui.rendering import (
     human_footer_text,
     human_header_lines,
     render_attention_picker,
+    render_fleet_detail_table,
     render_forensic_transcript_panel,
     render_help_overlay,
     render_list_table,
@@ -85,6 +86,65 @@ def test_payload_items_rewrites_bucket_for_legacy_grouped_payloads() -> None:
 
     assert len(items) == 1
     assert items[0].bucket == "active"
+
+
+def test_payload_items_preserves_sync_health_for_fleet_freshness_labels() -> None:
+    """Catches TUI fleet parsing dropping persisted projection freshness labels."""
+    [item] = tui_models_pkg.payload_items(
+        {
+            "active": [
+                {
+                    "operation_id": "op-1",
+                    "bucket": "active",
+                    "status": "running",
+                    "scheduler_state": "active",
+                    "sync_health": {
+                        "persisted_read_model_projection_type": "status",
+                        "persisted_read_model_projection_lag": 2,
+                    },
+                }
+            ]
+        }
+    )
+
+    assert item.sync_health == {
+        "persisted_read_model_projection_type": "status",
+        "persisted_read_model_projection_lag": 2,
+    }
+
+
+def test_fleet_detail_renders_sync_health_freshness_label() -> None:
+    """Catches TUI detail hiding stale persisted projection labels."""
+    item = tui_models_pkg.FleetItem.from_payload(
+        {
+            "operation_id": "op-1",
+            "display_name": "Ship dashboard",
+            "objective_brief": "Ship dashboard",
+            "status": "running",
+            "scheduler_state": "active",
+            "sync_health": {
+                "persisted_read_model_projection_type": "status",
+                "persisted_read_model_projection_lag": 2,
+            },
+        }
+    )
+    state = FleetWorkbenchState(
+        items=[item],
+        selected_index=0,
+        selected_fleet_brief={
+            "goal": "Ship dashboard",
+            "now": "Working",
+            "wait": "-",
+            "progress": {},
+            "attention": "-",
+            "recent": "-",
+        },
+    )
+
+    console = Console(record=True)
+    console.print(render_fleet_detail_table(state))
+
+    assert "status projection lag: 2" in console.export_text()
 
 
 def test_tui_package_exports_rendering_module() -> None:

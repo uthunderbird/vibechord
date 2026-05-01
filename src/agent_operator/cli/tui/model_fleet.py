@@ -51,6 +51,7 @@ def payload_items(payload: dict[str, object]) -> list[FleetItem]:
                     project_profile_name=item.project_profile_name,
                     brief=item.brief,
                     bucket=bucket,
+                    sync_health=item.sync_health,
                 )
             items.append(item)
     return items

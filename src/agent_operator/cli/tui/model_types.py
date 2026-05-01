@@ -23,6 +23,10 @@ def text_tuple(value: object) -> tuple[str, ...]:
     return tuple(str(item) for item in value if isinstance(item, str))
 
 
+def optional_dict(value: object) -> dict[str, object] | None:
+    return dict(value) if isinstance(value, dict) else None
+
+
 @dataclass(frozen=True, slots=True)
 class FleetItem:
     operation_id: str
@@ -46,6 +50,7 @@ class FleetItem:
     project_profile_name: str | None
     brief: dict[str, object] | None
     bucket: str
+    sync_health: dict[str, object] | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> FleetItem:
@@ -83,6 +88,7 @@ class FleetItem:
             latest_outcome_brief=optional_text(payload.get("latest_outcome_brief")),
             blocker_brief=optional_text(payload.get("blocker_brief")),
             runtime_alert=optional_text(payload.get("runtime_alert")),
+            sync_health=optional_dict(payload.get("sync_health")),
             open_attention_count=optional_int(payload.get("open_attention_count")),
             open_blocking_attention_count=optional_int(
                 payload.get("open_blocking_attention_count")

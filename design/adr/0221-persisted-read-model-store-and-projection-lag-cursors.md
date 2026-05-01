@@ -56,8 +56,16 @@ Implementation grounding on 2026-05-02:
   `src/agent_operator/mcp/service.py`.
 - `verified`: MCP service tests assert projection freshness labels are preserved in status
   responses. Evidence: `tests/test_mcp_server.py`.
-- `planned`: TUI cached views still need store-specific freshness policies before they can
-  read persisted projections as cached delivery data.
+- `implemented`: TUI fleet parsing preserves shared sync-health labels and fleet detail rendering
+  shows stale persisted projection lag as an explicit freshness label. Evidence:
+  `src/agent_operator/cli/tui/model_types.py`,
+  `src/agent_operator/cli/tui/model_fleet.py`, and
+  `src/agent_operator/cli/tui/rendering_detail.py`.
+- `verified`: TUI tests assert sync-health labels survive payload parsing and render in fleet
+  detail. Evidence: `tests/test_tui.py`.
+- `planned`: no production delivery surface currently reads persisted projections as cached
+  business data; if a future surface does, it still needs a store-specific freshness gate that
+  rejects or labels stale reads at that read boundary.
 
 ## Context
 
@@ -117,5 +125,6 @@ Planned implementation should introduce:
 
 This ADR is proposed and partially implemented. The standalone projection store foundation exists,
 status sync-health can report its cursor lag, and event-sourced write paths refresh the persisted
-status projection. Dashboard, fleet, and MCP status surfaces share sync-health labels; TUI cached
-read-surface freshness policies remain planned.
+status projection. Dashboard, fleet, MCP status, and TUI fleet-detail surfaces share sync-health
+labels. No production surface currently treats persisted projections as cached business data; any
+future cached reader still needs an explicit freshness gate at its read boundary.
