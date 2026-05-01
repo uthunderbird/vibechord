@@ -52,6 +52,15 @@ ADR 0219 splits stable root commands into two sets:
 - `memory`
 - `report`
 - `session`
+- `show`
+- `show artifacts`
+- `show attention`
+- `show dashboard`
+- `show log`
+- `show memory`
+- `show report`
+- `show session`
+- `show tasks`
 - `status`
 - `tasks`
 - `watch`
@@ -98,6 +107,7 @@ ADR 0219 splits stable root commands into two sets:
 - `policy`
 - `project`
 - `run`
+- `show`
 - `status`
 - `unpause`
 - `watch`

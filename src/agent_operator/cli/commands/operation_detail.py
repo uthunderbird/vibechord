@@ -11,7 +11,7 @@ from agent_operator.application.ticketing import TicketReportingService
 from agent_operator.bootstrap import build_store, build_trace_store
 from agent_operator.config import load_global_config
 
-from ..app import app
+from ..app import app, show_app
 from ..helpers.rendering import (
     PROJECTIONS,
     artifact_preview,
@@ -81,6 +81,14 @@ def attention(
     anyio.run(_attention)
 
 
+@show_app.command("attention")
+def show_attention(
+    operation_ref: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    attention(operation_ref, json_mode)
+
+
 @app.command()
 def tasks(
     operation_ref: str,
@@ -137,6 +145,14 @@ def tasks(
     anyio.run(_tasks)
 
 
+@show_app.command("tasks")
+def show_tasks(
+    operation_ref: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    tasks(operation_ref, json_mode)
+
+
 @app.command()
 def memory(
     operation_ref: str,
@@ -183,6 +199,15 @@ def memory(
     anyio.run(_memory)
 
 
+@show_app.command("memory")
+def show_memory(
+    operation_ref: str,
+    include_all: bool = MEMORY_ALL_OPTION,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    memory(operation_ref, include_all, json_mode)
+
+
 @app.command()
 def artifacts(
     operation_ref: str,
@@ -222,6 +247,14 @@ def artifacts(
                 typer.echo(f"  raw_ref: {artifact.raw_ref}")
 
     anyio.run(_artifacts)
+
+
+@show_app.command("artifacts")
+def show_artifacts(
+    operation_ref: str,
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    artifacts(operation_ref, json_mode)
 
 
 @app.command()
@@ -315,6 +348,15 @@ def report(
     anyio.run(_report)
 
 
+@show_app.command("report")
+def show_report(
+    operation_ref: str,
+    ticket: bool = typer.Option(False, "--ticket", help="Retry PM ticket reporting."),
+    json_mode: bool = typer.Option(False, "--json", help="Emit a machine-readable report payload."),
+) -> None:
+    report(operation_ref, ticket, json_mode)
+
+
 @app.command()
 def dashboard(
     operation_ref: str,
@@ -333,6 +375,19 @@ def dashboard(
         poll_interval,
         codex_home,
     )
+
+
+@show_app.command("dashboard")
+def show_dashboard(
+    operation_ref: str,
+    once: bool = typer.Option(False, "--once", help="Render a single dashboard snapshot and exit."),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Emit a machine-readable dashboard snapshot."
+    ),
+    poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
+    codex_home: Path = CODEX_HOME_OPTION,
+) -> None:
+    dashboard(operation_ref, once, json_mode, poll_interval, codex_home)
 
 
 @app.command()

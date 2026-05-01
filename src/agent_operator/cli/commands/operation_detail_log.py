@@ -17,7 +17,7 @@ from agent_operator.runtime import (
     load_codex_log_events,
 )
 
-from ..app import app
+from ..app import app, show_app
 from ..helpers.logs import (
     format_opencode_log_event,
     iter_opencode_log_events,
@@ -161,3 +161,15 @@ def log(
             typer.echo(format_opencode_log_event(event))
 
     anyio.run(_log)
+
+
+@show_app.command("log")
+def show_log(
+    operation_ref: str,
+    limit: int = typer.Option(40, "--limit", min=1, help="Maximum events to print."),
+    follow: bool = typer.Option(False, "--follow", help="Follow the agent transcript."),
+    agent: str = typer.Option("auto", "--agent", help="auto, codex, claude, or opencode."),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    codex_home: Path = CODEX_HOME_OPTION,
+) -> None:
+    log(operation_ref, limit, follow, agent, json_mode, codex_home)

@@ -11,7 +11,7 @@ from rich.live import Live
 
 from agent_operator.domain import TaskState
 
-from ..app import app
+from ..app import app, show_app
 from ..helpers.rendering import PROJECTIONS, format_task_line, shorten_live_text
 from ..helpers.resolution import (
     load_required_canonical_operation_state_async,
@@ -273,3 +273,20 @@ def session(
         typer.echo(rendered)
 
     anyio.run(_session)
+
+
+@show_app.command("session")
+def show_session(
+    operation_ref: str,
+    task: str = typer.Option(
+        ..., "--task", help="Task ID (UUID or task-XXXX short ID) that owns the session to view."
+    ),
+    follow: bool = typer.Option(
+        False, "--follow", help="Follow the selected session snapshot in-place."
+    ),
+    once: bool = typer.Option(False, "--once", help="Render a single snapshot and exit."),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable session payload."),
+    poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
+    codex_home: Path = CODEX_HOME_OPTION,
+) -> None:
+    session(operation_ref, task, follow, once, json_mode, poll_interval, codex_home)

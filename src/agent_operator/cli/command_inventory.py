@@ -33,6 +33,7 @@ ADR_0219_CANONICAL_ROOT_COMMANDS: frozenset[str] = frozenset(
         "policy",
         "project",
         "run",
+        "show",
         "status",
         "unpause",
         "watch",
@@ -168,6 +169,15 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     ),
     CliCommandRecord("run", "stable", "lifecycle", "Canonical operation creation entrypoint."),
     CliCommandRecord("session", "stable", "read", "Task-addressed session surface."),
+    CliCommandRecord("show", "stable", "read", "Grouped operation-detail namespace."),
+    CliCommandRecord("show artifacts", "stable", "read", "Grouped artifact inspection surface."),
+    CliCommandRecord("show attention", "stable", "read", "Grouped attention inspection surface."),
+    CliCommandRecord("show dashboard", "stable", "read", "Grouped one-operation dashboard."),
+    CliCommandRecord("show log", "stable", "read", "Grouped transcript/log surface."),
+    CliCommandRecord("show memory", "stable", "read", "Grouped memory inspection surface."),
+    CliCommandRecord("show report", "stable", "read", "Grouped operation report."),
+    CliCommandRecord("show session", "stable", "read", "Grouped task-addressed session surface."),
+    CliCommandRecord("show tasks", "stable", "read", "Grouped task-board inspection surface."),
     CliCommandRecord(
         "sessions", "transitional", "debug-alias", "Hidden top-level alias for debug sessions."
     ),

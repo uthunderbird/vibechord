@@ -53,6 +53,15 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `memory` | `stable` | `operator memory --json` | success only | Uses shared operation resolution. |
 | `report` | `stable` | `operator report --json` | success only | Report JSON keeps synthesized report plus durable-truth context explicit. |
 | `session` | `stable` | `operator session --json` | success only | Task-addressed session lookup is explicit; missing linkage is a deterministic non-zero failure. |
+| `show` | `stable` | none | success only | Namespace for grouped operation-detail surfaces. |
+| `show artifacts` | `stable` | `operator show artifacts --json` | success only | Grouped alias for artifact inspection. |
+| `show attention` | `stable` | `operator show attention --json` | success only | Grouped alias for attention inspection. |
+| `show dashboard` | `stable` | `operator show dashboard --json` | success only | Grouped alias for one-operation dashboard. |
+| `show log` | `stable` | `operator show log --json` | success only | Grouped alias for transcript/log inspection. |
+| `show memory` | `stable` | `operator show memory --json` | success only | Grouped alias for memory inspection. |
+| `show report` | `stable` | `operator show report --json` | success only | Grouped alias for operation report. |
+| `show session` | `stable` | `operator show session --json` | success only | Grouped alias for task-addressed session lookup. |
+| `show tasks` | `stable` | `operator show tasks --json` | success only | Grouped alias for task-board inspection. |
 | `status` | `stable` | `operator status --json` | success only | Ambiguous prefixes use the shared resolver error contract. |
 | `tasks` | `stable` | `operator tasks --json` | success only | Uses shared operation resolution. |
 | `watch` | `stable` | `operator watch --once --json` | `0/4` | Canonical v2 event streams are preferred; watch timeout/runtime failure uses the internal-error code. |

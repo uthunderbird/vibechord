@@ -3320,6 +3320,18 @@ def test_tasks_command_json_emits_tasks_payload(tmp_path: Path, monkeypatch) -> 
     assert '"task_id": "task-1"' in result.stdout
 
 
+def test_show_tasks_command_json_emits_tasks_payload(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped show tasks is not registered or delegates incorrectly."""
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["show", "tasks", operation_id, "--json"])
+
+    assert result.exit_code == 0
+    assert '"tasks"' in result.stdout
+    assert '"task_id": "task-1"' in result.stdout
+
+
 def test_tasks_command_json_derives_tasks_without_serializing_task_models(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -5027,6 +5039,19 @@ def test_attention_command_shows_attention_requests(tmp_path: Path, monkeypatch)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
     result = runner.invoke(app, ["attention", operation_id])
+
+    assert result.exit_code == 0
+    assert "Attention requests:" in result.stdout
+    assert attention_id in result.stdout
+    assert "Clarification required" in result.stdout
+
+
+def test_show_attention_command_shows_attention_requests(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped show attention is not wired to attention payloads."""
+    operation_id, attention_id = _seed_blocked_attention_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["show", "attention", operation_id])
 
     assert result.exit_code == 0
     assert "Attention requests:" in result.stdout
