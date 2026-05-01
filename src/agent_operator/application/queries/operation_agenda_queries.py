@@ -46,6 +46,7 @@ class OperationAgendaQueryService:
                 summary,
                 brief=brief,
                 runtime_alert=payload.overlay.runtime_alert,
+                sync_health=payload.overlay.sync_health,
             )
             if agenda_matches_project(item, project):
                 items.append(item)

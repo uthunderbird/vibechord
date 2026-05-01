@@ -35,6 +35,7 @@ class AgendaItem(BaseModel):
     latest_outcome_brief: str | None = None
     blocker_brief: str | None = None
     runtime_alert: str | None = None
+    sync_health: dict[str, object] | None = None
     open_attention_count: int = 0
     open_blocking_attention_count: int = 0
     open_nonblocking_attention_count: int = 0
@@ -60,6 +61,7 @@ def build_agenda_item(
     *,
     brief: OperationBrief | None = None,
     runtime_alert: str | None = None,
+    sync_health: dict[str, object] | None = None,
 ) -> AgendaItem:
     metadata = operation.goal.metadata
     open_attention = [
@@ -85,6 +87,7 @@ def build_agenda_item(
         latest_outcome_brief=latest_outcome,
         blocker_brief=blocker,
         runtime_alert=runtime_alert,
+        sync_health=sync_health,
         open_attention_count=len(open_attention),
         open_blocking_attention_count=len(blocking_open_attention),
         open_nonblocking_attention_count=len(nonblocking_open_attention),

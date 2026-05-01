@@ -104,6 +104,7 @@ class FleetWorkbenchRow:
     scheduler_state: str
     project_profile_name: str | None
     runtime_alert: str | None
+    sync_health: dict[str, object] | None
     focus_brief: str | None
     latest_outcome_brief: str | None
     blocker_brief: str | None
@@ -128,6 +129,7 @@ class FleetWorkbenchRow:
             "scheduler_state": self.scheduler_state,
             "project_profile_name": self.project_profile_name,
             "runtime_alert": self.runtime_alert,
+            "sync_health": self.sync_health,
             "focus_brief": self.focus_brief,
             "latest_outcome_brief": self.latest_outcome_brief,
             "blocker_brief": self.blocker_brief,
@@ -674,6 +676,7 @@ class OperationProjectionService:
             "latest_outcome_brief": item.latest_outcome_brief,
             "blocker_brief": item.blocker_brief,
             "runtime_alert": item.runtime_alert,
+            "sync_health": item.sync_health,
             "open_attention_count": item.open_attention_count,
             "open_blocking_attention_count": item.open_blocking_attention_count,
             "open_nonblocking_attention_count": item.open_nonblocking_attention_count,
@@ -1438,6 +1441,7 @@ class OperationProjectionService:
             scheduler_state=item.scheduler_state.value,
             project_profile_name=item.project_profile_name,
             runtime_alert=item.runtime_alert,
+            sync_health=item.sync_health,
             focus_brief=item.focus_brief,
             latest_outcome_brief=item.latest_outcome_brief,
             blocker_brief=item.blocker_brief,
