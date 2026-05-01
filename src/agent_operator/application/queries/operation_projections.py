@@ -2611,7 +2611,7 @@ class OperationProjectionService:
     def _turn_work_summary(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None:
             return None
-        return self._shorten_text(turn.assignment_brief or turn.result_brief, limit=220)
+        return self._shorten_text(turn.result_brief or turn.assignment_brief, limit=220)
 
     def _turn_next_step(self, turn: AgentTurnBrief | None) -> str | None:
         if turn is None or turn.turn_summary is None:

@@ -3,11 +3,20 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Protocol
 
 from agent_operator.application.queries.operation_projections import OperationProjectionService
 from agent_operator.application.queries.operation_state_views import OperationStateViewService
-from agent_operator.domain import AttentionStatus, OperationOutcome, OperationState, SchedulerState
+from agent_operator.domain import (
+    AgentTurnBrief,
+    AttentionStatus,
+    OperationOutcome,
+    OperationState,
+    SchedulerState,
+    StoredOperationDomainEvent,
+    TraceBriefBundle,
+)
 from agent_operator.protocols import OperationStore
 
 
@@ -25,6 +34,15 @@ class WakeupInspectionStoreLike(Protocol):
 
 class ReplayServiceLike(Protocol):
     async def load(self, operation_id: str): ...
+
+
+class EventStoreLike(Protocol):
+    async def load_after(
+        self,
+        operation_id: str,
+        *,
+        after_sequence: int = 0,
+    ) -> list[StoredOperationDomainEvent]: ...
 
 
 @dataclass(slots=True)
@@ -96,9 +114,95 @@ class OperationStatusQueryService:
     render_inspect_summary: Callable[..., str]
     render_status_summary: Callable[..., str]
     replay_service: ReplayServiceLike | None = None
+    event_store: EventStoreLike | None = None
     state_view_service: OperationStateViewService = field(
         default_factory=OperationStateViewService
     )
+
+    async def _load_canonical_latest_turn_brief(
+        self,
+        operation_id: str,
+    ) -> AgentTurnBrief | None:
+        if self.event_store is None:
+            return None
+        events = await self.event_store.load_after(operation_id, after_sequence=0)
+        if not events:
+            return None
+
+        latest_turn_event: StoredOperationDomainEvent | None = None
+        latest_turn_iteration = 0
+        completed_turns_seen = 0
+        session_display_names: dict[str, str] = {}
+
+        for event in events:
+            if event.event_type == "session.created":
+                handle = event.payload.get("handle")
+                if isinstance(handle, dict):
+                    session_id = handle.get("session_id")
+                    display_name = handle.get("display_name")
+                    if (
+                        isinstance(session_id, str)
+                        and session_id.strip()
+                        and isinstance(display_name, str)
+                        and display_name.strip()
+                    ):
+                        session_display_names[session_id] = display_name.strip()
+            if event.event_type == "agent.turn.completed":
+                completed_turns_seen += 1
+                latest_turn_event = event
+                latest_turn_iteration = completed_turns_seen
+
+        if latest_turn_event is None:
+            return None
+
+        payload = latest_turn_event.payload
+        session_id = payload.get("session_id")
+        agent_key = payload.get("adapter_key")
+        status = payload.get("status")
+        output_text = payload.get("output_text")
+        completed_at = latest_turn_event.timestamp or datetime.now(UTC)
+
+        if not isinstance(session_id, str) or not session_id.strip():
+            return None
+        if not isinstance(agent_key, str) or not agent_key.strip():
+            return None
+        if not isinstance(status, str) or not status.strip():
+            return None
+
+        result_brief = (
+            output_text.strip()
+            if isinstance(output_text, str) and output_text.strip()
+            else None
+        )
+        return AgentTurnBrief(
+            operation_id=operation_id,
+            iteration=latest_turn_iteration or 1,
+            agent_key=agent_key.strip(),
+            session_id=session_id.strip(),
+            session_display_name=session_display_names.get(session_id.strip()),
+            assignment_brief=agent_key.strip(),
+            result_brief=result_brief,
+            status=status.strip(),
+            created_at=completed_at,
+        )
+
+    async def _resolve_trace_brief_bundle(
+        self,
+        operation_id: str,
+        brief_bundle: object | None,
+    ) -> object | None:
+        if isinstance(brief_bundle, TraceBriefBundle) and brief_bundle.agent_turn_briefs:
+            return brief_bundle
+        canonical_turn = await self._load_canonical_latest_turn_brief(operation_id)
+        if canonical_turn is None:
+            return brief_bundle
+        bundle = (
+            brief_bundle.model_copy(deep=True)
+            if isinstance(brief_bundle, TraceBriefBundle)
+            else TraceBriefBundle()
+        )
+        bundle.agent_turn_briefs = [canonical_turn]
+        return bundle
 
     def _background_run_payload(self, run) -> dict[str, object]:
         return {
@@ -187,6 +291,10 @@ class OperationStatusQueryService:
         runs = await self.background_inspection_store.list_runs(operation_id)
         background_runs = [self._background_run_payload(item) for item in runs]
         brief_bundle = await self.trace_store.load_brief_bundle(operation_id)
+        effective_brief_bundle = await self._resolve_trace_brief_bundle(
+            operation_id,
+            brief_bundle,
+        )
         runtime_alert = self.build_runtime_alert(
             status=operation.status,
             wakeups=wakeups,
@@ -201,7 +309,7 @@ class OperationStatusQueryService:
             overlay=OperationRuntimeOverlay(
                 wakeups=wakeups,
                 background_runs=background_runs,
-                trace_brief=brief_bundle,
+                trace_brief=effective_brief_bundle,
                 runtime_alert=runtime_alert,
             ),
             action_hint=action_hint,
@@ -209,6 +317,7 @@ class OperationStatusQueryService:
                 operation_id,
                 operation,
                 outcome,
+                brief=effective_brief_bundle,
                 runtime_alert=runtime_alert,
             ),
             durable_truth=self.projection_service.build_durable_truth_payload(
@@ -324,6 +433,7 @@ class OperationStatusQueryService:
         operation: OperationState | None,
         outcome: OperationOutcome | None,
         *,
+        brief: object | None = None,
         runtime_alert: str | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {"operation_id": operation_id}
@@ -334,7 +444,7 @@ class OperationStatusQueryService:
         payload.update(
             self.projection_service.build_live_snapshot(
                 operation,
-                None,
+                brief,
                 runtime_alert=runtime_alert,
             )
         )

@@ -825,6 +825,10 @@ def build_store(settings: OperatorSettings) -> FileOperationStore:
     return FileOperationStore(settings.data_dir / "runs")
 
 
+def build_event_store(settings: OperatorSettings) -> FileOperationEventStore:
+    return FileOperationEventStore(settings.data_dir / "operation_events")
+
+
 def build_event_sink(settings: OperatorSettings, operation_id: str) -> JsonlEventSink:
     return JsonlEventSink(settings.data_dir, operation_id)
 

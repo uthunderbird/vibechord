@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from agent_operator.domain import (
     SchedulerState,
     SessionRecord,
     SessionRecordStatus,
+    StoredOperationDomainEvent,
 )
 from agent_operator.domain.operation import ObjectiveState
 from agent_operator.testing.operator_service_support import (
@@ -47,6 +49,23 @@ class _ReplayService:
     async def load(self, operation_id: str) -> _ReplayState:
         assert operation_id == self._checkpoint.operation_id
         return _ReplayState(self._checkpoint)
+
+
+class _EventStore:
+    def __init__(self, events: list[StoredOperationDomainEvent]) -> None:
+        self._events = list(events)
+
+    async def load_after(
+        self,
+        operation_id: str,
+        *,
+        after_sequence: int = 0,
+    ) -> list[StoredOperationDomainEvent]:
+        return [
+            event
+            for event in self._events
+            if event.operation_id == operation_id and event.sequence > after_sequence
+        ]
 
 
 def test_build_runtime_alert_ignores_terminal_background_run_when_live_run_exists() -> None:
@@ -276,6 +295,79 @@ async def test_status_payload_prefers_event_sourced_replay_over_stale_snapshot()
     assert operation is not None
     assert operation.goal.objective == "Canonical event objective."
     assert operation.status is OperationStatus.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_status_payload_falls_back_to_canonical_latest_turn_when_trace_brief_is_missing(
+) -> None:
+    checkpoint = OperationCheckpoint.initial("op-status-v2-turn")
+    checkpoint.objective = ObjectiveState(objective="Show latest turn from canonical events.")
+    checkpoint.status = OperationStatus.RUNNING
+
+    timestamp = datetime.now(UTC)
+    canonical_events = [
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-turn",
+            sequence=1,
+            event_type="session.created",
+            payload={
+                "handle": {
+                    "adapter_key": "codex_acp",
+                    "session_id": "sess-1",
+                    "session_name": "repo-audit",
+                    "display_name": "Codex via ACP",
+                    "one_shot": False,
+                    "metadata": {},
+                },
+                "adapter_key": "codex_acp",
+            },
+            timestamp=timestamp,
+        ),
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-turn",
+            sequence=2,
+            event_type="agent.turn.completed",
+            payload={
+                "session_id": "sess-1",
+                "adapter_key": "codex_acp",
+                "status": "completed",
+                "output_text": "Completed the ADR audit and updated the blocker notes.",
+                "completed_at": timestamp.isoformat(),
+            },
+            timestamp=timestamp,
+        ),
+    ]
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint),
+        event_store=_EventStore(canonical_events),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    payload = json.loads(
+        await service.render_status_output(
+            "op-status-v2-turn",
+            json_mode=True,
+            brief=False,
+        )
+    )
+    summary = payload["summary"]["summary"]
+
+    assert summary["latest_turn"]["agent_key"] == "codex_acp"
+    assert summary["latest_turn"]["session_id"] == "sess-1"
+    assert summary["latest_turn"]["status"] == "completed"
+    assert summary["work_summary"] == "Completed the ADR audit and updated the blocker notes."
+    assert summary["next_step"] is None
+    assert summary["blockers_summary"] is None
 
 
 def test_operation_status_query_service_isolates_snapshot_reads_to_named_fallback() -> None:
