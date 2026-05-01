@@ -381,6 +381,10 @@ Implemented slices:
 - v2 drive materialization preserves disconnected ACP outcomes as `agent.turn.completed(status=
   disconnected)`, `session.observed_state.changed(status=disconnected)`, and
   `session.discontinuity_observed` facts instead of folding them into generic failed outcomes.
+- v2 drive fact persistence covers waiting-input turns and permission follow-up outcomes:
+  `session.waiting_input_observed`, `permission.request.observed`,
+  `permission.request.escalated`, and `permission.request.followup_required` are durably stored,
+  causally linked to canonical events, and included in translated cursor advancement.
 
 Still planned:
 
