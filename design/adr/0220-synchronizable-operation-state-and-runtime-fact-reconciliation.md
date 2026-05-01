@@ -372,8 +372,12 @@ Implemented slices:
   `untranslated_fact_count`, and `technical_facts_pending_translation` sync alerts.
 - `status --json` reports explicit `checkpoint_lag` and `projection_lag`; current status
   projections are checkpoint-backed, so their sequence basis is the replay checkpoint sequence.
+- v2 `DriveService` now persists technical facts for materialized agent terminal outcomes and
+  permission outcomes, links the resulting canonical events by `causation_id`, and advances the
+  translated-fact cursor after canonical append.
 
 Still planned:
 
 - persisted projection lag for future standalone read-model stores;
-- full fact-to-domain translation for all ACP terminal and permission outcomes.
+- full fact-to-domain translation for ACP/runtime outcomes not yet represented by v2
+  `AgentResult` terminal and permission materialization.

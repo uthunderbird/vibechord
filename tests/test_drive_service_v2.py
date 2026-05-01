@@ -28,6 +28,7 @@ from agent_operator.domain.events import RunEvent
 from agent_operator.domain.operation import RunOptions
 from agent_operator.domain.policy import PolicyApplicability, PolicyCategory, PolicyEntry
 from agent_operator.dtos.requests import AgentRunRequest
+from agent_operator.runtime import FileFactStore
 
 
 class StubBrain:
@@ -316,6 +317,9 @@ class StubEventStore:
                     event_type=draft.event_type,
                     payload=draft.payload,
                     timestamp=draft.timestamp,
+                    causation_id=draft.causation_id,
+                    correlation_id=draft.correlation_id,
+                    metadata=draft.metadata,
                 )
             )
         stream.extend(stored)
@@ -836,6 +840,71 @@ async def test_drive_service_materializes_approved_permission_decision_events() 
     ]
     assert permission_events[1].payload["decision"] == "approve"
     assert permission_events[1].payload["decision_source"] == "brain"
+
+
+@pytest.mark.anyio
+async def test_drive_service_persists_runtime_facts_for_materialized_agent_events(
+    tmp_path,
+) -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    fact_store = FileFactStore(tmp_path / "facts")
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=PermissionApprovedSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        fact_store=fact_store,
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    facts = await fact_store.load_after("op-1")
+    assert [fact.fact_type for fact in facts] == [
+        "session.completed",
+        "permission.request.observed",
+        "permission.request.decided",
+    ]
+    assert await fact_store.load_translated_sequence("op-1") == 3
+    materialized_events = event_store.streams["op-1"]
+    caused_event_types = [
+        event.event_type for event in materialized_events if event.causation_id is not None
+    ]
+    assert caused_event_types == [
+        "agent.turn.completed",
+        "permission.request.observed",
+        "permission.request.decided",
+    ]
 
 
 @pytest.mark.anyio

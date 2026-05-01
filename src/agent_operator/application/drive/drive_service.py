@@ -26,6 +26,7 @@ from agent_operator.domain.event_sourcing import (
     StoredOperationDomainEvent,
 )
 from agent_operator.domain.events import RunEvent
+from agent_operator.domain.facts import StoredFact, TechnicalFactDraft
 from agent_operator.domain.operation import (
     OperationGoal,
     OperationOutcome,
@@ -36,6 +37,7 @@ from agent_operator.domain.operation import (
 from agent_operator.domain.read_model import DecisionRecord
 from agent_operator.protocols import EventSink, OperationEventStore
 from agent_operator.protocols.event_sourcing import OperationCheckpointStore
+from agent_operator.protocols.facts import FactStore
 
 if TYPE_CHECKING:
     from agent_operator.domain.checkpoints import OperationCheckpoint
@@ -75,6 +77,7 @@ class DriveService:
         adapter_registry: object | None = None,
         event_sink: EventSink | None = None,
         history_ledger: HistoryLedger | None = None,
+        fact_store: FactStore | None = None,
         max_cycles: int = 1000,
         max_consecutive_actions: int = 10,
     ) -> None:
@@ -88,6 +91,7 @@ class DriveService:
         self._adapter_registry = adapter_registry
         self._event_sink = event_sink
         self._history_ledger = history_ledger
+        self._fact_store = fact_store
         self._max_cycles = max_cycles
         self._max_consecutive_actions = max_consecutive_actions
 
@@ -202,12 +206,18 @@ class DriveService:
 
             deferred_events = executor_result.events[executor_result.persisted_event_count :]
             if deferred_events:
+                deferred_events = await self._attach_fact_causation(
+                    operation_id=operation_id,
+                    events=deferred_events,
+                    technical_facts=executor_result.technical_facts,
+                )
                 stored = await self._event_store.append(
                     operation_id, last_sequence, deferred_events
                 )
                 await self._emit_run_events(stored)
                 agg = agg.apply_events(stored)
                 last_sequence = stored[-1].sequence if stored else last_sequence
+                await self._mark_translated_facts(operation_id, stored)
 
             if (
                 executor_result.more_actions
@@ -507,3 +517,111 @@ class DriveService:
                     payload=payload if isinstance(payload, dict) else {},
                 )
             )
+
+    async def _attach_fact_causation(
+        self,
+        *,
+        operation_id: str,
+        events: list[OperationDomainEventDraft],
+        technical_facts: list[TechnicalFactDraft],
+    ) -> list[OperationDomainEventDraft]:
+        if self._fact_store is None or not technical_facts:
+            return events
+        fact_sequence = await self._fact_store.load_last_sequence(operation_id)
+        stored_facts = await self._fact_store.append_technical_facts(
+            operation_id,
+            fact_sequence,
+            technical_facts,
+        )
+        unused_fact_ids_by_type: dict[str, list[str]] = {}
+        for fact in stored_facts:
+            unused_fact_ids_by_type.setdefault(fact.fact_type, []).append(fact.fact_id)
+        enriched: list[OperationDomainEventDraft] = []
+        for event in events:
+            fact_id = self._pop_causation_fact_id(event, unused_fact_ids_by_type)
+            if fact_id is None:
+                enriched.append(event)
+                continue
+            enriched.append(
+                event.model_copy(
+                    update={
+                        "causation_id": event.causation_id or fact_id,
+                        "correlation_id": event.correlation_id or fact_id,
+                    }
+                )
+            )
+        return enriched
+
+    def _pop_causation_fact_id(
+        self,
+        event: OperationDomainEventDraft,
+        fact_ids_by_type: dict[str, list[str]],
+    ) -> str | None:
+        fact_type = self._event_fact_type(event)
+        if fact_type is None:
+            return None
+        ids = fact_ids_by_type.get(fact_type)
+        if not ids:
+            return None
+        return ids.pop(0)
+
+    def _event_fact_type(self, event: OperationDomainEventDraft) -> str | None:
+        if event.event_type == "agent.turn.completed":
+            status = event.payload.get("status")
+            if status == "completed":
+                return "session.completed"
+            if status == "cancelled":
+                return "session.cancelled"
+            if status == "interrupted":
+                return "session.waiting_input_observed"
+            if status == "failed":
+                return "session.failed"
+            return None
+        if event.event_type.startswith("permission.request."):
+            return event.event_type
+        return None
+
+    async def _mark_translated_facts(
+        self,
+        operation_id: str,
+        stored_events: list[StoredOperationDomainEvent],
+    ) -> None:
+        if self._fact_store is None or not stored_events:
+            return
+        causation_ids = [
+            event.causation_id
+            for event in stored_events
+            if isinstance(event.causation_id, str) and event.causation_id
+        ]
+        if not causation_ids:
+            return
+        stored_facts = await self._fact_store.load_by_fact_ids(operation_id, causation_ids)
+        current_sequence = await self._fact_store.load_translated_sequence(operation_id)
+        translated_sequence = self._contiguous_translated_sequence(
+            stored_facts,
+            after_sequence=current_sequence,
+        )
+        if translated_sequence is not None:
+            await self._fact_store.mark_translated_through(
+                operation_id,
+                translated_sequence,
+            )
+
+    def _contiguous_translated_sequence(
+        self,
+        stored_facts: list[StoredFact],
+        *,
+        after_sequence: int,
+    ) -> int | None:
+        if not stored_facts:
+            return None
+        translated_sequence: int | None = None
+        expected_sequence = after_sequence + 1
+        for fact in sorted(stored_facts, key=lambda item: item.sequence):
+            if fact.sequence < expected_sequence:
+                continue
+            if fact.sequence != expected_sequence:
+                break
+            translated_sequence = fact.sequence
+            expected_sequence += 1
+        return translated_sequence

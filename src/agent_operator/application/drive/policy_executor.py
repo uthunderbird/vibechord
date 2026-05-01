@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 
 from agent_operator.application.commands.operation_attention import OperationAttentionCoordinator
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
-from agent_operator.domain import AgentResult, AgentSessionHandle
+from agent_operator.domain import AgentResult, AgentSessionHandle, TechnicalFactDraft
 from agent_operator.domain.aggregate import OperationAggregate
 from agent_operator.domain.enums import (
     AgentResultStatus,
@@ -50,6 +50,7 @@ class PolicyExecutorResult:
     iteration_index: int = 0
     persisted_event_count: int = 0
     more_actions: bool = False
+    technical_facts: list[TechnicalFactDraft] = field(default_factory=list)
 
 
 class PolicyExecutor:
@@ -345,6 +346,20 @@ class PolicyExecutor:
             completed_at = datetime.now(UTC)
 
             turn_status = self._turn_status_from_agent_result(agent_result.status)
+            result.technical_facts.append(
+                TechnicalFactDraft(
+                    fact_type=self._terminal_fact_type_from_agent_result(agent_result.status),
+                    payload={
+                        "session_id": session_id,
+                        "adapter_key": adapter_key,
+                        "status": turn_status,
+                        "output_text": agent_result.output_text or "",
+                        "completed_at": completed_at.isoformat(),
+                    },
+                    observed_at=completed_at,
+                    session_id=session_id,
+                )
+            )
             result.events.append(
                 OperationDomainEventDraft(
                     event_type="agent.turn.completed",
@@ -370,6 +385,13 @@ class PolicyExecutor:
                     completed_at=completed_at,
                     involvement_level=agg.policy.involvement_level.value,
                     attention_event=attention_event,
+                )
+            )
+            result.technical_facts.extend(
+                self._permission_facts_from_events(
+                    result.events,
+                    session_id=session_id,
+                    completed_at=completed_at,
                 )
             )
             if attention_event is not None:
@@ -418,6 +440,36 @@ class PolicyExecutor:
         if status is AgentResultStatus.INCOMPLETE:
             return "interrupted"
         return "failed"
+
+    def _terminal_fact_type_from_agent_result(self, status: AgentResultStatus) -> str:
+        if status is AgentResultStatus.SUCCESS:
+            return "session.completed"
+        if status is AgentResultStatus.CANCELLED:
+            return "session.cancelled"
+        if status is AgentResultStatus.INCOMPLETE:
+            return "session.waiting_input_observed"
+        return "session.failed"
+
+    def _permission_facts_from_events(
+        self,
+        events: list[OperationDomainEventDraft],
+        *,
+        session_id: str,
+        completed_at: datetime,
+    ) -> list[TechnicalFactDraft]:
+        facts: list[TechnicalFactDraft] = []
+        for event in events:
+            if not event.event_type.startswith("permission.request."):
+                continue
+            facts.append(
+                TechnicalFactDraft(
+                    fact_type=event.event_type,
+                    payload=dict(event.payload),
+                    observed_at=completed_at,
+                    session_id=session_id,
+                )
+            )
+        return facts
 
     def _permission_events_from_agent_result(
         self,
