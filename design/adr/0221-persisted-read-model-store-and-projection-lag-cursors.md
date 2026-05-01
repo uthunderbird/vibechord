@@ -8,7 +8,7 @@ Proposed
 
 ## Implementation Status
 
-Partial
+Implemented
 
 Implementation grounding on 2026-05-02:
 
@@ -63,9 +63,9 @@ Implementation grounding on 2026-05-02:
   `src/agent_operator/cli/tui/rendering_detail.py`.
 - `verified`: TUI tests assert sync-health labels survive payload parsing and render in fleet
   detail. Evidence: `tests/test_tui.py`.
-- `planned`: no production delivery surface currently reads persisted projections as cached
-  business data; if a future surface does, it still needs a store-specific freshness gate that
-  rejects or labels stale reads at that read boundary.
+- `follow-up`: no production delivery surface currently reads persisted projections as cached
+  business data. If a future surface starts doing that, it must add a store-specific freshness gate
+  that rejects or labels stale reads at that read boundary.
 
 ## Context
 
@@ -123,8 +123,8 @@ Planned implementation should introduce:
 
 ## Current Status
 
-This ADR is proposed and partially implemented. The standalone projection store foundation exists,
-status sync-health can report its cursor lag, and event-sourced write paths refresh the persisted
-status projection. Dashboard, fleet, MCP status, and TUI fleet-detail surfaces share sync-health
-labels. No production surface currently treats persisted projections as cached business data; any
-future cached reader still needs an explicit freshness gate at its read boundary.
+This ADR is proposed and implemented. The standalone projection store foundation exists, status
+sync-health can report its cursor lag, and event-sourced write paths refresh the persisted status
+projection. Dashboard, fleet, MCP status, and TUI fleet-detail surfaces share sync-health labels.
+No production surface currently treats persisted projections as cached business data; any future
+cached reader must add an explicit freshness gate at its read boundary.
