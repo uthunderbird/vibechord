@@ -43,14 +43,14 @@ Primary workflow surfaces:
 Situational and forensic surfaces:
 
 - `watch` — lightweight textual live view for one operation
-- `dashboard` — richer one-operation live dashboard
-- `session` — task-addressed session snapshot surface (`--task`, `--once`, `--follow`, `--json`)
-- `tasks` — task board for an operation
-- `memory` — distilled memory entries
-- `artifacts` — durable outputs
-- `attention` — attention request details
-- `report` — human-readable operation report
-- `log` — condensed transcript events
+- `show dashboard` — richer one-operation live dashboard
+- `show session` — task-addressed session snapshot surface
+- `show tasks` — task board for an operation
+- `show memory` — distilled memory entries
+- `show artifacts` — durable outputs
+- `show attention` — attention request details
+- `show report` — human-readable operation report
+- `show log` — condensed transcript events
 - `fleet list` — persisted operation inventory
 - `fleet agenda` — cross-operation agenda view
 - `fleet history` — committed project history
@@ -205,15 +205,17 @@ inactive entries in that explanation.
 promotion via `--attention`. `policy revoke` remains a destructive explicit mutation and therefore
 asks for confirmation by default; use `--yes` to skip the prompt.
 
-`log`, `fleet history`, and `report` are adjacent but intentionally different:
+`show log`, `fleet history`, and `show report` are adjacent but intentionally different:
 
-- `log` is transcript-first. It shows condensed agent transcript events and supports follow mode for
-  session-oriented inspection.
+- `show log` is transcript-first. It shows condensed agent transcript events and supports follow
+  mode for session-oriented inspection. The root `log` path remains callable during ADR 0219
+  migration.
 - `fleet history` is ledger-first. It shows committed durable run history for the current project
   and can resolve operation references like `last`. The root `history` path remains callable during
   ADR 0219 migration.
-- `report` is retrospective-first. It shows the synthesized operation report and, under `--json`,
-  includes the report text plus brief/outcome and durable-truth payloads.
+- `show report` is retrospective-first. It shows the synthesized operation report and, under
+  `--json`, includes the report text plus brief/outcome and durable-truth payloads. The root
+  `report` path remains callable during ADR 0219 migration.
 
 Operation-scoped surfaces that take an operation argument accept the normal operation reference
 forms: full id, unique short prefix, and `last`.

@@ -60,6 +60,22 @@ def test_cli_command_inventory_keeps_grouped_compatibility_aliases_transitional(
     assert records["fleet history"].stability == "stable"
     assert records["fleet list"].stability == "stable"
     assert records["edit involvement"].stability == "stable"
+    assert records["artifacts"].stability == "transitional"
+    assert records["attention"].stability == "transitional"
+    assert records["dashboard"].stability == "transitional"
+    assert records["log"].stability == "transitional"
+    assert records["memory"].stability == "transitional"
+    assert records["report"].stability == "transitional"
+    assert records["session"].stability == "transitional"
+    assert records["tasks"].stability == "transitional"
+    assert records["show artifacts"].stability == "stable"
+    assert records["show attention"].stability == "stable"
+    assert records["show dashboard"].stability == "stable"
+    assert records["show log"].stability == "stable"
+    assert records["show memory"].stability == "stable"
+    assert records["show report"].stability == "stable"
+    assert records["show session"].stability == "stable"
+    assert records["show tasks"].stability == "stable"
 
 
 def test_cli_command_inventory_doc_lists_required_adr_0210_sections() -> None:

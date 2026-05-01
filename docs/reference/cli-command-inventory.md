@@ -41,17 +41,10 @@ ADR 0219 splits stable root commands into two sets:
 
 ### Read / supervision
 
-- `artifacts`
 - `ask`
-- `attention`
-- `dashboard`
 - `fleet agenda`
 - `fleet history`
 - `fleet list`
-- `log`
-- `memory`
-- `report`
-- `session`
 - `show`
 - `show artifacts`
 - `show attention`
@@ -62,7 +55,6 @@ ADR 0219 splits stable root commands into two sets:
 - `show session`
 - `show tasks`
 - `status`
-- `tasks`
 - `watch`
 
 ### Project / policy / admin / integration
@@ -114,17 +106,6 @@ ADR 0219 splits stable root commands into two sets:
 
 ## ADR 0219 grouping backlog
 
-### Operation detail candidates
-
-- `artifacts`
-- `attention`
-- `dashboard`
-- `log`
-- `memory`
-- `report`
-- `session`
-- `tasks`
-
 ### Other grouping candidates
 
 - `converse`
@@ -136,20 +117,28 @@ surfaces.
 
 - `daemon` -> use `debug daemon`
 - `agenda` -> use `fleet agenda`
+- `artifacts` -> use `show artifacts`
+- `attention` -> use `show attention`
 - `command` -> use `debug command`
 - `context` -> use `debug context`
+- `dashboard` -> use `show dashboard`
 - `history` -> use `fleet history`
 - `inspect` -> use `debug inspect`
 - `involvement` -> use `edit involvement`
 - `list` -> use `fleet list`
+- `log` -> use `show log`
+- `memory` -> use `show memory`
 - `patch-criteria` -> use `edit criteria`
 - `patch-harness` -> use `edit harness`
 - `patch-objective` -> use `edit objective`
 - `recover` -> use `debug recover`
+- `report` -> use `show report`
 - `resume` -> use `debug resume`
+- `session` -> use `show session`
 - `set-execution-profile` -> use `edit execution-profile`
 - `sessions` -> use `debug sessions`
 - `stop-turn` -> use `interrupt`
+- `tasks` -> use `show tasks`
 - `tick` -> use `debug tick`
 - `trace` -> use `debug trace`
 - `wakeups` -> use `debug wakeups`

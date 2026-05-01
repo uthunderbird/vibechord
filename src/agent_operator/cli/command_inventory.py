@@ -42,16 +42,7 @@ ADR_0219_CANONICAL_ROOT_COMMANDS: frozenset[str] = frozenset(
 
 
 ADR_0219_GROUPING_BACKLOG: dict[str, tuple[str, ...]] = {
-    "operation_detail": (
-        "artifacts",
-        "attention",
-        "dashboard",
-        "log",
-        "memory",
-        "report",
-        "session",
-        "tasks",
-    ),
+    "operation_detail": (),
     "fleet_inventory": (),
     "edit": (),
     "advanced_nl": ("converse",),
@@ -70,9 +61,19 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
         "Compatibility alias for fleet agenda.",
     ),
     CliCommandRecord("answer", "stable", "control", "Canonical attention-answer surface."),
-    CliCommandRecord("artifacts", "stable", "read", "Canonical artifact inspection surface."),
+    CliCommandRecord(
+        "artifacts",
+        "transitional",
+        "show-alias",
+        "Compatibility alias for show artifacts.",
+    ),
     CliCommandRecord("ask", "stable", "read", "Read-only NL query surface."),
-    CliCommandRecord("attention", "stable", "read", "Canonical attention inspection surface."),
+    CliCommandRecord(
+        "attention",
+        "transitional",
+        "show-alias",
+        "Compatibility alias for show attention.",
+    ),
     CliCommandRecord("cancel", "stable", "control", "Canonical cancellation surface."),
     CliCommandRecord("clear", "stable", "lifecycle", "Workspace runtime reset surface."),
     CliCommandRecord(
@@ -91,7 +92,12 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     CliCommandRecord(
         "daemon", "transitional", "debug-alias", "Hidden top-level alias for debug daemon."
     ),
-    CliCommandRecord("dashboard", "stable", "read", "One-operation live dashboard."),
+    CliCommandRecord(
+        "dashboard",
+        "transitional",
+        "show-alias",
+        "Compatibility alias for show dashboard.",
+    ),
     CliCommandRecord("debug", "debug-only", "debug", "Canonical debug/repair namespace."),
     CliCommandRecord("debug command", "debug-only", "debug", "Low-level command enqueue surface."),
     CliCommandRecord("debug context", "debug-only", "debug", "Effective control-plane context."),
@@ -149,9 +155,14 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
         "fleet-alias",
         "Compatibility alias for fleet list.",
     ),
-    CliCommandRecord("log", "stable", "read", "Condensed transcript/log surface."),
+    CliCommandRecord("log", "transitional", "show-alias", "Compatibility alias for show log."),
     CliCommandRecord("mcp", "stable", "integration", "Inbound MCP server entrypoint."),
-    CliCommandRecord("memory", "stable", "read", "Canonical memory inspection surface."),
+    CliCommandRecord(
+        "memory",
+        "transitional",
+        "show-alias",
+        "Compatibility alias for show memory.",
+    ),
     CliCommandRecord("message", "stable", "control", "Durable operator-context injection surface."),
     CliCommandRecord(
         "patch-criteria", "transitional", "edit-alias", "Compatibility alias for edit criteria."
@@ -184,12 +195,22 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     CliCommandRecord(
         "recover", "transitional", "debug-alias", "Hidden top-level alias for debug recover."
     ),
-    CliCommandRecord("report", "stable", "read", "Retrospective operation report."),
+    CliCommandRecord(
+        "report",
+        "transitional",
+        "show-alias",
+        "Compatibility alias for show report.",
+    ),
     CliCommandRecord(
         "resume", "transitional", "debug-alias", "Hidden top-level alias for debug resume."
     ),
     CliCommandRecord("run", "stable", "lifecycle", "Canonical operation creation entrypoint."),
-    CliCommandRecord("session", "stable", "read", "Task-addressed session surface."),
+    CliCommandRecord(
+        "session",
+        "transitional",
+        "show-alias",
+        "Compatibility alias for show session.",
+    ),
     CliCommandRecord("show", "stable", "read", "Grouped operation-detail namespace."),
     CliCommandRecord("show artifacts", "stable", "read", "Grouped artifact inspection surface."),
     CliCommandRecord("show attention", "stable", "read", "Grouped attention inspection surface."),
@@ -258,7 +279,12 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
         "debug-alias",
         "Hidden top-level alias kept during interrupt transition.",
     ),
-    CliCommandRecord("tasks", "stable", "read", "Canonical task-board inspection surface."),
+    CliCommandRecord(
+        "tasks",
+        "transitional",
+        "show-alias",
+        "Compatibility alias for show tasks.",
+    ),
     CliCommandRecord(
         "tick", "transitional", "debug-alias", "Hidden top-level alias for debug tick."
     ),

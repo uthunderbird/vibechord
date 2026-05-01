@@ -42,17 +42,10 @@ This page is the command-by-command contract matrix for ADR 0210.
 
 | Path | Stability | JSON contract | Semantic exit codes | Error notes |
 | --- | --- | --- | --- | --- |
-| `artifacts` | `stable` | `operator artifacts --json` | success only | Uses shared operation resolution. |
 | `ask` | `stable` | `operator ask --json` | `0/4` | Missing-operation and runtime query failures use the stable internal-error code. |
-| `attention` | `stable` | `operator attention --json` | success only | Uses shared operation resolution. |
-| `dashboard` | `stable` | `operator dashboard --json` | success only | Dashboard text and JSON render the same read/query payload family. |
 | `fleet agenda` | `stable` | `operator fleet agenda --json` | success only | Grouped alias for cross-operation agenda. |
 | `fleet history` | `stable` | `operator fleet history --json` | success only | Grouped alias for committed history ledger. |
 | `fleet list` | `stable` | `operator fleet list --json` | success only | Grouped alias for persisted operation inventory. |
-| `log` | `stable` | `operator log --json` | success only | Transcript/log payload stays agent-flavor aware. |
-| `memory` | `stable` | `operator memory --json` | success only | Uses shared operation resolution. |
-| `report` | `stable` | `operator report --json` | success only | Report JSON keeps synthesized report plus durable-truth context explicit. |
-| `session` | `stable` | `operator session --json` | success only | Task-addressed session lookup is explicit; missing linkage is a deterministic non-zero failure. |
 | `show` | `stable` | none | success only | Namespace for grouped operation-detail surfaces. |
 | `show artifacts` | `stable` | `operator show artifacts --json` | success only | Grouped alias for artifact inspection. |
 | `show attention` | `stable` | `operator show attention --json` | success only | Grouped alias for attention inspection. |
@@ -63,7 +56,6 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `show session` | `stable` | `operator show session --json` | success only | Grouped alias for task-addressed session lookup. |
 | `show tasks` | `stable` | `operator show tasks --json` | success only | Grouped alias for task-board inspection. |
 | `status` | `stable` | `operator status --json` | success only | Ambiguous prefixes use the shared resolver error contract. |
-| `tasks` | `stable` | `operator tasks --json` | success only | Uses shared operation resolution. |
 | `watch` | `stable` | `operator watch --once --json` | `0/4` | Canonical v2 event streams are preferred; watch timeout/runtime failure uses the internal-error code. |
 
 ## Stable Project, Policy, Admin, And Integration
@@ -98,20 +90,28 @@ This page is the command-by-command contract matrix for ADR 0210.
 | --- | --- | --- | --- | --- |
 | `daemon` | `transitional` | `operator debug daemon --json` | success only | Hidden alias for `debug daemon`. |
 | `agenda` | `transitional` | `operator fleet agenda --json` | success only | Compatibility alias for `fleet agenda`. |
+| `artifacts` | `transitional` | `operator show artifacts --json` | success only | Compatibility alias for `show artifacts`. |
+| `attention` | `transitional` | `operator show attention --json` | success only | Compatibility alias for `show attention`. |
 | `command` | `transitional` | none | success only | Hidden alias for `debug command`. |
 | `context` | `transitional` | `operator debug context --json` | success only | Hidden alias for `debug context`. |
+| `dashboard` | `transitional` | `operator show dashboard --json` | success only | Compatibility alias for `show dashboard`. |
 | `history` | `transitional` | `operator fleet history --json` | success only | Compatibility alias for `fleet history`. |
 | `inspect` | `transitional` | `operator debug inspect --json` | success only | Hidden alias for `debug inspect`. |
 | `involvement` | `transitional` | none | success only | Compatibility alias for `edit involvement`. |
 | `list` | `transitional` | `operator fleet list --json` | success only | Compatibility alias for `fleet list`. |
+| `log` | `transitional` | `operator show log --json` | success only | Compatibility alias for `show log`. |
+| `memory` | `transitional` | `operator show memory --json` | success only | Compatibility alias for `show memory`. |
 | `patch-criteria` | `transitional` | none | success only | Compatibility alias for `edit criteria`. |
 | `patch-harness` | `transitional` | none | success only | Compatibility alias for `edit harness`. |
 | `patch-objective` | `transitional` | none | success only | Compatibility alias for `edit objective`. |
 | `recover` | `transitional` | `operator debug recover --json` | success only | Hidden alias for `debug recover`. |
+| `report` | `transitional` | `operator show report --json` | success only | Compatibility alias for `show report`. |
 | `resume` | `transitional` | `operator debug resume --json` | success only | Hidden alias for `debug resume`. |
+| `session` | `transitional` | `operator show session --json` | success only | Compatibility alias for `show session`. |
 | `set-execution-profile` | `transitional` | none | success only | Compatibility alias for `edit execution-profile`. |
 | `sessions` | `transitional` | `operator debug sessions --json` | success only | Hidden alias for `debug sessions`. |
 | `stop-turn` | `transitional` | none | success only | Hidden alias retained during `interrupt` cutover. |
+| `tasks` | `transitional` | `operator show tasks --json` | success only | Compatibility alias for `show tasks`. |
 | `tick` | `transitional` | none | success only | Hidden alias for `debug tick`. |
 | `trace` | `transitional` | `operator debug trace --json` | success only | Hidden alias for `debug trace`. |
 | `wakeups` | `transitional` | `operator debug wakeups --json` | success only | Hidden alias for `debug wakeups`. |

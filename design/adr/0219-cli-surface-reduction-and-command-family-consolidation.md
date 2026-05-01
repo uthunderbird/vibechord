@@ -27,7 +27,7 @@ Implementation grounding on 2026-05-02:
   `src/agent_operator/cli/command_inventory.py`.
 - `implemented`: operation-detail read surfaces now have a grouped stable `show ...` namespace for
   attention, tasks, memory, artifacts, report, dashboard, log, and session. The existing root read
-  commands remain callable while the migration proceeds. Evidence:
+  commands remain callable but are now classified as transitional compatibility aliases. Evidence:
   `src/agent_operator/cli/commands/operation_detail.py`,
   `src/agent_operator/cli/commands/operation_detail_log.py`,
   `src/agent_operator/cli/commands/operation_detail_session.py`.
@@ -43,8 +43,7 @@ Implementation grounding on 2026-05-02:
   read payloads, grouped fleet commands delegating to the existing inventory/history/agenda read
   paths, and grouped edit-involvement delegating to the existing autonomy mutation path. Evidence:
   `tests/test_cli_command_inventory.py`, `tests/test_cli.py`.
-- `planned`: natural-language grouping and operation-detail root-command migration remain open; no
-  compatibility alias has been removed.
+- `planned`: natural-language grouping remains open; no compatibility alias has been removed.
 
 ## Context
 
