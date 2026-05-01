@@ -10,6 +10,12 @@ depend on it as the long-term shell contract.
 
 ## Stable commands
 
+ADR 0219 splits stable root commands into two sets:
+
+- canonical root commands: the intended small root workflow surface;
+- grouping backlog commands: still stable and callable, but intended to move behind grouped
+  namespaces before the final CLI shape is claimed.
+
 ### Lifecycle
 
 - `run`
@@ -72,6 +78,58 @@ depend on it as the long-term shell contract.
 - `project inspect`
 - `project list`
 - `project resolve`
+
+## ADR 0219 canonical root surface
+
+- `agent`
+- `answer`
+- `ask`
+- `cancel`
+- `clear`
+- `config`
+- `fleet`
+- `init`
+- `interrupt`
+- `mcp`
+- `message`
+- `pause`
+- `policy`
+- `project`
+- `run`
+- `status`
+- `unpause`
+- `watch`
+
+## ADR 0219 grouping backlog
+
+### Operation detail candidates
+
+- `artifacts`
+- `attention`
+- `dashboard`
+- `log`
+- `memory`
+- `report`
+- `session`
+- `tasks`
+
+### Fleet inventory candidates
+
+- `agenda`
+- `history`
+- `list`
+
+### Edit / mutation candidates
+
+- `patch-criteria`
+- `patch-harness`
+- `patch-objective`
+- `set-execution-profile`
+
+### Other grouping candidates
+
+- `converse`
+- `involvement`
 
 ## Transitional commands
 

@@ -8,7 +8,22 @@ Proposed
 
 ## Implementation Status
 
-Planned
+Partial
+
+Implementation grounding on 2026-05-02:
+
+- `implemented`: the intended ADR 0219 canonical root surface is now represented as a checked-in
+  CLI inventory constant rather than only prose. Evidence:
+  `src/agent_operator/cli/command_inventory.py`.
+- `implemented`: the current stable root commands that should move behind grouped namespaces are
+  represented as an explicit grouping backlog. Evidence:
+  `src/agent_operator/cli/command_inventory.py`,
+  `docs/reference/cli-command-inventory.md`.
+- `verified`: command-inventory tests prove every registered stable root command is accounted for
+  as either canonical root surface or grouping backlog, and prevent new stable root commands from
+  bypassing ADR 0219 classification. Evidence: `tests/test_cli_command_inventory.py`.
+- `planned`: no command has been removed, hidden, or migrated yet; this tranche makes the CLI
+  reduction target measurable before behavior-changing migration work.
 
 ## Context
 

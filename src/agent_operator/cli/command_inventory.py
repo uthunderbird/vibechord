@@ -15,6 +15,57 @@ class CliCommandRecord:
     notes: str
 
 
+ADR_0219_CANONICAL_ROOT_COMMANDS: frozenset[str] = frozenset(
+    {
+        "agent",
+        "answer",
+        "ask",
+        "cancel",
+        "clear",
+        "config",
+        "fleet",
+        "init",
+        "interrupt",
+        "mcp",
+        "message",
+        "pause",
+        "policy",
+        "project",
+        "run",
+        "status",
+        "unpause",
+        "watch",
+    }
+)
+
+
+ADR_0219_GROUPING_BACKLOG: dict[str, tuple[str, ...]] = {
+    "operation_detail": (
+        "artifacts",
+        "attention",
+        "dashboard",
+        "log",
+        "memory",
+        "report",
+        "session",
+        "tasks",
+    ),
+    "fleet_inventory": (
+        "agenda",
+        "history",
+        "list",
+    ),
+    "edit": (
+        "patch-criteria",
+        "patch-harness",
+        "patch-objective",
+        "set-execution-profile",
+    ),
+    "advanced_nl": ("converse",),
+    "autonomy": ("involvement",),
+}
+
+
 COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     CliCommandRecord("agent", "stable", "admin", "Namespace for configured agent inspection."),
     CliCommandRecord("agent list", "stable", "admin", "Machine-readable agent roster exists."),
