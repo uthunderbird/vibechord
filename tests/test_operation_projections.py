@@ -51,6 +51,7 @@ from agent_operator.domain import (
     OperationStatus,
     OperationSummary,
     OperatorMessage,
+    ParkedExecutionState,
     PolicyCategory,
     PolicyCoverage,
     PolicyCoverageStatus,
@@ -1223,6 +1224,50 @@ def test_build_live_snapshot_and_format_live_snapshot() -> None:
     assert "alert=rate limit soon" in rendered
 
 
+def test_build_operation_payload_includes_parked_execution_state() -> None:
+    """Catches the mutation where durable parked state is dropped from read payloads."""
+    operation = _operation()
+    operation.parked_execution = ParkedExecutionState(
+        kind="dependency_barrier",
+        fingerprint="dependency_barrier:task-1:codex_acp:runtime-health",
+        reason="Runtime execution is unavailable until ACP health changes.",
+        wake_predicates=["runtime_health_changed", "operator_resumed"],
+        related_task_id="task-1",
+        related_agent="codex_acp",
+    )
+
+    payload = OperationProjectionService().operation_payload(operation)
+
+    assert payload["parked_execution"]["kind"] == "dependency_barrier"
+    assert payload["parked_execution"]["reason"] == (
+        "Runtime execution is unavailable until ACP health changes."
+    )
+    assert payload["parked_execution"]["wake_predicates"] == [
+        "runtime_health_changed",
+        "operator_resumed",
+    ]
+
+
+def test_build_live_snapshot_exposes_parked_execution_as_blocking_reason() -> None:
+    """Catches the mutation where non-human parked waits are invisible in live snapshots."""
+    operation = _operation()
+    operation.parked_execution = ParkedExecutionState(
+        kind="runtime_drained",
+        fingerprint="runtime_drained:op-1",
+        reason="Attached drive call drained before terminal state.",
+        wake_predicates=["runtime_reentered", "operator_resumed"],
+    )
+
+    snapshot = OperationProjectionService().build_live_snapshot(
+        operation,
+        None,
+        runtime_alert=None,
+    )
+
+    assert snapshot["parked_execution"]["kind"] == "runtime_drained"
+    assert snapshot["blocking_reason"] == "Attached drive call drained before terminal state."
+
+
 def test_build_dashboard_payload_includes_active_session_execution_profile() -> None:
     operation = _operation()
     payload = OperationProjectionService().build_dashboard_payload(
@@ -1239,6 +1284,34 @@ def test_build_dashboard_payload_includes_active_session_execution_profile() -> 
 
     assert payload["active_session"]["execution_profile"]["model"] == "gpt-5.4"
     assert payload["sessions"][0]["execution_profile_stamp"]["effort_value"] == "low"
+
+
+def test_build_dashboard_payload_includes_parked_execution() -> None:
+    """Catches the mutation where the dashboard omits authoritative parked state."""
+    operation = _operation()
+    operation.parked_execution = ParkedExecutionState(
+        kind="dependency_barrier",
+        fingerprint="dependency_barrier:task-1:codex_acp:runtime-health",
+        reason="Runtime execution is unavailable until ACP health changes.",
+        wake_predicates=["runtime_health_changed"],
+        related_task_id="task-1",
+        related_agent="codex_acp",
+    )
+
+    payload = OperationProjectionService().build_dashboard_payload(
+        operation,
+        brief=None,
+        outcome=None,
+        runtime_alert=None,
+        commands=[],
+        events=[],
+        decision_memos=[],
+        upstream_transcript=None,
+        report_text=None,
+    )
+
+    assert payload["parked_execution"]["related_agent"] == "codex_acp"
+    assert payload["parked_execution"]["wake_predicates"] == ["runtime_health_changed"]
 
 
 def test_brief_summary_and_live_snapshot_use_explicit_agent_turn_serializer(
@@ -1306,6 +1379,36 @@ def test_render_dashboard_prefers_runtime_alert_over_waiting_reason() -> None:
 
     assert "alert: 2 wakeup(s) are pending reconciliation." in rendered
     assert "waiting: Agent session completed." not in rendered
+
+
+def test_render_dashboard_shows_parked_reason_when_no_runtime_alert() -> None:
+    """Catches the mutation where parked non-human waits render as normal running state."""
+    console = Console(record=True, width=140, markup=False)
+    group = render_dashboard(
+        {
+            "status": "running",
+            "scheduler_state": "active",
+            "run_mode": "attached",
+            "involvement_level": "auto",
+            "objective": "Ship dashboard",
+            "harness_instructions": "Keep delivery thin.",
+            "focus": "dependency_barrier:task-1",
+            "task_counts": "blocked:1",
+            "parked_execution": {
+                "kind": "dependency_barrier",
+                "reason": "Runtime execution is unavailable until ACP health changes.",
+            },
+            "recent_events": [],
+            "recent_commands": [],
+            "control_hints": [],
+        },
+        shorten_live_text=lambda text: text,
+    )
+
+    console.print(group)
+    rendered = console.export_text(styles=False)
+
+    assert "parked: Runtime execution is unavailable until ACP health changes." in rendered
 
 
 def test_build_inspect_summary_payload_uses_recommended_next_step() -> None:

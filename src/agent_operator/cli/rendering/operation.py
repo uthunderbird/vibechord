@@ -15,6 +15,7 @@ def render_dashboard(
 ) -> Group:
     active_session = payload.get("active_session")
     brief_summary = payload.get("brief_summary")
+    parked_execution = payload.get("parked_execution")
     project_context = payload.get("project_context")
     policy_coverage = payload.get("policy_coverage")
     active_policies = payload.get("active_policies")
@@ -67,6 +68,10 @@ def render_dashboard(
         runtime_alert = payload.get("runtime_alert")
     if isinstance(runtime_alert, str) and runtime_alert.strip():
         header_lines.append(f"alert: {runtime_alert.strip()}")
+    elif isinstance(parked_execution, dict):
+        parked_reason = parked_execution.get("reason")
+        if isinstance(parked_reason, str) and parked_reason.strip():
+            header_lines.append(f"parked: {parked_reason.strip()}")
     elif (
         isinstance(active_session, dict)
         and isinstance(waiting_reason, str)

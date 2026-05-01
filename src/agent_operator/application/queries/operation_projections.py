@@ -354,6 +354,21 @@ class OperationProjectionService:
             "display": display or "unknown",
         }
 
+    def _parked_execution_payload(self, operation: OperationState) -> dict[str, object] | None:
+        parked = operation.parked_execution
+        if parked is None:
+            return None
+        return {
+            "kind": parked.kind,
+            "fingerprint": parked.fingerprint,
+            "reason": parked.reason,
+            "wake_predicates": list(parked.wake_predicates),
+            "related_task_id": parked.related_task_id,
+            "related_agent": parked.related_agent,
+            "created_at": parked.created_at.isoformat(),
+            "last_confirmed_at": parked.last_confirmed_at.isoformat(),
+        }
+
     def memory_entries(
         self,
         operation: OperationState,
@@ -1193,6 +1208,7 @@ class OperationProjectionService:
                 if operation.current_focus is not None
                 else None
             ),
+            "parked_execution": self._parked_execution_payload(operation),
             "pending_wakeups": [self._wakeup_payload(item) for item in operation.pending_wakeups],
             "attention_requests": [
                 self._attention_payload(item) for item in operation.attention_requests
@@ -1873,6 +1889,10 @@ class OperationProjectionService:
         active_session_execution_profile = self._active_session_execution_profile_payload(operation)
         if active_session_execution_profile is not None:
             payload["active_session_execution_profile"] = active_session_execution_profile
+        parked_execution = self._parked_execution_payload(operation)
+        if parked_execution is not None:
+            payload["parked_execution"] = parked_execution
+            payload["blocking_reason"] = parked_execution["reason"]
         return payload
 
     def _operation_agent_activity(self, operation: OperationState) -> str | None:
@@ -2016,6 +2036,7 @@ class OperationProjectionService:
                 if operation.current_focus is not None
                 else None
             ),
+            "parked_execution": self._parked_execution_payload(operation),
             "brief_summary": self.build_brief_summary_payload(
                 operation,
                 brief,

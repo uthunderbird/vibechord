@@ -8,7 +8,33 @@ Proposed
 
 ## Implementation Status
 
-Planned
+Partial
+
+Implementation grounding on 2026-05-02:
+
+- `implemented`: the brain action taxonomy includes `wait_for_material_change`; the drive policy
+  executor persists `operation.parked.updated` and breaks the wake cycle for that action. Evidence:
+  `src/agent_operator/domain/enums.py`,
+  `src/agent_operator/application/drive/policy_executor.py`.
+- `implemented`: authoritative parked execution state is part of operation/checkpoint replay and
+  can represent runtime-drained and dependency-barrier waits. Evidence:
+  `src/agent_operator/domain/operation.py`, `src/agent_operator/domain/checkpoints.py`,
+  `src/agent_operator/application/drive/drive_service.py`.
+- `implemented`: session continuation/reuse checks desired versus observed execution profiles and
+  rejects stale or missing observed contracts. Evidence:
+  `src/agent_operator/application/loaded_operation.py`,
+  `src/agent_operator/application/decision_execution.py`.
+- `implemented`: operation, live, and dashboard read payloads expose parked execution state so
+  user-facing surfaces can distinguish non-human parked waits from ordinary running state.
+  Evidence: `src/agent_operator/application/queries/operation_projections.py`,
+  `src/agent_operator/cli/rendering/operation.py`.
+- `verified`: focused tests cover no-spin parking for stable dependency barriers, continuation
+  profile mismatch rejection, idle-session reuse profile mismatch rejection, and parked-state
+  read/render payloads. Evidence: `tests/test_drive_service_v2.py`,
+  `tests/test_attached_turn_service.py`, `tests/test_operation_projections.py`.
+- `planned`: material wake predicate handling remains intentionally coarse; the current
+  implementation records wake predicates but does not yet provide a typed predicate evaluator for
+  every predicate family named below.
 
 ## Context
 
