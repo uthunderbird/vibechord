@@ -361,9 +361,11 @@ Implemented slices:
   `kind=runtime_drained` instead of silently exiting as ordinary `running`.
 - `status --json` exposes an initial `runtime_overlay.sync_health` payload with canonical,
   checkpoint, projection, active-runtime, and sync-alert fields.
+- `status --json` reads the durable fact-store cursor and exposes `fact_sequence` in
+  `runtime_overlay.sync_health`.
 
 Still planned:
 
-- durable technical fact cursors;
-- fact/projection lag backed by durable technical fact cursors;
+- translated technical fact cursors;
+- fact/projection lag backed by translated technical fact cursors;
 - full fact-to-domain translation for all ACP terminal and permission outcomes.

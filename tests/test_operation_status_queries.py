@@ -82,6 +82,14 @@ class _EventStore:
         ]
 
 
+class _FactStore:
+    def __init__(self, last_sequence: int) -> None:
+        self._last_sequence = last_sequence
+
+    async def load_last_sequence(self, operation_id: str) -> int:
+        return self._last_sequence
+
+
 def test_build_runtime_alert_ignores_terminal_background_run_when_live_run_exists() -> None:
     """Catches the mutation where resume guidance appears during active progress."""
     alert = build_runtime_alert(
@@ -519,10 +527,46 @@ async def test_status_json_reports_sync_health_when_checkpoint_lags_canonical_ev
 
     sync_health = payload["runtime_overlay"]["sync_health"]
     assert sync_health["canonical_sequence"] == 3
+    assert sync_health["fact_sequence"] is None
+    assert sync_health["translated_fact_sequence"] is None
+    assert sync_health["untranslated_fact_count"] is None
     assert sync_health["checkpoint_sequence"] == 1
     assert sync_health["projection_sequence"] == 1
     assert sync_health["canonical_lag"] == 2
     assert sync_health["sync_alert"] == "checkpoint_lagging_canonical_events"
+
+
+@pytest.mark.anyio
+async def test_status_json_reports_persisted_fact_cursor_in_sync_health() -> None:
+    checkpoint = OperationCheckpoint.initial("op-status-v2-facts")
+    checkpoint.objective = ObjectiveState(objective="Report fact cursor.")
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint, last_applied_sequence=1),
+        fact_store=_FactStore(last_sequence=4),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    payload = json.loads(
+        await service.render_status_output(
+            "op-status-v2-facts",
+            json_mode=True,
+            brief=False,
+        )
+    )
+
+    sync_health = payload["runtime_overlay"]["sync_health"]
+    assert sync_health["fact_sequence"] == 4
+    assert sync_health["checkpoint_sequence"] == 1
 
 
 @pytest.mark.anyio

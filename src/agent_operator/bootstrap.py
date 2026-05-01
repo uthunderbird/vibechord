@@ -65,6 +65,7 @@ from agent_operator.providers import (
 from agent_operator.runtime import (
     BackgroundRunInspectionStore,
     FileControlIntentBus,
+    FileFactStore,
     FileOperationCheckpointStore,
     FileOperationCommandInbox,
     FileOperationEventStore,
@@ -120,6 +121,10 @@ class StorageProvider(_BootstrapProviderBase):
     @provide(scope=Scope.APP)
     def event_store(self) -> FileOperationEventStore:
         return FileOperationEventStore(self._settings.data_dir / "operation_events")
+
+    @provide(scope=Scope.APP)
+    def fact_store(self) -> FileFactStore:
+        return FileFactStore(self._settings.data_dir / "facts")
 
     @provide(scope=Scope.APP)
     def checkpoint_store(self) -> FileOperationCheckpointStore:
@@ -827,6 +832,10 @@ def build_store(settings: OperatorSettings) -> FileOperationStore:
 
 def build_event_store(settings: OperatorSettings) -> FileOperationEventStore:
     return FileOperationEventStore(settings.data_dir / "operation_events")
+
+
+def build_fact_store(settings: OperatorSettings) -> FileFactStore:
+    return FileFactStore(settings.data_dir / "facts")
 
 
 def build_event_sink(settings: OperatorSettings, operation_id: str) -> JsonlEventSink:

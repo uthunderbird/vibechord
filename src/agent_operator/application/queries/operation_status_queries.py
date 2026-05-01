@@ -46,6 +46,10 @@ class EventStoreLike(Protocol):
     ) -> list[StoredOperationDomainEvent]: ...
 
 
+class FactStoreLike(Protocol):
+    async def load_last_sequence(self, operation_id: str) -> int: ...
+
+
 @dataclass(slots=True)
 class OperationRuntimeOverlay:
     """Runtime inspection facts attached to a canonical operation read.
@@ -117,6 +121,7 @@ class OperationStatusQueryService:
     render_status_summary: Callable[..., str]
     replay_service: ReplayServiceLike | None = None
     event_store: EventStoreLike | None = None
+    fact_store: FactStoreLike | None = None
     state_view_service: OperationStateViewService = field(
         default_factory=OperationStateViewService
     )
@@ -218,6 +223,11 @@ class OperationStatusQueryService:
             if self.event_store is not None
             else []
         )
+        fact_sequence = (
+            await self.fact_store.load_last_sequence(operation_id)
+            if self.fact_store is not None
+            else None
+        )
         canonical_sequence = events[-1].sequence if events else None
         checkpoint_sequence = getattr(replay_state, "last_applied_sequence", None)
         if not isinstance(checkpoint_sequence, int):
@@ -247,6 +257,9 @@ class OperationStatusQueryService:
 
         return {
             "canonical_sequence": canonical_sequence,
+            "fact_sequence": fact_sequence,
+            "translated_fact_sequence": None,
+            "untranslated_fact_count": None,
             "checkpoint_sequence": checkpoint_sequence,
             "projection_sequence": projection_sequence,
             "canonical_lag": canonical_lag,
