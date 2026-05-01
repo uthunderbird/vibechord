@@ -31,6 +31,7 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `edit criteria` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `edit execution-profile` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `edit harness` | `stable` | none | success only | Uses the event-sourced command/control path. |
+| `edit involvement` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `edit objective` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `interrupt` | `stable` | none | success only | Session-targeted interruption remains the explicit non-ADR-0205 command-path exception. |
 | `involvement` | `stable` | none | success only | Shared command-application path handles accepted/rejected outcomes. |

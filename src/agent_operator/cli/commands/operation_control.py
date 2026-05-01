@@ -152,6 +152,14 @@ def involvement(operation_id: str, level: InvolvementLevel = INVOLVEMENT_LEVEL_O
     )
 
 
+@edit_app.command("involvement")
+def edit_involvement(
+    operation_id: str,
+    level: InvolvementLevel = INVOLVEMENT_LEVEL_OPTION,
+) -> None:
+    involvement(operation_id, level)
+
+
 @app.command("set-execution-profile")
 def set_execution_profile(
     operation_ref: str,

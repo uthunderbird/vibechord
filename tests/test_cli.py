@@ -5955,6 +5955,8 @@ def test_command_rejects_mixed_allowed_agents_and_max_iterations(
 
 
 def test_involvement_command_enqueues_level_change(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where involvement stops enqueuing a level-change command."""
+
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
@@ -5965,6 +5967,21 @@ def test_involvement_command_enqueues_level_change(tmp_path: Path, monkeypatch) 
     assert record.command is not None
     assert record.command.command_type is OperationCommandType.SET_INVOLVEMENT_LEVEL
     assert record.command.payload["level"] == "approval_heavy"
+
+
+def test_edit_involvement_command_enqueues_level_change(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped edit involvement stops delegating to involvement."""
+
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["edit", "involvement", operation_id, "--level", "unattended"])
+
+    assert result.exit_code == 0
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.SET_INVOLVEMENT_LEVEL
+    assert record.command.payload["level"] == "unattended"
 
 
 def test_project_list_inspect_and_resolve(tmp_path: Path, monkeypatch) -> None:

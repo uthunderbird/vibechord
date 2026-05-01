@@ -118,6 +118,9 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
         "Grouped execution-profile mutation surface.",
     ),
     CliCommandRecord("edit harness", "stable", "control", "Grouped harness patch surface."),
+    CliCommandRecord(
+        "edit involvement", "stable", "control", "Grouped autonomy-level mutation surface."
+    ),
     CliCommandRecord("edit objective", "stable", "control", "Grouped objective patch surface."),
     CliCommandRecord("fleet", "stable", "lifecycle", "Fleet-first supervision surface."),
     CliCommandRecord("fleet agenda", "stable", "read", "Grouped cross-operation agenda."),

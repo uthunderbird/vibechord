@@ -32,6 +32,7 @@ ADR 0219 splits stable root commands into two sets:
 - `edit criteria`
 - `edit execution-profile`
 - `edit harness`
+- `edit involvement`
 - `edit objective`
 - `interrupt`
 - `involvement`

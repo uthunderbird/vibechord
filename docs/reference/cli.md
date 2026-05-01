@@ -28,6 +28,7 @@ Primary workflow surfaces:
 - `status` — canonical shell-native one-operation summary
 - `ask` — single-shot natural-language question against one operation's read-only context
 - `answer` — answer a blocking attention request
+- `edit ...` — mutate operation context and execution controls
 - `message` — inject durable operator context
 - `pause` / `unpause` — control operation execution
 - `interrupt` — stop the current agent turn without cancelling the whole operation
@@ -53,7 +54,8 @@ Situational and forensic surfaces:
 - `log` — condensed transcript events
 - `list` — persisted operation inventory
 - `agenda` — cross-operation agenda view
-- `involvement` — update the autonomy level for a running operation
+- `involvement` — update the autonomy level for a running operation; `edit involvement` is the
+  grouped mutation-family path
 
 ## Entry surface
 

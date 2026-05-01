@@ -20,8 +20,9 @@ Implementation grounding on 2026-05-02:
   `src/agent_operator/cli/command_inventory.py`,
   `docs/reference/cli-command-inventory.md`.
 - `implemented`: the edit/mutation family has a grouped stable namespace:
-  `edit objective`, `edit harness`, `edit criteria`, and `edit execution-profile`. The previous
-  root mutation paths remain callable but are classified as transitional compatibility aliases.
+  `edit objective`, `edit harness`, `edit criteria`, `edit execution-profile`, and
+  `edit involvement`. The previous root mutation paths remain callable while the migration
+  proceeds; root patch paths are classified as transitional compatibility aliases.
   Evidence: `src/agent_operator/cli/commands/operation_control.py`,
   `src/agent_operator/cli/command_inventory.py`.
 - `implemented`: operation-detail read surfaces now have a grouped stable `show ...` namespace for
@@ -42,8 +43,8 @@ Implementation grounding on 2026-05-02:
   read payloads, and grouped fleet commands delegating to the existing inventory/history/agenda
   read paths. Evidence:
   `tests/test_cli_command_inventory.py`, `tests/test_cli.py`.
-- `planned`: natural-language and autonomy grouping remain open; no compatibility alias has been
-  removed.
+- `planned`: natural-language grouping and root-command migration for already-grouped families
+  remain open; no compatibility alias has been removed.
 
 ## Context
 
