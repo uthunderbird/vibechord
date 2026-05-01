@@ -22,13 +22,24 @@ Implementation grounding on 2026-05-02:
   separate lag source and exposes `persisted_read_model_projection_*` fields without making that
   projection authoritative over canonical replay. Evidence:
   `src/agent_operator/application/queries/operation_status_queries.py`.
+- `implemented`: `OperationReadModelProjectionWriter` rebuilds persisted status projections from
+  canonical operation events and is wired into event-sourced birth, command append, and technical
+  fact ingestion paths. Evidence:
+  `src/agent_operator/application/queries/operation_read_model_projector.py`,
+  `src/agent_operator/application/event_sourcing/event_sourced_birth.py`,
+  `src/agent_operator/application/event_sourcing/event_sourced_commands.py`, and
+  `src/agent_operator/application/event_sourcing/event_sourced_operation_loop.py`.
 - `verified`: focused tests cover cursor persistence, per-projection isolation, lag calculation,
   and invalid cursor rejection. Evidence: `tests/test_read_model_projection_store.py`.
 - `verified`: status JSON reports stale persisted read-model projection lag even when the replay
   checkpoint is current. Evidence: `tests/test_operation_status_queries.py`.
-- `planned`: production writers for persisted read-model projections are not implemented yet, and
-  dashboard/TUI/MCP/fleet caches still need store-specific freshness policies before they can read
-  persisted projections as cached delivery data.
+- `verified`: focused tests cover writer cursor/payload persistence and refreshes from
+  event-sourced birth, command append, and technical-fact append paths. Evidence:
+  `tests/test_operation_read_model_projector.py`, `tests/test_event_sourced_birth.py`,
+  `tests/test_event_sourced_command_application.py`, and
+  `tests/test_event_sourced_operation_loop.py`.
+- `planned`: dashboard/TUI/MCP/fleet caches still need store-specific freshness policies before
+  they can read persisted projections as cached delivery data.
 
 ## Context
 
@@ -87,5 +98,5 @@ Planned implementation should introduce:
 ## Current Status
 
 This ADR is proposed and partially implemented. The standalone projection store foundation exists,
-and status sync-health can report its cursor lag, but production projection writers and cached
-read-surface freshness policies remain planned.
+status sync-health can report its cursor lag, and event-sourced write paths refresh the persisted
+status projection, but cached read-surface freshness policies remain planned.

@@ -6,11 +6,13 @@ from agent_operator.application.queries.aggregate_query_adapter import (
     aggregate_to_state,
 )
 from agent_operator.application.queries.operation_read_model_projector import (
+    OperationReadModelProjectionWriter,
     OperationReadModelProjector,
 )
 
 __all__ = [
     "AggregateQueryAdapter",
     "aggregate_to_state",
+    "OperationReadModelProjectionWriter",
     "OperationReadModelProjector",
 ]

@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
 
 from agent_operator.application.queries.operation_read_model_projector import (
+    OperationReadModelProjectionWriter,
     OperationReadModelProjector,
 )
-from agent_operator.domain import StoredOperationDomainEvent
+from agent_operator.domain import OperationDomainEventDraft, StoredOperationDomainEvent
 from agent_operator.domain.enums import OperationStatus
+from agent_operator.runtime import FileOperationEventStore, FileReadModelProjectionStore
 
 
 def _event(
@@ -136,3 +141,50 @@ def test_project_unknown_event_is_noop():
     model = projector.project("op-test", [event])
     assert model.decision_records == []
     assert model.iteration_briefs == []
+
+
+@pytest.mark.anyio
+async def test_read_model_projection_writer_persists_event_cursor_and_payload(
+    tmp_path: Path,
+) -> None:
+    """Catches refreshing cached projections without advancing the event cursor."""
+    operation_id = "op-projection-writer"
+    event_store = FileOperationEventStore(tmp_path / "events")
+    projection_store = FileReadModelProjectionStore(tmp_path / "read_models")
+    await event_store.append(
+        operation_id,
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={"objective": "Persist projection cursor"},
+            ),
+            OperationDomainEventDraft(
+                event_type="agent.turn.completed",
+                payload={
+                    "session_id": "sess-1",
+                    "adapter_key": "codex_acp",
+                    "status": "completed",
+                    "output_text": "Projection refreshed.",
+                },
+            ),
+        ],
+    )
+    writer = OperationReadModelProjectionWriter(
+        event_store=event_store,
+        projection_store=projection_store,
+        projector=OperationReadModelProjector(),
+    )
+
+    projection = await writer.refresh(operation_id)
+    loaded = await projection_store.load(operation_id, "status")
+
+    assert projection.source_event_sequence == 2
+    assert loaded is not None
+    assert loaded.source_event_sequence == 2
+    assert loaded.projection_payload["operation_brief"]["objective_brief"] == (
+        "Persist projection cursor"
+    )
+    assert loaded.projection_payload["agent_turn_briefs"][0]["result_brief"] == (
+        "Projection refreshed."
+    )

@@ -44,6 +44,10 @@ from agent_operator.application.event_sourcing.event_sourced_replay import Event
 from agent_operator.application.loaded_operation import LoadedOperation
 from agent_operator.application.operation_turn_execution import OperationTurnExecutionService
 from agent_operator.application.process_managers import CodeProcessManagerBuilder
+from agent_operator.application.queries import (
+    OperationReadModelProjectionWriter,
+    OperationReadModelProjector,
+)
 from agent_operator.application.runtime.operation_event_relay import OperationEventRelay
 from agent_operator.application.runtime.operation_policy_context import (
     OperationPolicyContextCoordinator,
@@ -73,6 +77,7 @@ from agent_operator.runtime import (
     FileOperationStore,
     FilePolicyStore,
     FileProjectMemoryStore,
+    FileReadModelProjectionStore,
     FileTraceStore,
     FileWakeupInbox,
     InProcessAgentRunSupervisor,
@@ -125,6 +130,10 @@ class StorageProvider(_BootstrapProviderBase):
     @provide(scope=Scope.APP)
     def fact_store(self) -> FileFactStore:
         return FileFactStore(self._settings.data_dir / "facts")
+
+    @provide(scope=Scope.APP)
+    def read_model_projection_store(self) -> FileReadModelProjectionStore:
+        return FileReadModelProjectionStore(self._settings.data_dir / "read_models")
 
     @provide(scope=Scope.APP)
     def checkpoint_store(self) -> FileOperationCheckpointStore:
@@ -189,16 +198,30 @@ class EventSourcingProvider(_BootstrapProviderBase):
         return DefaultOperationProjector()
 
     @provide(scope=Scope.APP)
+    def read_model_projection_writer(
+        self,
+        event_store: FileOperationEventStore,
+        read_model_projection_store: FileReadModelProjectionStore,
+    ) -> OperationReadModelProjectionWriter:
+        return OperationReadModelProjectionWriter(
+            event_store=event_store,
+            projection_store=read_model_projection_store,
+            projector=OperationReadModelProjector(),
+        )
+
+    @provide(scope=Scope.APP)
     def birth_service(
         self,
         event_store: FileOperationEventStore,
         checkpoint_store: FileOperationCheckpointStore,
         projector: DefaultOperationProjector,
+        read_model_projection_writer: OperationReadModelProjectionWriter,
     ) -> EventSourcedOperationBirthService:
         return EventSourcedOperationBirthService(
             event_store=event_store,
             checkpoint_store=checkpoint_store,
             projector=projector,
+            read_model_projection_writer=read_model_projection_writer,
         )
 
     @provide(scope=Scope.APP)
@@ -207,11 +230,13 @@ class EventSourcingProvider(_BootstrapProviderBase):
         event_store: FileOperationEventStore,
         checkpoint_store: FileOperationCheckpointStore,
         projector: DefaultOperationProjector,
+        read_model_projection_writer: OperationReadModelProjectionWriter,
     ) -> EventSourcedCommandApplicationService:
         return EventSourcedCommandApplicationService(
             event_store=event_store,
             checkpoint_store=checkpoint_store,
             projector=projector,
+            read_model_projection_writer=read_model_projection_writer,
         )
 
     @provide(scope=Scope.APP)

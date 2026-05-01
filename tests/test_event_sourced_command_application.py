@@ -8,6 +8,10 @@ import pytest
 from agent_operator.application.event_sourcing.event_sourced_commands import (
     EventSourcedCommandApplicationService,
 )
+from agent_operator.application.queries import (
+    OperationReadModelProjectionWriter,
+    OperationReadModelProjector,
+)
 from agent_operator.domain import (
     AttentionStatus,
     AttentionType,
@@ -20,7 +24,11 @@ from agent_operator.domain import (
     OperationStatus,
 )
 from agent_operator.projectors import DefaultOperationProjector
-from agent_operator.runtime import FileOperationCheckpointStore, FileOperationEventStore
+from agent_operator.runtime import (
+    FileOperationCheckpointStore,
+    FileOperationEventStore,
+    FileReadModelProjectionStore,
+)
 
 
 async def _seed_created_operation(
@@ -140,6 +148,51 @@ async def test_event_sourced_command_application_appends_acceptance_and_updates_
     persisted = await checkpoint_store.load_latest(operation_id)
     assert persisted is not None
     assert persisted.last_applied_sequence == 3
+
+
+@pytest.mark.anyio
+async def test_event_sourced_command_application_refreshes_read_model_projection(
+    tmp_path: Path,
+) -> None:
+    """Catches canonical command appends leaving persisted read models stale."""
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    projection_store = FileReadModelProjectionStore(tmp_path / "read_models")
+    projector = DefaultOperationProjector()
+    service = EventSourcedCommandApplicationService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+        read_model_projection_writer=OperationReadModelProjectionWriter(
+            event_store=event_store,
+            projection_store=projection_store,
+            projector=OperationReadModelProjector(),
+        ),
+    )
+    operation_id = "op-read-model-command"
+    await _seed_created_operation(service, operation_id)
+
+    result = await service.append_domain_events(
+        operation_id,
+        [
+            OperationDomainEventDraft(
+                event_type="agent.turn.completed",
+                payload={
+                    "session_id": "sess-1",
+                    "adapter_key": "codex_acp",
+                    "status": "completed",
+                    "output_text": "Command path refreshed read model.",
+                },
+            )
+        ],
+    )
+
+    projection = await projection_store.load(operation_id, "status")
+    assert projection is not None
+    assert projection.source_event_sequence == result.stored_events[-1].sequence
+    assert projection.projection_payload["agent_turn_briefs"][0]["result_brief"] == (
+        "Command path refreshed read model."
+    )
 
 
 @pytest.mark.anyio

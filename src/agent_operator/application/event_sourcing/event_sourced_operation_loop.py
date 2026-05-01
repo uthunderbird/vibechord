@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
 from agent_operator.application.process_signals import ProcessManagerSignal
@@ -22,6 +23,10 @@ from agent_operator.protocols import (
     PlanningTriggerBus,
     ProcessManager,
 )
+
+
+class ReadModelProjectionWriterLike(Protocol):
+    async def refresh(self, operation_id: str) -> object: ...
 
 
 @dataclass(slots=True)
@@ -68,6 +73,7 @@ class EventSourcedOperationLoopService:
         translator: FactTranslator,
         planning_trigger_bus: PlanningTriggerBus | None = None,
         process_managers: list[ProcessManager] | None = None,
+        read_model_projection_writer: ReadModelProjectionWriterLike | None = None,
     ) -> None:
         self._event_store = event_store
         self._replay = EventSourcedReplayService(
@@ -79,6 +85,7 @@ class EventSourcedOperationLoopService:
         self._translator = translator
         self._planning_trigger_bus = planning_trigger_bus
         self._process_managers = process_managers or []
+        self._read_model_projection_writer = read_model_projection_writer
         self._state_views = OperationStateViewService()
 
     async def ingest_technical_facts(
@@ -123,6 +130,7 @@ class EventSourcedOperationLoopService:
         )
         updated_replay_state = self._replay.advance(replay_state, stored_events)
         await self._replay.materialize(updated_replay_state)
+        await self._refresh_read_model_projection(operation_id, stored_events)
         translated_sequence = await self._translated_sequence_from_events(
             operation_id=operation_id,
             stored_facts=stored_facts,
@@ -143,6 +151,15 @@ class EventSourcedOperationLoopService:
             stored_events=stored_events,
             planning_triggers=planning_triggers,
         )
+
+    async def _refresh_read_model_projection(
+        self,
+        operation_id: str,
+        stored_events: list[StoredOperationDomainEvent],
+    ) -> None:
+        if self._read_model_projection_writer is None or not stored_events:
+            return
+        await self._read_model_projection_writer.refresh(operation_id)
 
     async def _dispatch_process_managers(
         self,

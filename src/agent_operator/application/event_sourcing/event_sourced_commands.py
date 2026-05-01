@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Protocol
 
 from agent_operator.application.event_sourcing.event_sourced_replay import EventSourcedReplayService
 from agent_operator.domain import (
@@ -24,6 +25,10 @@ from agent_operator.protocols import (
     OperationEventStore,
     OperationProjector,
 )
+
+
+class ReadModelProjectionWriterLike(Protocol):
+    async def refresh(self, operation_id: str) -> object: ...
 
 
 @dataclass(slots=True)
@@ -63,8 +68,10 @@ class EventSourcedCommandApplicationService:
         event_store: OperationEventStore,
         checkpoint_store: OperationCheckpointStore,
         projector: OperationProjector,
+        read_model_projection_writer: ReadModelProjectionWriterLike | None = None,
     ) -> None:
         self._event_store = event_store
+        self._read_model_projection_writer = read_model_projection_writer
         self._replay = EventSourcedReplayService(
             event_store=event_store,
             checkpoint_store=checkpoint_store,
@@ -99,6 +106,7 @@ class EventSourcedCommandApplicationService:
         )
         updated_replay_state = self._replay.advance(replay_state, stored_events)
         await self._replay.materialize(updated_replay_state)
+        await self._refresh_read_model_projection(command.operation_id, stored_events)
         return EventSourcedCommandApplicationResult(
             applied=rejection_reason is None,
             checkpoint=updated_replay_state.checkpoint,
@@ -120,6 +128,7 @@ class EventSourcedCommandApplicationService:
         )
         updated_replay_state = self._replay.advance(replay_state, stored_events)
         await self._replay.materialize(updated_replay_state)
+        await self._refresh_read_model_projection(operation_id, stored_events)
         return EventSourcedCommandApplicationResult(
             applied=True,
             checkpoint=updated_replay_state.checkpoint,
@@ -171,7 +180,17 @@ class EventSourcedCommandApplicationService:
         )
         updated_replay_state = self._replay.advance(replay_state, stored_events)
         await self._replay.materialize(updated_replay_state)
+        await self._refresh_read_model_projection(state.operation_id, stored_events)
         return updated_replay_state.checkpoint
+
+    async def _refresh_read_model_projection(
+        self,
+        operation_id: str,
+        stored_events: list[StoredOperationDomainEvent],
+    ) -> None:
+        if self._read_model_projection_writer is None or not stored_events:
+            return
+        await self._read_model_projection_writer.refresh(operation_id)
 
     def _build_domain_event_drafts(
         self,

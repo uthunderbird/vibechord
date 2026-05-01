@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from agent_operator.domain import (
     OperationCheckpoint,
@@ -13,6 +14,10 @@ from agent_operator.protocols import (
     OperationEventStore,
     OperationProjector,
 )
+
+
+class ReadModelProjectionWriterLike(Protocol):
+    async def refresh(self, operation_id: str) -> object: ...
 
 
 @dataclass(slots=True)
@@ -52,10 +57,12 @@ class EventSourcedOperationBirthService:
         event_store: OperationEventStore,
         checkpoint_store: OperationCheckpointStore,
         projector: OperationProjector,
+        read_model_projection_writer: ReadModelProjectionWriterLike | None = None,
     ) -> None:
         self._event_store = event_store
         self._checkpoint_store = checkpoint_store
         self._projector = projector
+        self._read_model_projection_writer = read_model_projection_writer
 
     async def birth(
         self,
@@ -111,8 +118,14 @@ class EventSourcedOperationBirthService:
             checkpoint_format_version=self._CHECKPOINT_FORMAT_VERSION,
         )
         await self._checkpoint_store.save(checkpoint_record)
+        await self._refresh_read_model_projection(state.operation_id)
         return EventSourcedOperationBirthResult(
             checkpoint=checkpoint,
             checkpoint_record=checkpoint_record,
             stored_events=stored_events,
         )
+
+    async def _refresh_read_model_projection(self, operation_id: str) -> None:
+        if self._read_model_projection_writer is None:
+            return
+        await self._read_model_projection_writer.refresh(operation_id)

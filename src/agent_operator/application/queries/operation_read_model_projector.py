@@ -4,12 +4,27 @@ v2-native query entry point: no OperationState dependency.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Protocol
 
-from agent_operator.domain import StoredOperationDomainEvent
+from agent_operator.domain import PersistedReadModelProjection, StoredOperationDomainEvent
 from agent_operator.domain.enums import OperationStatus, SchedulerState
 from agent_operator.domain.read_model import DecisionRecord, OperationReadModel
 from agent_operator.domain.traceability import AgentTurnBrief, IterationBrief, OperationBrief
+
+
+class OperationEventReaderLike(Protocol):
+    async def load_after(
+        self,
+        operation_id: str,
+        *,
+        after_sequence: int = 0,
+    ) -> list[StoredOperationDomainEvent]: ...
+
+
+class ReadModelProjectionStoreLike(Protocol):
+    async def save(self, projection: PersistedReadModelProjection) -> None: ...
 
 
 class OperationReadModelProjector:
@@ -130,3 +145,50 @@ class OperationReadModelProjector:
 
         # All other event types are noop for now
         return model
+
+
+@dataclass(slots=True)
+class OperationReadModelProjectionWriter:
+    """Persist rebuildable read-model projections with explicit event cursors."""
+
+    event_store: OperationEventReaderLike
+    projection_store: ReadModelProjectionStoreLike
+    projector: OperationReadModelProjector
+    projection_type: str = "status"
+
+    async def refresh(self, operation_id: str) -> PersistedReadModelProjection:
+        events = await self.event_store.load_after(operation_id, after_sequence=0)
+        read_model = self.projector.project(operation_id, events)
+        projection = PersistedReadModelProjection(
+            operation_id=operation_id,
+            projection_type=self.projection_type,
+            source_event_sequence=events[-1].sequence if events else 0,
+            projection_payload=self._payload(read_model),
+        )
+        await self.projection_store.save(projection)
+        return projection
+
+    def _payload(self, read_model: OperationReadModel) -> dict[str, object]:
+        return {
+            "operation_id": read_model.operation_id,
+            "operation_brief": (
+                read_model.operation_brief.model_dump(mode="json")
+                if read_model.operation_brief is not None
+                else None
+            ),
+            "iteration_briefs": [
+                item.model_dump(mode="json") for item in read_model.iteration_briefs
+            ],
+            "decision_records": [
+                {
+                    "action_type": item.action_type,
+                    "more_actions": item.more_actions,
+                    "wake_cycle_id": item.wake_cycle_id,
+                    "timestamp": item.timestamp.isoformat(),
+                }
+                for item in read_model.decision_records
+            ],
+            "agent_turn_briefs": [
+                item.model_dump(mode="json") for item in read_model.agent_turn_briefs
+            ],
+        }

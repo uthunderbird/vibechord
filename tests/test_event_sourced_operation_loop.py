@@ -10,6 +10,10 @@ from agent_operator.application.event_sourcing.event_sourced_operation_loop impo
 )
 from agent_operator.application.process_managers import CodeProcessManagerBuilder
 from agent_operator.application.process_signals import ProcessManagerSignal
+from agent_operator.application.queries import (
+    OperationReadModelProjectionWriter,
+    OperationReadModelProjector,
+)
 from agent_operator.domain import (
     OperationCommandType,
     OperationDomainEventDraft,
@@ -26,6 +30,7 @@ from agent_operator.runtime import (
     FileFactStore,
     FileOperationCheckpointStore,
     FileOperationEventStore,
+    FileReadModelProjectionStore,
 )
 
 
@@ -182,6 +187,56 @@ async def test_event_sourced_operation_loop_leaves_untranslated_fact_cursor_lagg
     assert result.stored_events == []
     assert await fact_store.load_last_sequence(operation_id) == 1
     assert await fact_store.load_translated_sequence(operation_id) == 0
+
+
+@pytest.mark.anyio
+async def test_event_sourced_operation_loop_refreshes_read_model_projection(
+    tmp_path,
+) -> None:
+    """Catches technical-fact appends leaving persisted read models stale."""
+    operation_id = "op-loop-projection"
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    fact_store = FileFactStore(tmp_path / "facts")
+    projection_store = FileReadModelProjectionStore(tmp_path / "read_models")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    state = OperationState(
+        operation_id=operation_id,
+        goal=OperationGoal(objective="Initial objective"),
+        policy=OperationPolicy(),
+    )
+    await birth.birth(state)
+    service = EventSourcedOperationLoopService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+        fact_store=fact_store,
+        translator=StubFactTranslator(),
+        read_model_projection_writer=OperationReadModelProjectionWriter(
+            event_store=event_store,
+            projection_store=projection_store,
+            projector=OperationReadModelProjector(),
+        ),
+    )
+
+    result = await service.ingest_technical_facts(
+        operation_id=operation_id,
+        technical_facts=[
+            TechnicalFactDraft(
+                fact_type="objective.refresh_requested",
+                payload={"objective": "Updated objective"},
+            )
+        ],
+    )
+
+    projection = await projection_store.load(operation_id, "status")
+    assert projection is not None
+    assert projection.source_event_sequence == result.stored_events[-1].sequence
 
 
 @pytest.mark.anyio
