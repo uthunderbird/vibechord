@@ -370,8 +370,10 @@ Implemented slices:
   facts remain visible as untranslated sync lag.
 - `status --json` reads the translated-fact cursor and reports `translated_fact_sequence`,
   `untranslated_fact_count`, and `technical_facts_pending_translation` sync alerts.
+- `status --json` reports explicit `checkpoint_lag` and `projection_lag`; current status
+  projections are checkpoint-backed, so their sequence basis is the replay checkpoint sequence.
 
 Still planned:
 
-- projection lag backed by translated technical fact cursors;
+- persisted projection lag for future standalone read-model stores;
 - full fact-to-domain translation for all ACP terminal and permission outcomes.

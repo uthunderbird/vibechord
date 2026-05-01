@@ -537,6 +537,8 @@ async def test_status_json_reports_sync_health_when_checkpoint_lags_canonical_ev
     assert sync_health["checkpoint_sequence"] == 1
     assert sync_health["projection_sequence"] == 1
     assert sync_health["canonical_lag"] == 2
+    assert sync_health["checkpoint_lag"] == 2
+    assert sync_health["projection_lag"] == 2
     assert sync_health["sync_alert"] == "checkpoint_lagging_canonical_events"
 
 

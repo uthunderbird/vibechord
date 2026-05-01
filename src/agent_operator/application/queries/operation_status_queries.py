@@ -246,9 +246,14 @@ class OperationStatusQueryService:
         if not isinstance(checkpoint_sequence, int):
             checkpoint_sequence = None
         projection_sequence = checkpoint_sequence
-        canonical_lag = (
+        checkpoint_lag = (
             max(canonical_sequence - checkpoint_sequence, 0)
             if isinstance(canonical_sequence, int) and isinstance(checkpoint_sequence, int)
+            else None
+        )
+        projection_lag = (
+            max(canonical_sequence - projection_sequence, 0)
+            if isinstance(canonical_sequence, int) and isinstance(projection_sequence, int)
             else None
         )
         active_session = operation.active_session_record
@@ -263,7 +268,7 @@ class OperationStatusQueryService:
             last_runtime_observation = active_session.status.value
             last_runtime_observed_at = active_session.updated_at.isoformat()
         sync_alert = None
-        if canonical_lag is not None and canonical_lag > 0:
+        if checkpoint_lag is not None and checkpoint_lag > 0:
             sync_alert = "checkpoint_lagging_canonical_events"
         elif untranslated_fact_count is not None and untranslated_fact_count > 0:
             sync_alert = "technical_facts_pending_translation"
@@ -277,7 +282,9 @@ class OperationStatusQueryService:
             "untranslated_fact_count": untranslated_fact_count,
             "checkpoint_sequence": checkpoint_sequence,
             "projection_sequence": projection_sequence,
-            "canonical_lag": canonical_lag,
+            "canonical_lag": checkpoint_lag,
+            "checkpoint_lag": checkpoint_lag,
+            "projection_lag": projection_lag,
             "active_runtime_present": active_runtime_present,
             "last_runtime_observation": last_runtime_observation,
             "last_runtime_observed_at": last_runtime_observed_at,
