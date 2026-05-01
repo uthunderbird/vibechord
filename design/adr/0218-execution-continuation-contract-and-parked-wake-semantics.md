@@ -28,13 +28,17 @@ Implementation grounding on 2026-05-02:
   user-facing surfaces can distinguish non-human parked waits from ordinary running state.
   Evidence: `src/agent_operator/application/queries/operation_projections.py`,
   `src/agent_operator/cli/rendering/operation.py`.
+- `implemented`: parked execution wake predicates are evaluated deterministically during aggregate
+  replay, clearing parked state only when a matching material event appears in the canonical event
+  stream. Evidence: `src/agent_operator/domain/aggregate.py`.
 - `verified`: focused tests cover no-spin parking for stable dependency barriers, continuation
   profile mismatch rejection, idle-session reuse profile mismatch rejection, and parked-state
-  read/render payloads. Evidence: `tests/test_drive_service_v2.py`,
-  `tests/test_attached_turn_service.py`, `tests/test_operation_projections.py`.
-- `planned`: material wake predicate handling remains intentionally coarse; the current
-  implementation records wake predicates but does not yet provide a typed predicate evaluator for
-  every predicate family named below.
+  read/render payloads. Focused tests also cover matching wake predicate clearing, unrelated event
+  non-clearing, and self-update non-clearing. Evidence: `tests/test_drive_service_v2.py`,
+  `tests/test_attached_turn_service.py`, `tests/test_operation_projections.py`,
+  `tests/test_operation_aggregate.py`.
+- `planned`: the decision remains `Proposed`; final acceptance still requires a separate review of
+  whether the implemented predicate families and surface wording are the intended public contract.
 
 ## Context
 

@@ -234,6 +234,113 @@ def test_scheduler_state_changes_via_event() -> None:
     assert result.scheduler_state == SchedulerState.PAUSED
 
 
+def test_parked_execution_clears_when_matching_wake_predicate_fires() -> None:
+    """Catches the mutation where wake predicates are recorded but never evaluated."""
+    agg = OperationAggregate.create(_goal()).apply_events(
+        [
+            _event(
+                "operation.parked.updated",
+                {
+                    "parked_execution": {
+                        "kind": "dependency_barrier",
+                        "fingerprint": "dependency_barrier:task-1:codex_acp:runtime",
+                        "reason": "Runtime health must change.",
+                        "wake_predicates": ["runtime_health_changed"],
+                    }
+                },
+            )
+        ]
+    )
+
+    result = agg.apply_events(
+        [
+            _event(
+                "execution.observed_state.changed",
+                {"execution_id": "run-1", "observed_state": "completed"},
+            )
+        ]
+    )
+
+    assert result.parked_execution is None
+
+
+def test_parked_execution_ignores_unrelated_events() -> None:
+    """Catches the mutation where any event wakes a parked operation."""
+    agg = OperationAggregate.create(_goal()).apply_events(
+        [
+            _event(
+                "operation.parked.updated",
+                {
+                    "parked_execution": {
+                        "kind": "dependency_barrier",
+                        "fingerprint": "dependency_barrier:task-1:codex_acp:human",
+                        "reason": "A human answer is required.",
+                        "wake_predicates": ["human_answered"],
+                    }
+                },
+            )
+        ]
+    )
+
+    result = agg.apply_events(
+        [_event("operator_message.received", {"message_id": "msg-1", "text": "FYI"})]
+    )
+
+    assert result.parked_execution is not None
+
+
+def test_parked_execution_update_is_not_self_cleared() -> None:
+    """Catches the mutation where recording parked state clears itself immediately."""
+    agg = OperationAggregate.create(_goal())
+
+    result = agg.apply_events(
+        [
+            _event(
+                "operation.parked.updated",
+                {
+                    "parked_execution": {
+                        "kind": "runtime_drained",
+                        "fingerprint": "runtime_drained:op-test",
+                        "reason": "Runtime drained.",
+                        "wake_predicates": ["operator_resumed"],
+                    }
+                },
+            )
+        ]
+    )
+
+    assert result.parked_execution is not None
+    assert result.parked_execution.kind == "runtime_drained"
+
+
+def test_parked_execution_clears_when_operator_resumes() -> None:
+    """Catches the mutation where operator_resumed ignores scheduler state changes."""
+    agg = OperationAggregate.create(_goal()).apply_events(
+        [
+            _event(
+                "operation.parked.updated",
+                {
+                    "parked_execution": {
+                        "kind": "runtime_drained",
+                        "fingerprint": "runtime_drained:op-test",
+                        "reason": "Runtime drained.",
+                        "wake_predicates": ["operator_resumed"],
+                    }
+                },
+            ),
+            _event("scheduler.state.changed", {"scheduler_state": "paused"}),
+        ]
+    )
+
+    assert agg.parked_execution is not None
+
+    result = agg.apply_events(
+        [_event("scheduler.state.changed", {"scheduler_state": "active"})]
+    )
+
+    assert result.parked_execution is None
+
+
 # ── operator message slice ────────────────────────────────────────────────────
 
 

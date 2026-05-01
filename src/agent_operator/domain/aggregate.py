@@ -139,7 +139,66 @@ class OperationAggregate:
         agg = self
         for event in events:
             agg = agg._apply_one(event)
+            agg = agg._clear_parked_execution_if_woken(event)
         return agg
+
+    def _clear_parked_execution_if_woken(self, event: Any) -> OperationAggregate:
+        if self.parked_execution is None:
+            return self
+        event_type: str = getattr(event, "event_type", "")
+        if event_type == "operation.parked.updated":
+            return self
+        predicates = set(self.parked_execution.wake_predicates)
+        if not predicates:
+            return self
+        if not self._event_matches_wake_predicate(event, predicates):
+            return self
+        return dataclasses.replace(
+            self,
+            parked_execution=None,
+            updated_at=datetime.now(UTC),
+        )
+
+    def _event_matches_wake_predicate(self, event: Any, predicates: set[str]) -> bool:
+        event_type: str = getattr(event, "event_type", "")
+        payload: dict[str, Any] = getattr(event, "payload", {})
+        if "human_answered" in predicates and event_type == "attention.request.answered":
+            return True
+        if "policy_changed" in predicates and event_type in {
+            "operation.involvement_level.updated",
+            "policy.active_set.updated",
+            "policy.coverage.updated",
+        }:
+            return True
+        if (
+            "allowed_agents_changed" in predicates
+            and event_type == "operation.allowed_agents.updated"
+        ):
+            return True
+        if "session_contract_changed" in predicates and event_type in {
+            "operation.execution_profile.updated",
+            "session.execution_profile.applied",
+        }:
+            return True
+        if "operator_resumed" in predicates and event_type == "scheduler.state.changed":
+            return payload.get("scheduler_state") == SchedulerState.ACTIVE.value
+        if "runtime_health_changed" in predicates and event_type in {
+            "execution.observed_state.changed",
+            "session.status.changed",
+            "session.waiting_reason.updated",
+        }:
+            return True
+        if "runtime_reentered" in predicates and event_type in {
+            "session.created",
+            "session.status.changed",
+            "execution.registered",
+        }:
+            return True
+        return "external_dependency_resolved" in predicates and event_type in {
+            "execution.observed_state.changed",
+            "attention.request.answered",
+            "operator_message.received",
+        }
 
     def _apply_one(self, event: Any) -> OperationAggregate:
         event_type: str = getattr(event, "event_type", "")
