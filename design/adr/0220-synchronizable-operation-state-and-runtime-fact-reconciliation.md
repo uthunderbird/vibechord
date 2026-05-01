@@ -365,6 +365,9 @@ Implemented slices:
   `runtime_overlay.sync_health`.
 - technical fact ingestion now advances a durable translated-fact cursor only after successful
   fact translation, canonical event append, and checkpoint materialization.
+- translated-fact cursor advancement is causation-based: a technical fact is counted as translated
+  only when a persisted canonical event references that fact as its `causation_id`; unsupported
+  facts remain visible as untranslated sync lag.
 - `status --json` reads the translated-fact cursor and reports `translated_fact_sequence`,
   `untranslated_fact_count`, and `technical_facts_pending_translation` sync alerts.
 

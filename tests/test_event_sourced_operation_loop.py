@@ -140,6 +140,51 @@ async def test_event_sourced_operation_loop_persists_facts_translates_and_materi
 
 
 @pytest.mark.anyio
+async def test_event_sourced_operation_loop_leaves_untranslated_fact_cursor_lagging(
+    tmp_path,
+) -> None:
+    """Unsupported technical facts remain visible as untranslated sync lag."""
+    operation_id = "op-untranslated"
+    event_store = FileOperationEventStore(tmp_path / "events")
+    checkpoint_store = FileOperationCheckpointStore(tmp_path / "checkpoints")
+    fact_store = FileFactStore(tmp_path / "facts")
+    projector = DefaultOperationProjector()
+    birth = EventSourcedOperationBirthService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+    )
+    state = OperationState(
+        operation_id=operation_id,
+        goal=OperationGoal(objective="Initial objective"),
+        policy=OperationPolicy(),
+    )
+    await birth.birth(state)
+    service = EventSourcedOperationLoopService(
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        projector=projector,
+        fact_store=fact_store,
+        translator=StubFactTranslator(),
+    )
+
+    result = await service.ingest_technical_facts(
+        operation_id=operation_id,
+        technical_facts=[
+            TechnicalFactDraft(
+                fact_type="unsupported.runtime_fact",
+                payload={"value": "ignored by translator"},
+            )
+        ],
+    )
+
+    assert [fact.fact_type for fact in result.stored_facts] == ["unsupported.runtime_fact"]
+    assert result.stored_events == []
+    assert await fact_store.load_last_sequence(operation_id) == 1
+    assert await fact_store.load_translated_sequence(operation_id) == 0
+
+
+@pytest.mark.anyio
 async def test_event_sourced_operation_loop_emits_planning_trigger_from_process_managers(
     tmp_path,
 ) -> None:

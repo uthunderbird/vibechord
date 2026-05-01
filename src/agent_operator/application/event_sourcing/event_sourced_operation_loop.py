@@ -10,6 +10,7 @@ from agent_operator.domain import (
     OperationState,
     PlanningTrigger,
     StoredFact,
+    StoredOperationDomainEvent,
     TechnicalFactDraft,
 )
 from agent_operator.protocols import (
@@ -122,10 +123,15 @@ class EventSourcedOperationLoopService:
         )
         updated_replay_state = self._replay.advance(replay_state, stored_events)
         await self._replay.materialize(updated_replay_state)
-        if stored_facts:
+        translated_sequence = await self._translated_sequence_from_events(
+            operation_id=operation_id,
+            stored_facts=stored_facts,
+            stored_events=stored_events,
+        )
+        if translated_sequence is not None:
             await self._fact_store.mark_translated_through(
                 operation_id,
-                max(fact.sequence for fact in stored_facts),
+                translated_sequence,
             )
         planning_triggers = await self._dispatch_process_managers(
             signal=process_signal,
@@ -156,3 +162,27 @@ class EventSourcedOperationLoopService:
 
     def _checkpoint_to_operation_state(self, checkpoint: object) -> OperationState:
         return self._state_views.from_checkpoint(checkpoint)
+
+    async def _translated_sequence_from_events(
+        self,
+        *,
+        operation_id: str,
+        stored_facts: list[StoredFact],
+        stored_events: list[StoredOperationDomainEvent],
+    ) -> int | None:
+        if not stored_facts or not stored_events:
+            return None
+        current_sequence = await self._fact_store.load_translated_sequence(operation_id)
+        causation_fact_ids = {
+            event.causation_id
+            for event in stored_events
+            if isinstance(event.causation_id, str) and event.causation_id
+        }
+        translated_sequence: int | None = None
+        for fact in sorted(stored_facts, key=lambda item: item.sequence):
+            if fact.sequence <= current_sequence:
+                continue
+            if fact.fact_id not in causation_fact_ids:
+                break
+            translated_sequence = fact.sequence
+        return translated_sequence
