@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -102,6 +103,48 @@ class FileFactStore:
             return 0
         return facts[-1].sequence
 
+    async def load_translated_sequence(self, operation_id: str) -> int:
+        """Return the highest fact sequence durably translated into canonical events."""
+
+        path = self._translation_cursor_path(operation_id)
+        if not path.exists():
+            return 0
+        payload = read_text_with_retry(path)
+        if not payload.strip():
+            return 0
+        data = json.loads(payload)
+        sequence = data.get("translated_sequence", 0)
+        if not isinstance(sequence, int) or sequence < 0:
+            raise ValueError(
+                f"Invalid translated fact sequence for operation {operation_id!r}."
+            )
+        return sequence
+
+    async def mark_translated_through(self, operation_id: str, sequence: int) -> None:
+        """Advance the translated fact cursor after successful canonical materialization."""
+
+        if sequence < 0:
+            raise ValueError("translated fact sequence must be non-negative.")
+        with self._lock_helper._operation_lock(operation_id):
+            last_sequence = await self.load_last_sequence(operation_id)
+            if sequence > last_sequence:
+                raise ValueError(
+                    f"Translated fact sequence {sequence} exceeds persisted sequence "
+                    f"{last_sequence} for operation {operation_id!r}."
+                )
+            current_sequence = await self.load_translated_sequence(operation_id)
+            if sequence <= current_sequence:
+                return
+            payload = json.dumps(
+                {
+                    "operation_id": operation_id,
+                    "translated_sequence": sequence,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                },
+                sort_keys=True,
+            )
+            atomic_write_text(self._translation_cursor_path(operation_id), f"{payload}\n")
+
     def _append(
         self,
         *,
@@ -184,6 +227,11 @@ class FileFactStore:
 
     def _fact_path(self, operation_id: str) -> Path:
         return self._root / f"{operation_id}.jsonl"
+
+    def _translation_cursor_path(self, operation_id: str) -> Path:
+        cursor_root = self._root / ".translation_cursors"
+        cursor_root.mkdir(parents=True, exist_ok=True)
+        return cursor_root / f"{operation_id}.json"
 
     def _load_stream(self, path: Path) -> list[StoredFact]:
         if not path.exists():

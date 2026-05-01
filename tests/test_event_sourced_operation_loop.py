@@ -132,6 +132,8 @@ async def test_event_sourced_operation_loop_persists_facts_translates_and_materi
     assert [event.event_type for event in result.stored_events] == ["objective.updated"]
     assert result.checkpoint.objective is not None
     assert result.checkpoint.objective.objective == "Updated objective"
+    translated_sequence = await fact_store.load_translated_sequence(operation_id)
+    assert translated_sequence == result.stored_facts[-1].sequence
     persisted = await checkpoint_store.load_latest(operation_id)
     assert persisted is not None
     assert persisted.checkpoint_payload["objective"]["objective"] == "Updated objective"

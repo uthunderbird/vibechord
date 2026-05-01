@@ -83,11 +83,15 @@ class _EventStore:
 
 
 class _FactStore:
-    def __init__(self, last_sequence: int) -> None:
+    def __init__(self, last_sequence: int, *, translated_sequence: int = 0) -> None:
         self._last_sequence = last_sequence
+        self._translated_sequence = translated_sequence
 
     async def load_last_sequence(self, operation_id: str) -> int:
         return self._last_sequence
+
+    async def load_translated_sequence(self, operation_id: str) -> int:
+        return self._translated_sequence
 
 
 def test_build_runtime_alert_ignores_terminal_background_run_when_live_run_exists() -> None:
@@ -566,7 +570,44 @@ async def test_status_json_reports_persisted_fact_cursor_in_sync_health() -> Non
 
     sync_health = payload["runtime_overlay"]["sync_health"]
     assert sync_health["fact_sequence"] == 4
+    assert sync_health["translated_fact_sequence"] == 0
+    assert sync_health["untranslated_fact_count"] == 4
     assert sync_health["checkpoint_sequence"] == 1
+
+
+@pytest.mark.anyio
+async def test_status_json_reports_translated_fact_cursor_in_sync_health() -> None:
+    checkpoint = OperationCheckpoint.initial("op-status-v2-translated-facts")
+    checkpoint.objective = ObjectiveState(objective="Report translated fact cursor.")
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint, last_applied_sequence=1),
+        fact_store=_FactStore(last_sequence=6, translated_sequence=4),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    payload = json.loads(
+        await service.render_status_output(
+            "op-status-v2-translated-facts",
+            json_mode=True,
+            brief=False,
+        )
+    )
+
+    sync_health = payload["runtime_overlay"]["sync_health"]
+    assert sync_health["fact_sequence"] == 6
+    assert sync_health["translated_fact_sequence"] == 4
+    assert sync_health["untranslated_fact_count"] == 2
+    assert sync_health["sync_alert"] == "technical_facts_pending_translation"
 
 
 @pytest.mark.anyio

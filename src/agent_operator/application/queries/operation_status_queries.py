@@ -49,6 +49,8 @@ class EventStoreLike(Protocol):
 class FactStoreLike(Protocol):
     async def load_last_sequence(self, operation_id: str) -> int: ...
 
+    async def load_translated_sequence(self, operation_id: str) -> int: ...
+
 
 @dataclass(slots=True)
 class OperationRuntimeOverlay:
@@ -228,6 +230,17 @@ class OperationStatusQueryService:
             if self.fact_store is not None
             else None
         )
+        translated_fact_sequence = (
+            await self.fact_store.load_translated_sequence(operation_id)
+            if self.fact_store is not None
+            else None
+        )
+        untranslated_fact_count = (
+            max(fact_sequence - translated_fact_sequence, 0)
+            if isinstance(fact_sequence, int)
+            and isinstance(translated_fact_sequence, int)
+            else None
+        )
         canonical_sequence = events[-1].sequence if events else None
         checkpoint_sequence = getattr(replay_state, "last_applied_sequence", None)
         if not isinstance(checkpoint_sequence, int):
@@ -252,14 +265,16 @@ class OperationStatusQueryService:
         sync_alert = None
         if canonical_lag is not None and canonical_lag > 0:
             sync_alert = "checkpoint_lagging_canonical_events"
+        elif untranslated_fact_count is not None and untranslated_fact_count > 0:
+            sync_alert = "technical_facts_pending_translation"
         elif operation.status.value == "running" and active_session is None:
             sync_alert = "running_without_active_session"
 
         return {
             "canonical_sequence": canonical_sequence,
             "fact_sequence": fact_sequence,
-            "translated_fact_sequence": None,
-            "untranslated_fact_count": None,
+            "translated_fact_sequence": translated_fact_sequence,
+            "untranslated_fact_count": untranslated_fact_count,
             "checkpoint_sequence": checkpoint_sequence,
             "projection_sequence": projection_sequence,
             "canonical_lag": canonical_lag,

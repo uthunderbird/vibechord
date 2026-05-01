@@ -122,6 +122,11 @@ class EventSourcedOperationLoopService:
         )
         updated_replay_state = self._replay.advance(replay_state, stored_events)
         await self._replay.materialize(updated_replay_state)
+        if stored_facts:
+            await self._fact_store.mark_translated_through(
+                operation_id,
+                max(fact.sequence for fact in stored_facts),
+            )
         planning_triggers = await self._dispatch_process_managers(
             signal=process_signal,
             state=self._checkpoint_to_operation_state(updated_replay_state.checkpoint),

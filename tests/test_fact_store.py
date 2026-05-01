@@ -86,6 +86,33 @@ async def test_fact_store_load_by_fact_ids_returns_matching_facts(tmp_path: Path
 
 
 @pytest.mark.anyio
+async def test_fact_store_tracks_translated_fact_cursor(tmp_path: Path) -> None:
+    store = FileFactStore(tmp_path / "facts")
+    adapter_facts = await store.append_adapter_facts("op-1", 0, [_adapter_fact(value=1)])
+    technical_facts = await store.append_technical_facts(
+        "op-1",
+        1,
+        [_technical_fact(value=2, source_fact_ids=[adapter_facts[0].fact_id])],
+    )
+
+    await store.mark_translated_through("op-1", technical_facts[0].sequence)
+    await store.mark_translated_through("op-1", 1)
+
+    assert await store.load_translated_sequence("op-1") == technical_facts[0].sequence
+
+
+@pytest.mark.anyio
+async def test_fact_store_rejects_translated_cursor_beyond_persisted_facts(
+    tmp_path: Path,
+) -> None:
+    store = FileFactStore(tmp_path / "facts")
+    await store.append_adapter_facts("op-1", 0, [_adapter_fact(value=1)])
+
+    with pytest.raises(ValueError, match="exceeds persisted sequence"):
+        await store.mark_translated_through("op-1", 2)
+
+
+@pytest.mark.anyio
 async def test_fact_store_rejects_stale_expected_sequence(tmp_path: Path) -> None:
     store = FileFactStore(tmp_path / "facts")
     await store.append_adapter_facts("op-1", 0, [_adapter_fact(value=1)])

@@ -50,6 +50,14 @@ class FactStore(Protocol):
 
     async def load_last_sequence(self, operation_id: str) -> int: ...
 
+    async def load_translated_sequence(self, operation_id: str) -> int: ...
+
+    async def mark_translated_through(
+        self,
+        operation_id: str,
+        sequence: int,
+    ) -> None: ...
+
 
 class FactTranslator(Protocol):
     """Deterministic translator from technical facts to domain event drafts.

@@ -363,9 +363,12 @@ Implemented slices:
   checkpoint, projection, active-runtime, and sync-alert fields.
 - `status --json` reads the durable fact-store cursor and exposes `fact_sequence` in
   `runtime_overlay.sync_health`.
+- technical fact ingestion now advances a durable translated-fact cursor only after successful
+  fact translation, canonical event append, and checkpoint materialization.
+- `status --json` reads the translated-fact cursor and reports `translated_fact_sequence`,
+  `untranslated_fact_count`, and `technical_facts_pending_translation` sync alerts.
 
 Still planned:
 
-- translated technical fact cursors;
-- fact/projection lag backed by translated technical fact cursors;
+- projection lag backed by translated technical fact cursors;
 - full fact-to-domain translation for all ACP terminal and permission outcomes.
