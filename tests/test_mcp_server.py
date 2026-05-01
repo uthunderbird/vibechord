@@ -9,7 +9,10 @@ from types import SimpleNamespace
 import pytest
 
 import agent_operator.cli.commands.mcp as mcp_command
-from agent_operator.application.queries.operation_status_queries import OperationReadPayload
+from agent_operator.application.queries.operation_status_queries import (
+    OperationReadPayload,
+    OperationRuntimeOverlay,
+)
 from agent_operator.domain import (
     AgentSessionHandle,
     AttentionRequest,
@@ -234,6 +237,7 @@ def _settings_loader_factory(tmp_path: Path):
 
 @pytest.mark.anyio
 async def test_operator_mcp_service_lists_and_reports_status(tmp_path: Path) -> None:
+    """Catches MCP status hiding shared projection freshness labels."""
     store = FileOperationStore(tmp_path / "runs")
     started_at = datetime(2026, 4, 12, 10, 0, tzinfo=UTC)
     ended_at = datetime(2026, 4, 12, 10, 5, tzinfo=UTC)
@@ -314,6 +318,16 @@ async def test_operator_mcp_service_lists_and_reports_status(tmp_path: Path) -> 
                 operation=loaded,
                 outcome=loaded_outcome,
                 source="legacy_snapshot",
+                overlay=OperationRuntimeOverlay(
+                    sync_health={
+                        "checkpoint_lag": 0,
+                        "persisted_read_model_projection_sequence": 1,
+                        "persisted_read_model_projection_lag": 1,
+                        "sync_alert": (
+                            "persisted_read_model_projection_lagging_canonical_events"
+                        ),
+                    },
+                ),
             )
 
         async def build_status_payload(self, operation_id: str):
@@ -363,6 +377,12 @@ async def test_operator_mcp_service_lists_and_reports_status(tmp_path: Path) -> 
     ]
     assert status["ended_at"] == ended_at.isoformat()
     assert "running=1" in str(status["task_summary"])
+    assert status["runtime_overlay"]["sync_health"] == {
+        "checkpoint_lag": 0,
+        "persisted_read_model_projection_sequence": 1,
+        "persisted_read_model_projection_lag": 1,
+        "sync_alert": "persisted_read_model_projection_lagging_canonical_events",
+    }
 
 
 @pytest.mark.anyio

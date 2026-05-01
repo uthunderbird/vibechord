@@ -231,6 +231,7 @@ class OperatorMcpService:
                 "authorities": read_payload.overlay.authorities,
                 "staleness": read_payload.overlay.staleness,
                 "runtime_alert": read_payload.overlay.runtime_alert,
+                "sync_health": read_payload.overlay.sync_health,
             },
         }
 
