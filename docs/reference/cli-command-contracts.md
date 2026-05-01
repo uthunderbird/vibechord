@@ -47,6 +47,9 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `ask` | `stable` | `operator ask --json` | `0/4` | Missing-operation and runtime query failures use the stable internal-error code. |
 | `attention` | `stable` | `operator attention --json` | success only | Uses shared operation resolution. |
 | `dashboard` | `stable` | `operator dashboard --json` | success only | Dashboard text and JSON render the same read/query payload family. |
+| `fleet agenda` | `stable` | `operator fleet agenda --json` | success only | Grouped alias for cross-operation agenda. |
+| `fleet history` | `stable` | `operator fleet history --json` | success only | Grouped alias for committed history ledger. |
+| `fleet list` | `stable` | `operator fleet list --json` | success only | Grouped alias for persisted operation inventory. |
 | `history` | `stable` | `operator history --json` | success only | Reads committed ledger truth rather than live runtime summaries. |
 | `list` | `stable` | `operator list --json` | success only | Inventory-shaped output remains distinct from fleet/agenda supervision payloads. |
 | `log` | `stable` | `operator log --json` | success only | Transcript/log payload stays agent-flavor aware. |

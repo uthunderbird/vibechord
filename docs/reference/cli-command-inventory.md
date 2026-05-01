@@ -46,6 +46,9 @@ ADR 0219 splits stable root commands into two sets:
 - `ask`
 - `attention`
 - `dashboard`
+- `fleet agenda`
+- `fleet history`
+- `fleet list`
 - `history`
 - `list`
 - `log`

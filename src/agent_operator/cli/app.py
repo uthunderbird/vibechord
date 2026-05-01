@@ -24,6 +24,7 @@ policy_app = typer.Typer(no_args_is_help=True)
 agent_app = typer.Typer(no_args_is_help=True)
 config_app = typer.Typer(no_args_is_help=True)
 edit_app = typer.Typer(no_args_is_help=True)
+fleet_app = typer.Typer(no_args_is_help=False)
 show_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(smoke_app, name="smoke")
@@ -33,6 +34,7 @@ app.add_typer(policy_app, name="policy")
 app.add_typer(agent_app, name="agent")
 app.add_typer(config_app, name="config")
 app.add_typer(edit_app, name="edit")
+app.add_typer(fleet_app, name="fleet")
 app.add_typer(show_app, name="show")
 
 

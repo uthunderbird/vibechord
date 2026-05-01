@@ -2203,6 +2203,8 @@ def test_list_default_is_human_readable_brief(tmp_path: Path, monkeypatch) -> No
 
 
 def test_list_json_emits_machine_readable_objects(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where list JSON serializes the internal summary model directly."""
+
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
     store = FileOperationStore(tmp_path / "runs")
 
@@ -2229,6 +2231,32 @@ def test_list_json_emits_machine_readable_objects(tmp_path: Path, monkeypatch) -
     assert payload["operation_id"] == "op-list-fallback"
     assert payload["status"] == "completed"
     assert payload["objective_brief"] == "Fallback list objective"
+
+
+def test_fleet_list_json_emits_machine_readable_objects(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped fleet list stops delegating to list inventory."""
+
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    store = FileOperationStore(tmp_path / "runs")
+
+    anyio.run(
+        store.save_operation,
+        OperationState(
+            operation_id="op-fleet-list",
+            goal=OperationGoal(objective="Grouped fleet list objective"),
+            **state_settings(),
+            status=OperationStatus.COMPLETED,
+            final_summary="Grouped fleet list completed.",
+        ),
+    )
+
+    result = runner.invoke(app, ["fleet", "list", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["operation_id"] == "op-fleet-list"
+    assert payload["status"] == "completed"
+    assert payload["objective_brief"] == "Grouped fleet list objective"
 
 
 def test_list_json_emits_event_sourced_objects_without_runs_dir(
@@ -2287,6 +2315,8 @@ def test_history_default_reads_committed_ledger(tmp_path: Path, monkeypatch) -> 
 
 
 def test_history_json_and_last_reference(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where history last ignores committed ledger ordering."""
+
     (tmp_path / "operator-history.jsonl").write_text(
         "\n".join(
             [
@@ -2305,6 +2335,30 @@ def test_history_json_and_last_reference(tmp_path: Path, monkeypatch) -> None:
     payload = json.loads(result.stdout)
     assert len(payload) == 1
     assert payload[0]["op_id"] == "op-hist-2"
+    assert payload[0]["stop_reason"] == "explicit_success"
+
+
+def test_fleet_history_json_and_last_reference(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped fleet history bypasses history reference resolution."""
+
+    (tmp_path / "operator-history.jsonl").write_text(
+        "\n".join(
+            [
+                '{"op_id":"op-fleet-hist-1","goal":"First","profile":"default","started":"2026-04-03T10:00:00Z","ended":"2026-04-03T11:00:00Z","status":"failed","stop_reason":"iteration_limit_exhausted"}',
+                '{"op_id":"op-fleet-hist-2","goal":"Second","profile":"default","started":"2026-04-03T12:00:00Z","ended":"2026-04-03T13:00:00Z","status":"completed","stop_reason":"explicit_success"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["fleet", "history", "last", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload) == 1
+    assert payload[0]["op_id"] == "op-fleet-hist-2"
     assert payload[0]["stop_reason"] == "explicit_success"
 
 
@@ -2536,10 +2590,28 @@ def test_agenda_groups_attention_active_and_recent_operations(tmp_path: Path, mo
 
 
 def test_agenda_json_can_filter_by_project(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where agenda ignores the project filter in JSON mode."""
+
     _seed_agenda_operations(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
 
     result = runner.invoke(app, ["agenda", "--project", "femtobot", "--json"])
+
+    assert result.exit_code == 0
+    assert '"total_operations": 3' in result.stdout
+    assert '"operation_id": "op-agenda-blocked"' in result.stdout
+    assert '"operation_id": "op-agenda-paused"' in result.stdout
+    assert '"operation_id": "op-agenda-active"' not in result.stdout
+    assert '"recent": []' in result.stdout
+
+
+def test_fleet_agenda_json_can_filter_by_project(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped fleet agenda stops delegating to agenda filtering."""
+
+    _seed_agenda_operations(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+
+    result = runner.invoke(app, ["fleet", "agenda", "--project", "femtobot", "--json"])
 
     assert result.exit_code == 0
     assert '"total_operations": 3' in result.stdout

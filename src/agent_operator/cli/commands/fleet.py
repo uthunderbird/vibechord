@@ -3,7 +3,7 @@ from __future__ import annotations
 import anyio
 import typer
 
-from ..app import app
+from ..app import app, fleet_app
 from ..options import WATCH_POLL_INTERVAL_OPTION
 from ..workflows import agenda_async, fleet_async, history_async, list_async
 
@@ -19,6 +19,17 @@ def list_operations(
     anyio.run(list_async, json_mode)
 
 
+@fleet_app.command("list")
+def fleet_list(
+    json_mode: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit one JSON object per operation instead of human-readable output.",
+    ),
+) -> None:
+    list_operations(json_mode)
+
+
 @app.command("history")
 def history(
     operation_ref: str | None = typer.Argument(
@@ -29,6 +40,18 @@ def history(
     json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     anyio.run(history_async, operation_ref, json_mode)
+
+
+@fleet_app.command("history")
+def fleet_history(
+    operation_ref: str | None = typer.Argument(
+        None,
+        metavar="[OP]",
+        help="Optional operation reference (full id, short prefix, or 'last').",
+    ),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    history(operation_ref, json_mode)
 
 
 @app.command()
@@ -44,8 +67,22 @@ def agenda(
     anyio.run(agenda_async, project, include_all, json_mode)
 
 
-@app.command()
+@fleet_app.command("agenda")
+def fleet_agenda(
+    project: str | None = typer.Option(None, "--project", help="Project profile name."),
+    include_all: bool = typer.Option(
+        False,
+        "--all",
+        help="Include recent terminal operations even when actionable work exists.",
+    ),
+    json_mode: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    agenda(project, include_all, json_mode)
+
+
+@fleet_app.callback(invoke_without_command=True)
 def fleet(
+    ctx: typer.Context,
     project: str | None = typer.Option(None, "--project", help="Project profile name."),
     include_all: bool = typer.Option(
         False,
@@ -72,6 +109,8 @@ def fleet(
     json_mode: bool = typer.Option(False, "--json", help="Emit a machine-readable fleet snapshot."),
     poll_interval: float = WATCH_POLL_INTERVAL_OPTION,
 ) -> None:
+    if ctx.invoked_subcommand is not None:
+        return
     anyio.run(
         fleet_async,
         project,

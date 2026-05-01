@@ -120,6 +120,9 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     CliCommandRecord("edit harness", "stable", "control", "Grouped harness patch surface."),
     CliCommandRecord("edit objective", "stable", "control", "Grouped objective patch surface."),
     CliCommandRecord("fleet", "stable", "lifecycle", "Fleet-first supervision surface."),
+    CliCommandRecord("fleet agenda", "stable", "read", "Grouped cross-operation agenda."),
+    CliCommandRecord("fleet history", "stable", "read", "Grouped project history ledger."),
+    CliCommandRecord("fleet list", "stable", "read", "Grouped persisted operation inventory."),
     CliCommandRecord("history", "stable", "read", "Project history ledger surface."),
     CliCommandRecord("init", "stable", "lifecycle", "Workspace profile bootstrap."),
     CliCommandRecord(

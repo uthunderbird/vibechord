@@ -30,14 +30,20 @@ Implementation grounding on 2026-05-02:
   `src/agent_operator/cli/commands/operation_detail.py`,
   `src/agent_operator/cli/commands/operation_detail_log.py`,
   `src/agent_operator/cli/commands/operation_detail_session.py`.
+- `implemented`: fleet inventory/read surfaces now have grouped stable paths:
+  `fleet list`, `fleet history`, and `fleet agenda`. The existing root read commands remain
+  callable while the migration proceeds. Evidence:
+  `src/agent_operator/cli/commands/fleet.py`,
+  `src/agent_operator/cli/command_inventory.py`.
 - `verified`: command-inventory tests prove every registered stable root command is accounted for
   as either canonical root surface or grouping backlog, and prevent new stable root commands from
   bypassing ADR 0219 classification. Focused CLI tests cover the grouped edit commands delegating
-  to the existing event-sourced command/control path and grouped show commands delegating to shared
-  read payloads. Evidence:
+  to the existing event-sourced command/control path, grouped show commands delegating to shared
+  read payloads, and grouped fleet commands delegating to the existing inventory/history/agenda
+  read paths. Evidence:
   `tests/test_cli_command_inventory.py`, `tests/test_cli.py`.
-- `planned`: fleet-inventory, natural-language, and autonomy grouping remain open; no
-  compatibility alias has been removed.
+- `planned`: natural-language and autonomy grouping remain open; no compatibility alias has been
+  removed.
 
 ## Context
 
