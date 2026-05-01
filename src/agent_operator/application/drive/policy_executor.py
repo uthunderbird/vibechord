@@ -49,6 +49,7 @@ class PolicyExecutorResult:
     should_break: bool = False
     iteration_index: int = 0
     persisted_event_count: int = 0
+    persisted_fact_count: int = 0
     more_actions: bool = False
     technical_facts: list[TechnicalFactDraft] = field(default_factory=list)
 
@@ -87,7 +88,11 @@ class PolicyExecutor:
         *,
         wake_cycle_id: str,
         append_domain_events: (
-            Callable[[list[OperationDomainEventDraft]], Awaitable[None]] | None
+            Callable[
+                [list[OperationDomainEventDraft], list[TechnicalFactDraft]],
+                Awaitable[None],
+            ]
+            | None
         ) = None,
     ) -> PolicyExecutorResult:
         """Call brain.decide_next_action() and execute the returned decision.
@@ -104,8 +109,10 @@ class PolicyExecutor:
             pending = result.events[result.persisted_event_count :]
             if not pending:
                 return
-            await append_domain_events(pending)
+            pending_facts = result.technical_facts[result.persisted_fact_count :]
+            await append_domain_events(pending, pending_facts)
             result.persisted_event_count = len(result.events)
+            result.persisted_fact_count = len(result.technical_facts)
 
         # Build a minimal OperationState bridge for the brain call (Layer 2 bridge).
         # This is bounded to PolicyExecutor and removed in Layer 3.
@@ -325,6 +332,19 @@ class PolicyExecutor:
             handle = await self._session_manager.start(adapter_key, request)
             session_id = handle.session_id
 
+            result.technical_facts.append(
+                TechnicalFactDraft(
+                    fact_type="session.started",
+                    payload={
+                        "session_id": session_id,
+                        "adapter_key": adapter_key,
+                        "handle": handle.model_dump(mode="json"),
+                        "requested_at": now.isoformat(),
+                    },
+                    observed_at=now,
+                    session_id=session_id,
+                )
+            )
             result.events.append(
                 OperationDomainEventDraft(
                     event_type="session.created",

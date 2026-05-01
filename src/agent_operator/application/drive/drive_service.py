@@ -150,14 +150,21 @@ class DriveService:
         ):
             async def append_live_events(
                 drafts: list[OperationDomainEventDraft],
+                technical_facts: list[TechnicalFactDraft],
             ) -> None:
                 nonlocal agg, last_sequence
                 if not drafts:
                     return
+                drafts = await self._attach_fact_causation(
+                    operation_id=operation_id,
+                    events=drafts,
+                    technical_facts=technical_facts,
+                )
                 stored_live = await self._event_store.append(operation_id, last_sequence, drafts)
                 await self._emit_run_events(stored_live)
                 agg = agg.apply_events(stored_live)
                 last_sequence = stored_live[-1].sequence if stored_live else last_sequence
+                await self._mark_translated_facts(operation_id, stored_live)
 
             # Materialize PAUSE_REQUESTED → PAUSED when safe
             if self._gate.should_pause_materialize(agg):
@@ -205,11 +212,14 @@ class DriveService:
             cycles_executed += 1
 
             deferred_events = executor_result.events[executor_result.persisted_event_count :]
+            deferred_facts = executor_result.technical_facts[
+                executor_result.persisted_fact_count :
+            ]
             if deferred_events:
                 deferred_events = await self._attach_fact_causation(
                     operation_id=operation_id,
                     events=deferred_events,
-                    technical_facts=executor_result.technical_facts,
+                    technical_facts=deferred_facts,
                 )
                 stored = await self._event_store.append(
                     operation_id, last_sequence, deferred_events
@@ -579,6 +589,8 @@ class DriveService:
             if status == "failed":
                 return "session.failed"
             return None
+        if event.event_type == "session.created":
+            return "session.started"
         if event.event_type.startswith("permission.request."):
             return event.event_type
         return None

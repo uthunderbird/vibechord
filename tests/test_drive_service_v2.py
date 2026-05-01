@@ -730,8 +730,11 @@ async def test_policy_executor_records_disconnected_turn_as_disconnected(tmp_pat
 
     assert turn_event.payload["status"] == "disconnected"
     assert observed_event.payload["status"] == "disconnected"
-    assert [fact.fact_type for fact in facts] == ["session.discontinuity_observed"]
-    assert await fact_store.load_translated_sequence("op-1") == 1
+    assert [fact.fact_type for fact in facts] == [
+        "session.started",
+        "session.discontinuity_observed",
+    ]
+    assert await fact_store.load_translated_sequence("op-1") == 2
 
 
 @pytest.mark.anyio
@@ -909,19 +912,21 @@ async def test_drive_service_persists_waiting_input_and_permission_facts(tmp_pat
 
     facts = await fact_store.load_after("op-1")
     assert [fact.fact_type for fact in facts] == [
+        "session.started",
         "session.waiting_input_observed",
         "permission.request.observed",
         "permission.request.escalated",
         "permission.request.followup_required",
     ]
-    assert facts[0].payload["status"] == "interrupted"
-    assert await fact_store.load_translated_sequence("op-1") == 4
+    assert facts[1].payload["status"] == "interrupted"
+    assert await fact_store.load_translated_sequence("op-1") == 5
     caused_event_types = [
         event.event_type
         for event in event_store.streams["op-1"]
         if event.causation_id is not None
     ]
     assert caused_event_types == [
+        "session.created",
         "agent.turn.completed",
         "permission.request.observed",
         "permission.request.escalated",
@@ -1034,16 +1039,18 @@ async def test_drive_service_persists_runtime_facts_for_materialized_agent_event
 
     facts = await fact_store.load_after("op-1")
     assert [fact.fact_type for fact in facts] == [
+        "session.started",
         "session.completed",
         "permission.request.observed",
         "permission.request.decided",
     ]
-    assert await fact_store.load_translated_sequence("op-1") == 3
+    assert await fact_store.load_translated_sequence("op-1") == 4
     materialized_events = event_store.streams["op-1"]
     caused_event_types = [
         event.event_type for event in materialized_events if event.causation_id is not None
     ]
     assert caused_event_types == [
+        "session.created",
         "agent.turn.completed",
         "permission.request.observed",
         "permission.request.decided",
