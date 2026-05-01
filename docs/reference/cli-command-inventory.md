@@ -35,7 +35,6 @@ ADR 0219 splits stable root commands into two sets:
 - `edit involvement`
 - `edit objective`
 - `interrupt`
-- `involvement`
 - `message`
 - `pause`
 - `unpause`
@@ -138,7 +137,6 @@ ADR 0219 splits stable root commands into two sets:
 ### Other grouping candidates
 
 - `converse`
-- `involvement`
 
 ## Transitional commands
 
@@ -149,6 +147,7 @@ surfaces.
 - `command` -> use `debug command`
 - `context` -> use `debug context`
 - `inspect` -> use `debug inspect`
+- `involvement` -> use `edit involvement`
 - `patch-criteria` -> use `edit criteria`
 - `patch-harness` -> use `edit harness`
 - `patch-objective` -> use `edit objective`

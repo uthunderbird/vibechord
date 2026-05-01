@@ -34,7 +34,6 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `edit involvement` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `edit objective` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `interrupt` | `stable` | none | success only | Session-targeted interruption remains the explicit non-ADR-0205 command-path exception. |
-| `involvement` | `stable` | none | success only | Shared command-application path handles accepted/rejected outcomes. |
 | `message` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `pause` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `unpause` | `stable` | none | success only | Uses the event-sourced command/control path. |
@@ -104,6 +103,7 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `command` | `transitional` | none | success only | Hidden alias for `debug command`. |
 | `context` | `transitional` | `operator debug context --json` | success only | Hidden alias for `debug context`. |
 | `inspect` | `transitional` | `operator debug inspect --json` | success only | Hidden alias for `debug inspect`. |
+| `involvement` | `transitional` | none | success only | Compatibility alias for `edit involvement`. |
 | `patch-criteria` | `transitional` | none | success only | Compatibility alias for `edit criteria`. |
 | `patch-harness` | `transitional` | none | success only | Compatibility alias for `edit harness`. |
 | `patch-objective` | `transitional` | none | success only | Compatibility alias for `edit objective`. |

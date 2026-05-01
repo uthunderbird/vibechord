@@ -40,11 +40,11 @@ Implementation grounding on 2026-05-02:
   as either canonical root surface or grouping backlog, and prevent new stable root commands from
   bypassing ADR 0219 classification. Focused CLI tests cover the grouped edit commands delegating
   to the existing event-sourced command/control path, grouped show commands delegating to shared
-  read payloads, and grouped fleet commands delegating to the existing inventory/history/agenda
-  read paths. Evidence:
+  read payloads, grouped fleet commands delegating to the existing inventory/history/agenda read
+  paths, and grouped edit-involvement delegating to the existing autonomy mutation path. Evidence:
   `tests/test_cli_command_inventory.py`, `tests/test_cli.py`.
-- `planned`: natural-language grouping and root-command migration for already-grouped families
-  remain open; no compatibility alias has been removed.
+- `planned`: natural-language grouping and root-command migration for already-grouped read
+  families remain open; no compatibility alias has been removed.
 
 ## Context
 

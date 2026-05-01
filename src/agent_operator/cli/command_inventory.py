@@ -57,10 +57,9 @@ ADR_0219_GROUPING_BACKLOG: dict[str, tuple[str, ...]] = {
         "history",
         "list",
     ),
-    "edit": (
-    ),
+    "edit": (),
     "advanced_nl": ("converse",),
-    "autonomy": ("involvement",),
+    "autonomy": (),
 }
 
 
@@ -132,7 +131,12 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
         "inspect", "transitional", "debug-alias", "Hidden top-level alias for debug inspect."
     ),
     CliCommandRecord("interrupt", "stable", "control", "Canonical stop-turn control surface."),
-    CliCommandRecord("involvement", "stable", "control", "Autonomy-level mutation surface."),
+    CliCommandRecord(
+        "involvement",
+        "transitional",
+        "edit-alias",
+        "Compatibility alias for edit involvement.",
+    ),
     CliCommandRecord("list", "stable", "read", "Persisted operation inventory."),
     CliCommandRecord("log", "stable", "read", "Condensed transcript/log surface."),
     CliCommandRecord("mcp", "stable", "integration", "Inbound MCP server entrypoint."),
