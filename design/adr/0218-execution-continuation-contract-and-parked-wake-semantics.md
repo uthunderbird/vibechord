@@ -8,7 +8,7 @@ Proposed
 
 ## Implementation Status
 
-Partial
+Implemented
 
 Implementation grounding on 2026-05-02:
 
@@ -37,8 +37,9 @@ Implementation grounding on 2026-05-02:
   non-clearing, and self-update non-clearing. Evidence: `tests/test_drive_service_v2.py`,
   `tests/test_attached_turn_service.py`, `tests/test_operation_projections.py`,
   `tests/test_operation_aggregate.py`.
-- `planned`: the decision remains `Proposed`; final acceptance still requires a separate review of
-  whether the implemented predicate families and surface wording are the intended public contract.
+- `follow-up`: the decision remains `Proposed`; final acceptance still requires a separate review
+  of whether the implemented predicate families and surface wording are the intended public
+  contract.
 
 ## Context
 
