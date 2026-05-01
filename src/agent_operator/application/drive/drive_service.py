@@ -226,6 +226,32 @@ class DriveService:
             if executor_result.should_break:
                 break
 
+        if ctx.draining and agg.status is OperationStatus.RUNNING:
+            now = datetime.now(UTC)
+            drain_events = [
+                OperationDomainEventDraft(
+                    event_type="operation.parked.updated",
+                    payload={
+                        "parked_execution": {
+                            "kind": "runtime_drained",
+                            "fingerprint": f"runtime_drained:{operation_id}",
+                            "reason": (
+                                "Attached drive call drained before the operation "
+                                "reached a terminal state."
+                            ),
+                            "wake_predicates": ["runtime_reentered", "operator_resumed"],
+                            "created_at": now.isoformat(),
+                            "last_confirmed_at": now.isoformat(),
+                        }
+                    },
+                )
+            ]
+            stored = await self._event_store.append(operation_id, last_sequence, drain_events)
+            await self._emit_run_events(stored)
+            agg = agg.apply_events(stored)
+            last_sequence = stored[-1].sequence if stored else last_sequence
+            await self._save_checkpoint(agg, last_sequence, epoch_id)
+
         # ── Step 5: Budget exhaustion check ───────────────────────────────────
         if agg.status is OperationStatus.RUNNING and cycles_executed >= cycle_budget:
             budget_events = [

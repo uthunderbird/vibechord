@@ -344,15 +344,7 @@ class PolicyExecutor:
             result.agent_result = agent_result
             completed_at = datetime.now(UTC)
 
-            turn_status = (
-                "completed"
-                if agent_result.status is AgentResultStatus.SUCCESS
-                else (
-                    "interrupted"
-                    if agent_result.status is AgentResultStatus.INCOMPLETE
-                    else "failed"
-                )
-            )
+            turn_status = self._turn_status_from_agent_result(agent_result.status)
             result.events.append(
                 OperationDomainEventDraft(
                     event_type="agent.turn.completed",
@@ -417,6 +409,15 @@ class PolicyExecutor:
         if status is AgentResultStatus.INCOMPLETE:
             return {"status": "waiting"}
         return {"status": "failed"}
+
+    def _turn_status_from_agent_result(self, status: AgentResultStatus) -> str:
+        if status is AgentResultStatus.SUCCESS:
+            return "completed"
+        if status is AgentResultStatus.CANCELLED:
+            return "cancelled"
+        if status is AgentResultStatus.INCOMPLETE:
+            return "interrupted"
+        return "failed"
 
     def _permission_events_from_agent_result(
         self,

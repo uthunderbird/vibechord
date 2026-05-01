@@ -176,6 +176,22 @@ class IncompleteSessionManager(StubSessionManager):
         )
 
 
+class CancelledSessionManager(StubSessionManager):
+    async def collect(self, handle):
+        self.collected = True
+        return AgentResult(
+            session_id=handle.session_id,
+            status=AgentResultStatus.CANCELLED,
+            output_text="",
+            completed_at=datetime.now(UTC),
+            error=AgentError(
+                code="agent_session_cancelled",
+                message="Agent session cancelled.",
+                retryable=False,
+            ),
+        )
+
+
 class PermissionApprovedSessionManager(StubSessionManager):
     async def collect(self, handle):
         self.collected = True
@@ -574,6 +590,122 @@ async def test_policy_executor_records_terminal_success_before_close_returns() -
     assert "agent.turn.completed" in event_types
     assert "session.observed_state.changed" in event_types
     assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+
+
+@pytest.mark.anyio
+async def test_policy_executor_records_cancelled_turn_as_cancelled() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=CancelledSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    turn_event = next(
+        event for event in event_sink.events if event.event_type == "agent.turn.completed"
+    )
+    observed_event = next(
+        event
+        for event in event_sink.events
+        if event.event_type == "session.observed_state.changed"
+    )
+
+    assert turn_event.payload["status"] == "cancelled"
+    assert observed_event.payload["status"] == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_drive_service_materializes_runtime_drain_before_exiting() -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=StubSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+    )
+
+    outcome = await drive.drive(
+        "op-1",
+        RunOptions(max_cycles=3),
+        context_ready=lambda ctx: ctx.request_drain(),
+    )
+
+    parked_event = next(
+        event for event in event_sink.events if event.event_type == "operation.parked.updated"
+    )
+
+    assert parked_event.payload["parked_execution"]["kind"] == "runtime_drained"
+    assert "operator_resumed" in parked_event.payload["parked_execution"]["wake_predicates"]
+    assert outcome.status is OperationStatus.RUNNING
 
 
 @pytest.mark.anyio

@@ -657,6 +657,44 @@ async def test_attached_session_runtime_registry_collect_retires_failed_session(
 
 
 @pytest.mark.anyio
+async def test_attached_session_runtime_registry_collect_retires_cancelled_session(
+) -> None:
+    runtime = TerminalTrackingSessionRuntime(terminal_fact_type="session.cancelled")
+    registry = AttachedSessionManager(
+        {
+            "fake": AgentRuntimeBinding(
+                agent_key="fake",
+                descriptor=AgentDescriptor(key="fake", display_name="Fake"),
+                build_adapter_runtime=lambda *, working_directory, log_path: None,
+                build_session_runtime=lambda *,
+                working_directory,
+                log_path,
+                session_metadata=None: runtime,
+            )
+        }
+    )
+
+    handle = await registry.start(
+        "fake",
+        AgentRunRequest(
+            goal="goal",
+            instruction="inspect",
+            working_directory=Path.cwd(),
+        ),
+    )
+
+    result = await registry.collect(handle)
+    progress = await registry.poll(handle)
+
+    assert result.status.value == "cancelled"
+    assert progress.state.value == "cancelled"
+    assert runtime.close_calls == 1
+
+    with pytest.raises(RuntimeError, match="terminal and cannot continue"):
+        await registry.send(handle, "continue")
+
+
+@pytest.mark.anyio
 async def test_attached_session_runtime_registry_preserves_retryable_provider_capacity_error(
 ) -> None:
     runtime = TerminalTrackingSessionRuntime(

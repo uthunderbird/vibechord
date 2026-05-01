@@ -35,20 +35,34 @@ class _BackgroundInspectionStore:
 
 
 class _ReplayState:
-    def __init__(self, checkpoint: OperationCheckpoint) -> None:
+    def __init__(
+        self,
+        checkpoint: OperationCheckpoint,
+        *,
+        last_applied_sequence: int = 1,
+    ) -> None:
         self.checkpoint = checkpoint
-        self.last_applied_sequence = 1
+        self.last_applied_sequence = last_applied_sequence
         self.suffix_events = []
         self.stored_checkpoint = object()
 
 
 class _ReplayService:
-    def __init__(self, checkpoint: OperationCheckpoint) -> None:
+    def __init__(
+        self,
+        checkpoint: OperationCheckpoint,
+        *,
+        last_applied_sequence: int = 1,
+    ) -> None:
         self._checkpoint = checkpoint
+        self._last_applied_sequence = last_applied_sequence
 
     async def load(self, operation_id: str) -> _ReplayState:
         assert operation_id == self._checkpoint.operation_id
-        return _ReplayState(self._checkpoint)
+        return _ReplayState(
+            self._checkpoint,
+            last_applied_sequence=self._last_applied_sequence,
+        )
 
 
 class _EventStore:
@@ -442,6 +456,73 @@ async def test_status_json_uses_shared_read_payload_overlay_metadata() -> None:
         payload["runtime_overlay"]["authorities"]["wakeup_inspection"]
         == "runtime_overlay"
     )
+    assert payload["runtime_overlay"]["sync_health"]["checkpoint_sequence"] == 1
+
+
+@pytest.mark.anyio
+async def test_status_json_reports_sync_health_when_checkpoint_lags_canonical_events(
+) -> None:
+    checkpoint = OperationCheckpoint.initial("op-status-v2-sync")
+    checkpoint.objective = ObjectiveState(objective="Report sync health.")
+    timestamp = datetime.now(UTC)
+    canonical_events = [
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-sync",
+            sequence=1,
+            event_type="operation.created",
+            payload={},
+            timestamp=timestamp,
+        ),
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-sync",
+            sequence=2,
+            event_type="session.created",
+            payload={"adapter_key": "codex_acp"},
+            timestamp=timestamp,
+        ),
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-sync",
+            sequence=3,
+            event_type="agent.turn.completed",
+            payload={
+                "session_id": "sess-1",
+                "adapter_key": "codex_acp",
+                "status": "completed",
+                "output_text": "done",
+            },
+            timestamp=timestamp,
+        ),
+    ]
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint, last_applied_sequence=1),
+        event_store=_EventStore(canonical_events),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    payload = json.loads(
+        await service.render_status_output(
+            "op-status-v2-sync",
+            json_mode=True,
+            brief=False,
+        )
+    )
+
+    sync_health = payload["runtime_overlay"]["sync_health"]
+    assert sync_health["canonical_sequence"] == 3
+    assert sync_health["checkpoint_sequence"] == 1
+    assert sync_health["projection_sequence"] == 1
+    assert sync_health["canonical_lag"] == 2
+    assert sync_health["sync_alert"] == "checkpoint_lagging_canonical_events"
 
 
 @pytest.mark.anyio

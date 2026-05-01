@@ -14,6 +14,7 @@ from agent_operator.domain import (
     OperationOutcome,
     OperationState,
     SchedulerState,
+    SessionStatus,
     StoredOperationDomainEvent,
     TraceBriefBundle,
 )
@@ -60,6 +61,7 @@ class OperationRuntimeOverlay:
     background_runs: list[dict[str, object]] = field(default_factory=list)
     trace_brief: object | None = None
     runtime_alert: str | None = None
+    sync_health: dict[str, object] | None = None
     authorities: dict[str, str] = field(
         default_factory=lambda: {
             "wakeup_inspection": "runtime_overlay",
@@ -204,6 +206,56 @@ class OperationStatusQueryService:
         bundle.agent_turn_briefs = [canonical_turn]
         return bundle
 
+    async def _build_sync_health(
+        self,
+        operation_id: str,
+        operation: OperationState,
+        *,
+        replay_state: object | None,
+    ) -> dict[str, object]:
+        events = (
+            await self.event_store.load_after(operation_id, after_sequence=0)
+            if self.event_store is not None
+            else []
+        )
+        canonical_sequence = events[-1].sequence if events else None
+        checkpoint_sequence = getattr(replay_state, "last_applied_sequence", None)
+        if not isinstance(checkpoint_sequence, int):
+            checkpoint_sequence = None
+        projection_sequence = checkpoint_sequence
+        canonical_lag = (
+            max(canonical_sequence - checkpoint_sequence, 0)
+            if isinstance(canonical_sequence, int) and isinstance(checkpoint_sequence, int)
+            else None
+        )
+        active_session = operation.active_session_record
+        last_runtime_observation = None
+        last_runtime_observed_at = None
+        active_runtime_present = False
+        if active_session is not None:
+            active_runtime_present = active_session.status in {
+                SessionStatus.RUNNING,
+                SessionStatus.WAITING,
+            }
+            last_runtime_observation = active_session.status.value
+            last_runtime_observed_at = active_session.updated_at.isoformat()
+        sync_alert = None
+        if canonical_lag is not None and canonical_lag > 0:
+            sync_alert = "checkpoint_lagging_canonical_events"
+        elif operation.status.value == "running" and active_session is None:
+            sync_alert = "running_without_active_session"
+
+        return {
+            "canonical_sequence": canonical_sequence,
+            "checkpoint_sequence": checkpoint_sequence,
+            "projection_sequence": projection_sequence,
+            "canonical_lag": canonical_lag,
+            "active_runtime_present": active_runtime_present,
+            "last_runtime_observation": last_runtime_observation,
+            "last_runtime_observed_at": last_runtime_observed_at,
+            "sync_alert": sync_alert,
+        }
+
     def _background_run_payload(self, run) -> dict[str, object]:
         return {
             "execution_id": run.execution_id,
@@ -268,7 +320,7 @@ class OperationStatusQueryService:
             RuntimeError: If neither canonical state nor terminal outcome exists.
         """
 
-        operation = await self._load_event_sourced_operation(operation_id)
+        operation, replay_state = await self._load_event_sourced_operation(operation_id)
         source = "event_sourced" if operation is not None else "legacy_snapshot"
         if operation is None:
             operation = await self._load_snapshot_fallback(operation_id)
@@ -300,6 +352,11 @@ class OperationStatusQueryService:
             wakeups=wakeups,
             background_runs=background_runs,
         )
+        sync_health = await self._build_sync_health(
+            operation_id,
+            operation,
+            replay_state=replay_state,
+        )
         action_hint = self.build_status_action_hint(operation)
         return OperationReadPayload(
             operation_id=operation_id,
@@ -311,6 +368,7 @@ class OperationStatusQueryService:
                 background_runs=background_runs,
                 trace_brief=effective_brief_bundle,
                 runtime_alert=runtime_alert,
+                sync_health=sync_health,
             ),
             action_hint=action_hint,
             live_snapshot=self.build_live_snapshot(
@@ -338,21 +396,23 @@ class OperationStatusQueryService:
             payload.overlay.runtime_alert,
         )
 
-    async def _load_event_sourced_operation(self, operation_id: str) -> OperationState | None:
+    async def _load_event_sourced_operation(
+        self, operation_id: str
+    ) -> tuple[OperationState | None, object | None]:
         """Load v2 operations from event-sourced truth when no legacy run snapshot exists."""
         if self.replay_service is None:
-            return None
+            return None, None
         replay_state = await self.replay_service.load(operation_id)
         if (
             getattr(replay_state, "stored_checkpoint", None) is None
             and getattr(replay_state, "last_applied_sequence", 0) == 0
             and not getattr(replay_state, "suffix_events", [])
         ):
-            return None
+            return None, replay_state
         checkpoint = getattr(replay_state, "checkpoint", None)
         if checkpoint is None:
-            return None
-        return self.state_view_service.from_checkpoint(checkpoint)
+            return None, replay_state
+        return self.state_view_service.from_checkpoint(checkpoint), replay_state
 
     async def _load_snapshot_fallback(self, operation_id: str) -> OperationState | None:
         """Load snapshot-era state only as an explicit status-query fallback."""
@@ -395,6 +455,7 @@ class OperationStatusQueryService:
                     "authorities": payload.overlay.authorities,
                     "staleness": payload.overlay.staleness,
                     "runtime_alert": payload.overlay.runtime_alert,
+                    "sync_health": payload.overlay.sync_health,
                 },
             }
             return json.dumps(output, indent=2, ensure_ascii=False)

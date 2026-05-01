@@ -8,7 +8,7 @@ Proposed
 
 ## Implementation Status
 
-Planned
+Partial
 
 ## Context
 
@@ -341,7 +341,7 @@ Minimum regressions:
 
 ## Current Status
 
-This ADR is proposed and planned.
+This ADR is proposed and partially implemented.
 
 The repository already has partial ingredients:
 
@@ -352,4 +352,18 @@ The repository already has partial ingredients:
 - trace brief enrichment;
 - canonical fallback for latest-turn status summaries.
 
-The full synchronizable-state contract is not yet implemented.
+Implemented slices:
+
+- canonical fallback for latest-turn status summaries when trace briefs are absent;
+- attached cancelled turn results materialize as `agent.turn.completed(status=cancelled)` and
+  `session.observed_state.changed(status=cancelled)`;
+- attached drive drain materializes a durable `operation.parked.updated` record with
+  `kind=runtime_drained` instead of silently exiting as ordinary `running`.
+- `status --json` exposes an initial `runtime_overlay.sync_health` payload with canonical,
+  checkpoint, projection, active-runtime, and sync-alert fields.
+
+Still planned:
+
+- durable technical fact cursors;
+- fact/projection lag backed by durable technical fact cursors;
+- full fact-to-domain translation for all ACP terminal and permission outcomes.
