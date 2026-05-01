@@ -428,6 +428,8 @@ class PolicyExecutor:
             return {"status": "completed"}
         if status is AgentResultStatus.CANCELLED:
             return {"status": "cancelled"}
+        if status is AgentResultStatus.DISCONNECTED:
+            return {"status": "disconnected"}
         if status is AgentResultStatus.INCOMPLETE:
             return {"status": "waiting"}
         return {"status": "failed"}
@@ -437,6 +439,8 @@ class PolicyExecutor:
             return "completed"
         if status is AgentResultStatus.CANCELLED:
             return "cancelled"
+        if status is AgentResultStatus.DISCONNECTED:
+            return "disconnected"
         if status is AgentResultStatus.INCOMPLETE:
             return "interrupted"
         return "failed"
@@ -446,6 +450,8 @@ class PolicyExecutor:
             return "session.completed"
         if status is AgentResultStatus.CANCELLED:
             return "session.cancelled"
+        if status is AgentResultStatus.DISCONNECTED:
+            return "session.discontinuity_observed"
         if status is AgentResultStatus.INCOMPLETE:
             return "session.waiting_input_observed"
         return "session.failed"

@@ -378,6 +378,9 @@ Implemented slices:
 - ACP session collection now preserves accumulated permission event payloads in `AgentResult.raw`,
   so v2 drive materialization and fact persistence see permission outcomes from both success and
   terminal collection paths.
+- v2 drive materialization preserves disconnected ACP outcomes as `agent.turn.completed(status=
+  disconnected)`, `session.observed_state.changed(status=disconnected)`, and
+  `session.discontinuity_observed` facts instead of folding them into generic failed outcomes.
 
 Still planned:
 

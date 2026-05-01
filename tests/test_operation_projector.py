@@ -215,6 +215,37 @@ def test_operation_projector_normalizes_legacy_interrupted_terminal_state() -> N
     assert projected.sessions[0].terminal_state is SessionTerminalState.CANCELLED
 
 
+def test_operation_projector_projects_disconnected_session_status() -> None:
+    """Catches folding transport discontinuities into generic failed session state."""
+    projector = DefaultOperationProjector()
+    checkpoint = OperationCheckpoint.initial("op-1")
+    session = SessionState.model_validate(
+        {
+            "handle": {
+                "adapter_key": "codex_acp",
+                "session_id": "session-1",
+            }
+        }
+    )
+
+    projected = projector.project(
+        checkpoint,
+        [
+            _event("session.created", sequence=1, payload=session.model_dump()),
+            _event(
+                "session.observed_state.changed",
+                sequence=2,
+                payload={
+                    "session_id": "session-1",
+                    "status": "disconnected",
+                },
+            ),
+        ],
+    )
+
+    assert projected.sessions[0].status is SessionStatus.DISCONNECTED
+
+
 def test_operation_projector_updates_attention_scheduler_and_optional_subslices() -> None:
     projector = DefaultOperationProjector()
     checkpoint = OperationCheckpoint.initial("op-1")

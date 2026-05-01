@@ -242,6 +242,7 @@ class DefaultOperationProjector:
             SessionTerminalState.FAILED.value,
             SessionTerminalState.CANCELLED.value,
             "interrupted",  # legacy value from older event schema
+            "disconnected",
         }:
             normalized_terminal_state = normalized_terminal_state or normalized_observed_state
             if normalized_terminal_state == "interrupted":
@@ -250,6 +251,7 @@ class DefaultOperationProjector:
                 SessionTerminalState.COMPLETED.value: SessionStatus.COMPLETED,
                 SessionTerminalState.FAILED.value: SessionStatus.FAILED,
                 SessionTerminalState.CANCELLED.value: SessionStatus.CANCELLED,
+                "disconnected": SessionStatus.DISCONNECTED,
             }[normalized_terminal_state]
         return {
             SessionObservedState.IDLE.value: SessionStatus.IDLE,

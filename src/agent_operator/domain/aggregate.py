@@ -309,6 +309,7 @@ class OperationAggregate:
                             "failed",
                             "cancelled",
                             "interrupted",
+                            "disconnected",
                         }:
                             normalized_terminal = (
                                 normalized_terminal_state or normalized_observed_state

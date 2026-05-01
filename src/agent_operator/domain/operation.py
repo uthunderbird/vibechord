@@ -308,6 +308,8 @@ class SessionState(BaseModel):
             SessionTerminalState.FAILED.value,
         }:
             return SessionStatus.FAILED
+        if normalized_terminal_state == SessionStatus.DISCONNECTED.value:
+            return SessionStatus.DISCONNECTED
         return SessionStatus.COMPLETED
 
     @property
@@ -340,6 +342,7 @@ class SessionState(BaseModel):
             SessionStatus.COMPLETED,
             SessionStatus.FAILED,
             SessionStatus.CANCELLED,
+            SessionStatus.DISCONNECTED,
         }:
             self.status = SessionStatus.COMPLETED
 

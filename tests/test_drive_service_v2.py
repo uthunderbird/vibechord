@@ -193,6 +193,23 @@ class CancelledSessionManager(StubSessionManager):
         )
 
 
+class DisconnectedSessionManager(StubSessionManager):
+    async def collect(self, handle):
+        self.collected = True
+        return AgentResult(
+            session_id=handle.session_id,
+            status=AgentResultStatus.DISCONNECTED,
+            output_text="",
+            completed_at=datetime.now(UTC),
+            error=AgentError(
+                code="codex_acp_disconnected",
+                message="ACP subprocess closed before completing pending requests.",
+                retryable=True,
+                raw={"recovery_mode": "same_session"},
+            ),
+        )
+
+
 class PermissionApprovedSessionManager(StubSessionManager):
     async def collect(self, handle):
         self.collected = True
@@ -652,6 +669,69 @@ async def test_policy_executor_records_cancelled_turn_as_cancelled() -> None:
 
     assert turn_event.payload["status"] == "cancelled"
     assert observed_event.payload["status"] == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_policy_executor_records_disconnected_turn_as_disconnected(tmp_path) -> None:
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+    fact_store = FileFactStore(tmp_path / "facts")
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=DisconnectedSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+        fact_store=fact_store,
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    turn_event = next(
+        event for event in event_sink.events if event.event_type == "agent.turn.completed"
+    )
+    observed_event = next(
+        event
+        for event in event_sink.events
+        if event.event_type == "session.observed_state.changed"
+    )
+    facts = await fact_store.load_after("op-1")
+
+    assert turn_event.payload["status"] == "disconnected"
+    assert observed_event.payload["status"] == "disconnected"
+    assert [fact.fact_type for fact in facts] == ["session.discontinuity_observed"]
+    assert await fact_store.load_translated_sequence("op-1") == 1
 
 
 @pytest.mark.anyio

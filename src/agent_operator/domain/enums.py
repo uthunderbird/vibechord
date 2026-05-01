@@ -70,6 +70,7 @@ class SessionStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    DISCONNECTED = "disconnected"
 
 
 class BackgroundRunStatus(StrEnum):

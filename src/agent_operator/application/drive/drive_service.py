@@ -572,6 +572,8 @@ class DriveService:
                 return "session.completed"
             if status == "cancelled":
                 return "session.cancelled"
+            if status == "disconnected":
+                return "session.discontinuity_observed"
             if status == "interrupted":
                 return "session.waiting_input_observed"
             if status == "failed":
