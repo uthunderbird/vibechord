@@ -45,7 +45,7 @@ ADR_0219_GROUPING_BACKLOG: dict[str, tuple[str, ...]] = {
     "operation_detail": (),
     "fleet_inventory": (),
     "edit": (),
-    "advanced_nl": ("converse",),
+    "advanced_nl": (),
     "autonomy": (),
 }
 
@@ -84,7 +84,10 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     CliCommandRecord("config set-root", "stable", "admin", "Register project-discovery root."),
     CliCommandRecord("config show", "stable", "admin", "Redacted global config surface."),
     CliCommandRecord(
-        "converse", "stable", "control", "Interactive NL dialogue over operator state."
+        "converse",
+        "transitional",
+        "nl-alias",
+        "Advanced interactive NL dialogue retained during naming migration.",
     ),
     CliCommandRecord(
         "context", "transitional", "debug-alias", "Hidden top-level alias for debug context."

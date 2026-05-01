@@ -76,6 +76,7 @@ def test_cli_command_inventory_keeps_grouped_compatibility_aliases_transitional(
     assert records["show report"].stability == "stable"
     assert records["show session"].stability == "stable"
     assert records["show tasks"].stability == "stable"
+    assert records["converse"].stability == "transitional"
 
 
 def test_cli_command_inventory_doc_lists_required_adr_0210_sections() -> None:
@@ -104,7 +105,7 @@ def test_adr_0219_canonical_root_surface_is_explicit_subset() -> None:
 
 
 def test_adr_0219_grouping_backlog_names_existing_stable_root_commands() -> None:
-    """Catches the mutation where grouped-surface backlog stops matching registered commands."""
+    """Catches the mutation where a non-empty grouping backlog stops matching stable roots."""
     records = {item.path: item for item in COMMAND_INVENTORY}
     grouped_paths = {
         path
@@ -112,7 +113,8 @@ def test_adr_0219_grouping_backlog_names_existing_stable_root_commands() -> None
         for path in paths
     }
 
-    assert grouped_paths
+    if not grouped_paths:
+        return
     assert grouped_paths.isdisjoint(ADR_0219_CANONICAL_ROOT_COMMANDS)
     assert all(" " not in path for path in grouped_paths)
     assert grouped_paths <= records.keys()

@@ -13,8 +13,8 @@ depend on it as the long-term shell contract.
 ADR 0219 splits stable root commands into two sets:
 
 - canonical root commands: the intended small root workflow surface;
-- grouping backlog commands: still stable and callable, but intended to move behind grouped
-  namespaces before the final CLI shape is claimed.
+- grouping backlog commands: stable root commands still waiting for a grouped namespace. This
+  backlog is currently empty; migrated root paths are listed as transitional aliases.
 
 ### Lifecycle
 
@@ -27,7 +27,6 @@ ADR 0219 splits stable root commands into two sets:
 
 - `answer`
 - `cancel`
-- `converse`
 - `edit`
 - `edit criteria`
 - `edit execution-profile`
@@ -104,12 +103,6 @@ ADR 0219 splits stable root commands into two sets:
 - `unpause`
 - `watch`
 
-## ADR 0219 grouping backlog
-
-### Other grouping candidates
-
-- `converse`
-
 ## Transitional commands
 
 These paths remain callable, but the canonical homes are under `operator debug` or other stable
@@ -120,6 +113,7 @@ surfaces.
 - `artifacts` -> use `show artifacts`
 - `attention` -> use `show attention`
 - `command` -> use `debug command`
+- `converse` -> use `ask` for stable single-shot NL queries; dialogue naming remains transitional
 - `context` -> use `debug context`
 - `dashboard` -> use `show dashboard`
 - `history` -> use `fleet history`

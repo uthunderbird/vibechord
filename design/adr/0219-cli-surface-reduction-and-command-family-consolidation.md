@@ -8,15 +8,15 @@ Proposed
 
 ## Implementation Status
 
-Partial
+Implemented
 
 Implementation grounding on 2026-05-02:
 
 - `implemented`: the intended ADR 0219 canonical root surface is now represented as a checked-in
   CLI inventory constant rather than only prose. Evidence:
   `src/agent_operator/cli/command_inventory.py`.
-- `implemented`: the current stable root commands that should move behind grouped namespaces are
-  represented as an explicit grouping backlog. Evidence:
+- `implemented`: the ADR 0219 grouping backlog is explicit and currently empty because grouped
+  homes exist for the migrated command families. Evidence:
   `src/agent_operator/cli/command_inventory.py`,
   `docs/reference/cli-command-inventory.md`.
 - `implemented`: the edit/mutation family has a grouped stable namespace:
@@ -43,7 +43,12 @@ Implementation grounding on 2026-05-02:
   read payloads, grouped fleet commands delegating to the existing inventory/history/agenda read
   paths, and grouped edit-involvement delegating to the existing autonomy mutation path. Evidence:
   `tests/test_cli_command_inventory.py`, `tests/test_cli.py`.
-- `planned`: natural-language grouping remains open; no compatibility alias has been removed.
+- `implemented`: `ask` is the only stable natural-language root. The root `converse` dialogue
+  surface remains callable but is classified as transitional while the long-term dialogue spelling
+  is settled. Evidence: `src/agent_operator/cli/command_inventory.py`,
+  `docs/reference/cli-command-inventory.md`.
+- `implemented`: no compatibility alias has been removed; previous root paths remain callable but
+  are classified outside the stable root surface.
 
 ## Context
 

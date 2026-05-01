@@ -26,7 +26,6 @@ This page is the command-by-command contract matrix for ADR 0210.
 | --- | --- | --- | --- | --- |
 | `answer` | `stable` | `operator answer --json` | success only | Uses shared resolution; attention resolution is deterministic and event-sourced. |
 | `cancel` | `stable` | `operator cancel --json` | `0/3/4` | Operation-level cancel publishes semantic status; scoped run/session cancel can remain `0` while queued. |
-| `converse` | `stable` | none | success only | Read-only turns answer directly; write proposals require explicit confirmation. |
 | `edit` | `stable` | none | success only | Namespace for grouped operation mutation surfaces. |
 | `edit criteria` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `edit execution-profile` | `stable` | none | success only | Uses the event-sourced command/control path. |
@@ -93,6 +92,7 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `artifacts` | `transitional` | `operator show artifacts --json` | success only | Compatibility alias for `show artifacts`. |
 | `attention` | `transitional` | `operator show attention --json` | success only | Compatibility alias for `show attention`. |
 | `command` | `transitional` | none | success only | Hidden alias for `debug command`. |
+| `converse` | `transitional` | none | success only | Advanced interactive NL dialogue retained during naming migration; stable single-shot NL queries use `ask`. |
 | `context` | `transitional` | `operator debug context --json` | success only | Hidden alias for `debug context`. |
 | `dashboard` | `transitional` | `operator show dashboard --json` | success only | Compatibility alias for `show dashboard`. |
 | `history` | `transitional` | `operator fleet history --json` | success only | Compatibility alias for `fleet history`. |
