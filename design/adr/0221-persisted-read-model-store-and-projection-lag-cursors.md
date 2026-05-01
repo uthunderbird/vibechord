@@ -38,8 +38,14 @@ Implementation grounding on 2026-05-02:
   `tests/test_operation_read_model_projector.py`, `tests/test_event_sourced_birth.py`,
   `tests/test_event_sourced_command_application.py`, and
   `tests/test_event_sourced_operation_loop.py`.
-- `planned`: dashboard/TUI/MCP/fleet caches still need store-specific freshness policies before
-  they can read persisted projections as cached delivery data.
+- `implemented`: dashboard payloads expose shared `sync_health` in `runtime_overlay`, so stale
+  persisted read-model projection labels reach dashboard consumers instead of being hidden by the
+  dashboard read shape. Evidence:
+  `src/agent_operator/application/queries/operation_dashboard_queries.py`.
+- `verified`: dashboard tests assert stale persisted projection lag is surfaced through the
+  dashboard payload. Evidence: `tests/test_operation_dashboard_queries.py`.
+- `planned`: TUI/MCP/fleet caches still need store-specific freshness policies before they can
+  read persisted projections as cached delivery data.
 
 ## Context
 
@@ -99,4 +105,5 @@ Planned implementation should introduce:
 
 This ADR is proposed and partially implemented. The standalone projection store foundation exists,
 status sync-health can report its cursor lag, and event-sourced write paths refresh the persisted
-status projection, but cached read-surface freshness policies remain planned.
+status projection. Dashboard surfaces shared sync-health labels; TUI/MCP/fleet cached read-surface
+freshness policies remain planned.
