@@ -28,14 +28,15 @@ ADR 0219 splits stable root commands into two sets:
 - `answer`
 - `cancel`
 - `converse`
+- `edit`
+- `edit criteria`
+- `edit execution-profile`
+- `edit harness`
+- `edit objective`
 - `interrupt`
 - `involvement`
 - `message`
-- `patch-objective`
-- `patch-harness`
-- `patch-criteria`
 - `pause`
-- `set-execution-profile`
 - `unpause`
 
 ### Read / supervision
@@ -87,6 +88,7 @@ ADR 0219 splits stable root commands into two sets:
 - `cancel`
 - `clear`
 - `config`
+- `edit`
 - `fleet`
 - `init`
 - `interrupt`
@@ -119,13 +121,6 @@ ADR 0219 splits stable root commands into two sets:
 - `history`
 - `list`
 
-### Edit / mutation candidates
-
-- `patch-criteria`
-- `patch-harness`
-- `patch-objective`
-- `set-execution-profile`
-
 ### Other grouping candidates
 
 - `converse`
@@ -140,8 +135,12 @@ surfaces.
 - `command` -> use `debug command`
 - `context` -> use `debug context`
 - `inspect` -> use `debug inspect`
+- `patch-criteria` -> use `edit criteria`
+- `patch-harness` -> use `edit harness`
+- `patch-objective` -> use `edit objective`
 - `recover` -> use `debug recover`
 - `resume` -> use `debug resume`
+- `set-execution-profile` -> use `edit execution-profile`
 - `sessions` -> use `debug sessions`
 - `stop-turn` -> use `interrupt`
 - `tick` -> use `debug tick`

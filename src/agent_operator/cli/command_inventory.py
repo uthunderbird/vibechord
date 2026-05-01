@@ -23,6 +23,7 @@ ADR_0219_CANONICAL_ROOT_COMMANDS: frozenset[str] = frozenset(
         "cancel",
         "clear",
         "config",
+        "edit",
         "fleet",
         "init",
         "interrupt",
@@ -56,10 +57,6 @@ ADR_0219_GROUPING_BACKLOG: dict[str, tuple[str, ...]] = {
         "list",
     ),
     "edit": (
-        "patch-criteria",
-        "patch-harness",
-        "patch-objective",
-        "set-execution-profile",
     ),
     "advanced_nl": ("converse",),
     "autonomy": ("involvement",),
@@ -109,6 +106,18 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     CliCommandRecord("debug tick", "debug-only", "debug", "Single scheduler cycle helper."),
     CliCommandRecord("debug trace", "debug-only", "debug", "Forensic trace surface."),
     CliCommandRecord("debug wakeups", "debug-only", "debug", "Wakeup queue inspection."),
+    CliCommandRecord("edit", "stable", "control", "Grouped operation mutation namespace."),
+    CliCommandRecord(
+        "edit criteria", "stable", "control", "Grouped success-criteria patch surface."
+    ),
+    CliCommandRecord(
+        "edit execution-profile",
+        "stable",
+        "control",
+        "Grouped execution-profile mutation surface.",
+    ),
+    CliCommandRecord("edit harness", "stable", "control", "Grouped harness patch surface."),
+    CliCommandRecord("edit objective", "stable", "control", "Grouped objective patch surface."),
     CliCommandRecord("fleet", "stable", "lifecycle", "Fleet-first supervision surface."),
     CliCommandRecord("history", "stable", "read", "Project history ledger surface."),
     CliCommandRecord("init", "stable", "lifecycle", "Workspace profile bootstrap."),
@@ -123,10 +132,17 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
     CliCommandRecord("memory", "stable", "read", "Canonical memory inspection surface."),
     CliCommandRecord("message", "stable", "control", "Durable operator-context injection surface."),
     CliCommandRecord(
-        "patch-criteria", "stable", "control", "Canonical success-criteria patch surface."
+        "patch-criteria", "transitional", "edit-alias", "Compatibility alias for edit criteria."
     ),
-    CliCommandRecord("patch-harness", "stable", "control", "Canonical harness patch surface."),
-    CliCommandRecord("patch-objective", "stable", "control", "Canonical objective patch surface."),
+    CliCommandRecord(
+        "patch-harness", "transitional", "edit-alias", "Compatibility alias for edit harness."
+    ),
+    CliCommandRecord(
+        "patch-objective",
+        "transitional",
+        "edit-alias",
+        "Compatibility alias for edit objective.",
+    ),
     CliCommandRecord("pause", "stable", "control", "Canonical pause surface."),
     CliCommandRecord("policy", "stable", "policy", "Project policy namespace."),
     CliCommandRecord("policy explain", "stable", "policy", "Policy explainability surface."),
@@ -156,7 +172,10 @@ COMMAND_INVENTORY: tuple[CliCommandRecord, ...] = (
         "sessions", "transitional", "debug-alias", "Hidden top-level alias for debug sessions."
     ),
     CliCommandRecord(
-        "set-execution-profile", "stable", "control", "Execution-profile mutation surface."
+        "set-execution-profile",
+        "transitional",
+        "edit-alias",
+        "Compatibility alias for edit execution-profile.",
     ),
     CliCommandRecord("smoke", "debug-only", "verification", "Hidden live verification namespace."),
     CliCommandRecord(

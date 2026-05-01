@@ -19,11 +19,18 @@ Implementation grounding on 2026-05-02:
   represented as an explicit grouping backlog. Evidence:
   `src/agent_operator/cli/command_inventory.py`,
   `docs/reference/cli-command-inventory.md`.
+- `implemented`: the edit/mutation family has a grouped stable namespace:
+  `edit objective`, `edit harness`, `edit criteria`, and `edit execution-profile`. The previous
+  root mutation paths remain callable but are classified as transitional compatibility aliases.
+  Evidence: `src/agent_operator/cli/commands/operation_control.py`,
+  `src/agent_operator/cli/command_inventory.py`.
 - `verified`: command-inventory tests prove every registered stable root command is accounted for
   as either canonical root surface or grouping backlog, and prevent new stable root commands from
-  bypassing ADR 0219 classification. Evidence: `tests/test_cli_command_inventory.py`.
-- `planned`: no command has been removed, hidden, or migrated yet; this tranche makes the CLI
-  reduction target measurable before behavior-changing migration work.
+  bypassing ADR 0219 classification. Focused CLI tests cover the grouped edit commands delegating
+  to the existing event-sourced command/control path. Evidence:
+  `tests/test_cli_command_inventory.py`, `tests/test_cli.py`.
+- `planned`: operation-detail, fleet-inventory, natural-language, and autonomy grouping remain
+  open; no compatibility alias has been removed.
 
 ## Context
 

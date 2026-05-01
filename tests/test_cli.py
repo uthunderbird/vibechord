@@ -5382,6 +5382,29 @@ def test_patch_objective_command_enqueues_patch_objective(tmp_path: Path, monkey
     assert record.command.payload["text"] == "Audit the release flow and trim dead steps."
 
 
+def test_edit_objective_command_enqueues_patch_objective(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped edit objective bypasses the patch command path."""
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _install_patch_delivery_stub(
+        monkeypatch,
+        tmp_path=tmp_path,
+        command_type=OperationCommandType.PATCH_OBJECTIVE,
+    )
+
+    result = runner.invoke(
+        app,
+        ["edit", "objective", operation_id, "Audit the release flow and trim dead steps."],
+    )
+
+    assert result.exit_code == 0
+    assert "accepted: patch_objective [" in result.stdout
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_OBJECTIVE
+    assert record.command.payload["text"] == "Audit the release flow and trim dead steps."
+
+
 def test_patch_harness_command_enqueues_patch_harness(tmp_path: Path, monkeypatch) -> None:
     operation_id = _seed_operation(tmp_path)
     monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
@@ -5394,6 +5417,29 @@ def test_patch_harness_command_enqueues_patch_harness(tmp_path: Path, monkeypatc
     result = runner.invoke(
         app,
         ["patch-harness", operation_id, "Prefer the smallest verifiable change."],
+    )
+
+    assert result.exit_code == 0
+    assert "accepted: patch_harness [" in result.stdout
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_HARNESS
+    assert record.command.payload["text"] == "Prefer the smallest verifiable change."
+
+
+def test_edit_harness_command_enqueues_patch_harness(tmp_path: Path, monkeypatch) -> None:
+    """Catches the mutation where grouped edit harness targets the wrong command type."""
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _install_patch_delivery_stub(
+        monkeypatch,
+        tmp_path=tmp_path,
+        command_type=OperationCommandType.PATCH_HARNESS,
+    )
+
+    result = runner.invoke(
+        app,
+        ["edit", "harness", operation_id, "Prefer the smallest verifiable change."],
     )
 
     assert result.exit_code == 0
@@ -5583,6 +5629,39 @@ def test_patch_criteria_command_enqueues_patch_success_criteria(
         app,
         [
             "patch-criteria",
+            operation_id,
+            "--criteria",
+            "Tests pass",
+            "--criteria",
+            "Docs updated",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "accepted: patch_success_criteria [" in result.stdout
+    record = _read_control_intent(tmp_path)
+    assert record.command is not None
+    assert record.command.command_type is OperationCommandType.PATCH_SUCCESS_CRITERIA
+    assert record.command.payload["success_criteria"] == ["Tests pass", "Docs updated"]
+
+
+def test_edit_criteria_command_enqueues_patch_success_criteria(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Catches the mutation where grouped edit criteria drops repeated criteria values."""
+    operation_id = _seed_operation(tmp_path)
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    _install_patch_delivery_stub(
+        monkeypatch,
+        tmp_path=tmp_path,
+        command_type=OperationCommandType.PATCH_SUCCESS_CRITERIA,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "edit",
+            "criteria",
             operation_id,
             "--criteria",
             "Tests pass",

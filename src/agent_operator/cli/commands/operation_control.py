@@ -10,7 +10,7 @@ from agent_operator.domain import (
     RunMode,
 )
 
-from ..app import app, debug_app
+from ..app import app, debug_app, edit_app
 from ..helpers.resolution import resolve_operation_id
 from ..options import (
     COMMAND_ALLOWED_AGENT_OPTION,
@@ -252,6 +252,11 @@ def patch_objective(operation_ref: str, text: str) -> None:
     )
 
 
+@edit_app.command("objective")
+def edit_objective(operation_ref: str, text: str) -> None:
+    patch_objective(operation_ref, text)
+
+
 @app.command()
 def patch_harness(operation_ref: str, text: str) -> None:
     anyio.run(
@@ -271,6 +276,11 @@ def patch_harness(operation_ref: str, text: str) -> None:
         None,
         True,
     )
+
+
+@edit_app.command("harness")
+def edit_harness(operation_ref: str, text: str) -> None:
+    patch_harness(operation_ref, text)
 
 
 @app.command("patch-criteria")
@@ -296,6 +306,27 @@ def patch_criteria(
         None,
         True,
     )
+
+
+@edit_app.command("criteria")
+def edit_criteria(
+    operation_ref: str,
+    criteria: list[str] | None = PATCH_CRITERIA_OPTION,
+    clear: bool = PATCH_CLEAR_CRITERIA_OPTION,
+) -> None:
+    patch_criteria(operation_ref, criteria, clear)
+
+
+@edit_app.command("execution-profile")
+def edit_execution_profile(
+    operation_ref: str,
+    agent: str = typer.Option(..., "--agent", help="Allowed adapter key to update."),
+    model: str = typer.Option(..., "--model", help="Model identifier to use for future turns."),
+    effort: str | None = typer.Option(
+        None, "--effort", help="Effort level for the selected adapter."
+    ),
+) -> None:
+    set_execution_profile(operation_ref, agent, model, effort)
 
 
 @app.command()

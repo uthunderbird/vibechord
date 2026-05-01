@@ -27,14 +27,15 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `answer` | `stable` | `operator answer --json` | success only | Uses shared resolution; attention resolution is deterministic and event-sourced. |
 | `cancel` | `stable` | `operator cancel --json` | `0/3/4` | Operation-level cancel publishes semantic status; scoped run/session cancel can remain `0` while queued. |
 | `converse` | `stable` | none | success only | Read-only turns answer directly; write proposals require explicit confirmation. |
+| `edit` | `stable` | none | success only | Namespace for grouped operation mutation surfaces. |
+| `edit criteria` | `stable` | none | success only | Uses the event-sourced command/control path. |
+| `edit execution-profile` | `stable` | none | success only | Uses the event-sourced command/control path. |
+| `edit harness` | `stable` | none | success only | Uses the event-sourced command/control path. |
+| `edit objective` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `interrupt` | `stable` | none | success only | Session-targeted interruption remains the explicit non-ADR-0205 command-path exception. |
 | `involvement` | `stable` | none | success only | Shared command-application path handles accepted/rejected outcomes. |
 | `message` | `stable` | none | success only | Uses the event-sourced command/control path. |
-| `patch-objective` | `stable` | none | success only | Uses the event-sourced command/control path. |
-| `patch-harness` | `stable` | none | success only | Uses the event-sourced command/control path. |
-| `patch-criteria` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `pause` | `stable` | none | success only | Uses the event-sourced command/control path. |
-| `set-execution-profile` | `stable` | none | success only | Uses the event-sourced command/control path. |
 | `unpause` | `stable` | none | success only | Uses the event-sourced command/control path. |
 
 ## Stable Read And Supervision
@@ -90,8 +91,12 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `command` | `transitional` | none | success only | Hidden alias for `debug command`. |
 | `context` | `transitional` | `operator debug context --json` | success only | Hidden alias for `debug context`. |
 | `inspect` | `transitional` | `operator debug inspect --json` | success only | Hidden alias for `debug inspect`. |
+| `patch-criteria` | `transitional` | none | success only | Compatibility alias for `edit criteria`. |
+| `patch-harness` | `transitional` | none | success only | Compatibility alias for `edit harness`. |
+| `patch-objective` | `transitional` | none | success only | Compatibility alias for `edit objective`. |
 | `recover` | `transitional` | `operator debug recover --json` | success only | Hidden alias for `debug recover`. |
 | `resume` | `transitional` | `operator debug resume --json` | success only | Hidden alias for `debug resume`. |
+| `set-execution-profile` | `transitional` | none | success only | Compatibility alias for `edit execution-profile`. |
 | `sessions` | `transitional` | `operator debug sessions --json` | success only | Hidden alias for `debug sessions`. |
 | `stop-turn` | `transitional` | none | success only | Hidden alias retained during `interrupt` cutover. |
 | `tick` | `transitional` | none | success only | Hidden alias for `debug tick`. |
