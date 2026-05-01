@@ -8,7 +8,20 @@ Proposed
 
 ## Implementation Status
 
-Planned
+Partial
+
+Implementation grounding on 2026-05-02:
+
+- `implemented`: foundation record `PersistedReadModelProjection` carries `operation_id`,
+  `projection_type`, `source_event_sequence`, opaque projection payload, and projection timestamp.
+  Evidence: `src/agent_operator/domain/read_model.py`.
+- `implemented`: `FileReadModelProjectionStore` can save/load standalone projection snapshots,
+  isolate projection types, expose `source_event_sequence`, and compute projection lag relative to
+  canonical event sequence. Evidence: `src/agent_operator/runtime/read_models.py`.
+- `verified`: focused tests cover cursor persistence, per-projection isolation, lag calculation,
+  and invalid cursor rejection. Evidence: `tests/test_read_model_projection_store.py`.
+- `planned`: no delivery surface consumes this store yet; status/dashboard/TUI/MCP remain on the
+  current checkpoint-backed and rebuild-at-read-time projection path.
 
 ## Context
 
@@ -66,5 +79,5 @@ Planned implementation should introduce:
 
 ## Current Status
 
-This ADR is proposed and planned. No standalone persisted read-model store is implemented by this
-ADR.
+This ADR is proposed and partially implemented. The standalone projection store foundation exists,
+but no production read surface writes or reads it yet.

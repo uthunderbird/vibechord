@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from agent_operator.domain.traceability import AgentTurnBrief, IterationBrief, OperationBrief
 
@@ -44,3 +45,26 @@ class OperationReadModel:
     @classmethod
     def empty(cls, operation_id: str) -> OperationReadModel:
         return cls(operation_id=operation_id)
+
+
+@dataclass
+class PersistedReadModelProjection:
+    """Stored read-model projection with explicit canonical event cursor.
+
+    The projection payload is derived state. `source_event_sequence` names the
+    canonical event stream sequence used to build it.
+    """
+
+    operation_id: str
+    projection_type: str
+    source_event_sequence: int
+    projection_payload: dict[str, Any] = field(default_factory=dict)
+    projected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if self.source_event_sequence < 0:
+            raise ValueError("source_event_sequence must be non-negative.")
+        if not self.operation_id:
+            raise ValueError("operation_id must not be empty.")
+        if not self.projection_type:
+            raise ValueError("projection_type must not be empty.")

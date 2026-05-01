@@ -130,7 +130,11 @@ from agent_operator.domain.profile import (
     ResolvedProjectRunConfig,
     TicketReportingConfig,
 )
-from agent_operator.domain.read_model import DecisionRecord, OperationReadModel
+from agent_operator.domain.read_model import (
+    DecisionRecord,
+    OperationReadModel,
+    PersistedReadModelProjection,
+)
 from agent_operator.domain.session_runtime import AgentSessionCommand, AgentSessionCommandType
 from agent_operator.domain.traceability import (
     AgentTurnBrief,
@@ -284,5 +288,6 @@ __all__ = [
     "StaleEpochError",
     "OperationAggregate",
     "OperationReadModel",
+    "PersistedReadModelProjection",
     "DecisionRecord",
 ]

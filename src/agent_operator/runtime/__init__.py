@@ -61,6 +61,7 @@ from agent_operator.runtime.project_clear import (
     find_project_clear_blockers,
 )
 from agent_operator.runtime.project_memory import FileProjectMemoryStore
+from agent_operator.runtime.read_models import FileReadModelProjectionStore
 from agent_operator.runtime.store import FileOperationStore
 from agent_operator.runtime.supervisor import InProcessAgentRunSupervisor
 from agent_operator.runtime.trace import FileTraceStore
@@ -83,6 +84,7 @@ __all__ = [
     "FileOperationStore",
     "FilePolicyStore",
     "FileProjectMemoryStore",
+    "FileReadModelProjectionStore",
     "FileTraceStore",
     "FileWakeupInbox",
     "WakeupWatcher",
