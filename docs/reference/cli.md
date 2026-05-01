@@ -33,7 +33,6 @@ Primary workflow surfaces:
 - `pause` / `unpause` — control operation execution
 - `interrupt` — stop the current agent turn without cancelling the whole operation
 - `cancel` — cancel an operation
-- `history` — show committed project history
 - `init` — set up operator in the current project
 - `clear` — wipe project-local operator runtime state while preserving profiles
 - `project ...` — manage project profiles
@@ -52,8 +51,9 @@ Situational and forensic surfaces:
 - `attention` — attention request details
 - `report` — human-readable operation report
 - `log` — condensed transcript events
-- `list` — persisted operation inventory
-- `agenda` — cross-operation agenda view
+- `fleet list` — persisted operation inventory
+- `fleet agenda` — cross-operation agenda view
+- `fleet history` — committed project history
 - `involvement` — update the autonomy level for a running operation; `edit involvement` is the
   grouped mutation-family path
 
@@ -205,12 +205,13 @@ inactive entries in that explanation.
 promotion via `--attention`. `policy revoke` remains a destructive explicit mutation and therefore
 asks for confirmation by default; use `--yes` to skip the prompt.
 
-`log`, `history`, and `report` are adjacent but intentionally different:
+`log`, `fleet history`, and `report` are adjacent but intentionally different:
 
 - `log` is transcript-first. It shows condensed agent transcript events and supports follow mode for
   session-oriented inspection.
-- `history` is ledger-first. It shows committed durable run history for the current project and can
-  resolve operation references like `last`.
+- `fleet history` is ledger-first. It shows committed durable run history for the current project
+  and can resolve operation references like `last`. The root `history` path remains callable during
+  ADR 0219 migration.
 - `report` is retrospective-first. It shows the synthesized operation report and, under `--json`,
   includes the report text plus brief/outcome and durable-truth payloads.
 

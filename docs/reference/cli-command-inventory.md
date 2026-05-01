@@ -41,7 +41,6 @@ ADR 0219 splits stable root commands into two sets:
 
 ### Read / supervision
 
-- `agenda`
 - `artifacts`
 - `ask`
 - `attention`
@@ -49,8 +48,6 @@ ADR 0219 splits stable root commands into two sets:
 - `fleet agenda`
 - `fleet history`
 - `fleet list`
-- `history`
-- `list`
 - `log`
 - `memory`
 - `report`
@@ -128,12 +125,6 @@ ADR 0219 splits stable root commands into two sets:
 - `session`
 - `tasks`
 
-### Fleet inventory candidates
-
-- `agenda`
-- `history`
-- `list`
-
 ### Other grouping candidates
 
 - `converse`
@@ -144,10 +135,13 @@ These paths remain callable, but the canonical homes are under `operator debug` 
 surfaces.
 
 - `daemon` -> use `debug daemon`
+- `agenda` -> use `fleet agenda`
 - `command` -> use `debug command`
 - `context` -> use `debug context`
+- `history` -> use `fleet history`
 - `inspect` -> use `debug inspect`
 - `involvement` -> use `edit involvement`
+- `list` -> use `fleet list`
 - `patch-criteria` -> use `edit criteria`
 - `patch-harness` -> use `edit harness`
 - `patch-objective` -> use `edit objective`

@@ -42,7 +42,6 @@ This page is the command-by-command contract matrix for ADR 0210.
 
 | Path | Stability | JSON contract | Semantic exit codes | Error notes |
 | --- | --- | --- | --- | --- |
-| `agenda` | `stable` | `operator agenda --json` | success only | Uses the shared read/query path rather than delivery-local state assembly. |
 | `artifacts` | `stable` | `operator artifacts --json` | success only | Uses shared operation resolution. |
 | `ask` | `stable` | `operator ask --json` | `0/4` | Missing-operation and runtime query failures use the stable internal-error code. |
 | `attention` | `stable` | `operator attention --json` | success only | Uses shared operation resolution. |
@@ -50,8 +49,6 @@ This page is the command-by-command contract matrix for ADR 0210.
 | `fleet agenda` | `stable` | `operator fleet agenda --json` | success only | Grouped alias for cross-operation agenda. |
 | `fleet history` | `stable` | `operator fleet history --json` | success only | Grouped alias for committed history ledger. |
 | `fleet list` | `stable` | `operator fleet list --json` | success only | Grouped alias for persisted operation inventory. |
-| `history` | `stable` | `operator history --json` | success only | Reads committed ledger truth rather than live runtime summaries. |
-| `list` | `stable` | `operator list --json` | success only | Inventory-shaped output remains distinct from fleet/agenda supervision payloads. |
 | `log` | `stable` | `operator log --json` | success only | Transcript/log payload stays agent-flavor aware. |
 | `memory` | `stable` | `operator memory --json` | success only | Uses shared operation resolution. |
 | `report` | `stable` | `operator report --json` | success only | Report JSON keeps synthesized report plus durable-truth context explicit. |
@@ -100,10 +97,13 @@ This page is the command-by-command contract matrix for ADR 0210.
 | Path | Stability | JSON contract | Semantic exit codes | Error notes |
 | --- | --- | --- | --- | --- |
 | `daemon` | `transitional` | `operator debug daemon --json` | success only | Hidden alias for `debug daemon`. |
+| `agenda` | `transitional` | `operator fleet agenda --json` | success only | Compatibility alias for `fleet agenda`. |
 | `command` | `transitional` | none | success only | Hidden alias for `debug command`. |
 | `context` | `transitional` | `operator debug context --json` | success only | Hidden alias for `debug context`. |
+| `history` | `transitional` | `operator fleet history --json` | success only | Compatibility alias for `fleet history`. |
 | `inspect` | `transitional` | `operator debug inspect --json` | success only | Hidden alias for `debug inspect`. |
 | `involvement` | `transitional` | none | success only | Compatibility alias for `edit involvement`. |
+| `list` | `transitional` | `operator fleet list --json` | success only | Compatibility alias for `fleet list`. |
 | `patch-criteria` | `transitional` | none | success only | Compatibility alias for `edit criteria`. |
 | `patch-harness` | `transitional` | none | success only | Compatibility alias for `edit harness`. |
 | `patch-objective` | `transitional` | none | success only | Compatibility alias for `edit objective`. |

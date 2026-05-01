@@ -48,6 +48,20 @@ def test_cli_command_inventory_keeps_debug_aliases_out_of_stable_set() -> None:
     assert records["debug recover"].stability == "debug-only"
 
 
+def test_cli_command_inventory_keeps_grouped_compatibility_aliases_transitional() -> None:
+    """Catches the mutation where grouped-family root aliases drift back to stable roots."""
+    records = {item.path: item for item in COMMAND_INVENTORY}
+
+    assert records["agenda"].stability == "transitional"
+    assert records["history"].stability == "transitional"
+    assert records["involvement"].stability == "transitional"
+    assert records["list"].stability == "transitional"
+    assert records["fleet agenda"].stability == "stable"
+    assert records["fleet history"].stability == "stable"
+    assert records["fleet list"].stability == "stable"
+    assert records["edit involvement"].stability == "stable"
+
+
 def test_cli_command_inventory_doc_lists_required_adr_0210_sections() -> None:
     inventory_doc = INVENTORY_DOC.read_text(encoding="utf-8")
 
