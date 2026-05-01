@@ -4,11 +4,38 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Partial
+Implemented
+
+Implementation grounding on 2026-05-02:
+
+- `implemented`: status and inspect surfaces expose sync-health fields for canonical, fact,
+  translated-fact, checkpoint, and current checkpoint-backed projection cursors. Evidence:
+  `src/agent_operator/application/queries/operation_status_queries.py`,
+  `tests/test_operation_status_queries.py`.
+- `implemented`: technical fact storage now has durable translated cursors and preserves
+  unsupported technical facts as untranslated lag instead of silently advancing the cursor.
+  Evidence: `src/agent_operator/runtime/facts.py`,
+  `src/agent_operator/application/event_sourcing/event_sourced_operation_loop.py`,
+  `tests/test_fact_store.py`, `tests/test_event_sourced_operation_loop.py`.
+- `implemented`: v2 drive persists technical facts for session start, terminal, disconnected,
+  waiting-input, and permission outcomes; canonical events are linked by `causation_id`, and the
+  translated cursor advances after canonical append. Evidence:
+  `src/agent_operator/application/drive/drive_service.py`,
+  `src/agent_operator/application/drive/policy_executor.py`,
+  `tests/test_drive_service_v2.py`.
+- `implemented`: trace brief absence no longer hides canonical latest-turn truth, cancelled
+  attached turns materialize cancelled canonical events, and runtime drain materializes a parked
+  state instead of silent `running`. Evidence: `tests/test_operation_status_queries.py`,
+  `tests/test_drive_service_v2.py`, `tests/test_attached_session_registry.py`.
+- `implemented`: future standalone persisted read-model-store projection lag is split into
+  ADR 0221. Current status projections are checkpoint-backed and explicitly report
+  `projection_lag` using the checkpoint sequence basis.
+- `verified`: local focused and full repository suites passed during implementation tranches,
+  ending with `uv run pytest`: `1058 passed, 11 skipped`.
 
 ## Context
 
@@ -341,7 +368,7 @@ Minimum regressions:
 
 ## Current Status
 
-This ADR is proposed and partially implemented.
+This ADR is accepted and implemented for the current checkpoint-backed v2 runtime.
 
 The repository already has partial ingredients:
 
@@ -388,8 +415,7 @@ Implemented slices:
   `permission.request.escalated`, and `permission.request.followup_required` are durably stored,
   causally linked to canonical events, and included in translated cursor advancement.
 
-Still planned:
+Future work:
 
-- persisted projection lag for future standalone read-model stores;
-- full fact-to-domain translation for ACP/runtime outcomes not yet represented by v2
-  `AgentResult` terminal and permission materialization.
+- persisted projection lag for future standalone read-model stores is tracked separately in
+  ADR 0221.
