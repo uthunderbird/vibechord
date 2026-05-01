@@ -127,6 +127,34 @@ class FakeHooks:
         return f"Unknown Fake ACP session: {session_id}"
 
 
+class PermissionRecordingHooks(FakeHooks):
+    async def handle_server_request(self, session: AcpSessionState, payload: JsonObject) -> None:
+        request_id = payload.get("id")
+        method = payload.get("method")
+        if method != "session/request_permission" or not isinstance(request_id, int):
+            return
+        session.permission_event_payloads.extend(
+            [
+                {
+                    "event_type": "permission.request.observed",
+                    "adapter_key": self.adapter_key,
+                    "session_id": session.acp_session_id,
+                    "request": {"method": method},
+                    "signature": {"adapter_key": self.adapter_key},
+                },
+                {
+                    "event_type": "permission.request.decided",
+                    "adapter_key": self.adapter_key,
+                    "session_id": session.acp_session_id,
+                    "request": {"method": method},
+                    "signature": {"adapter_key": self.adapter_key},
+                    "decision": "approve",
+                    "decision_source": "deterministic_rule",
+                },
+            ]
+        )
+
+
 def _update(session_id: str, text: str) -> JsonObject:
     return {
         "jsonrpc": "2.0",
@@ -314,6 +342,35 @@ async def test_session_runner_collect_can_return_disconnected_status() -> None:
     assert result.status is AgentResultStatus.DISCONNECTED
     assert result.error is not None
     assert result.error.code == "fake_disconnected"
+
+
+@pytest.mark.anyio
+async def test_session_runner_collect_includes_permission_events_in_raw_result() -> None:
+    connection = FakeAcpConnection()
+    runner = AcpSessionRunner(
+        adapter_key="fake_acp",
+        working_directory=Path.cwd(),
+        connection_factory=lambda _cwd, _log: connection,
+        hooks=PermissionRecordingHooks(),
+    )
+    handle = await runner.start(AgentRunRequest(goal="goal", instruction="hello"))
+    connection.notifications.append(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/request_permission",
+            "params": {"sessionId": "sess-1"},
+        }
+    )
+    connection.prompt_future.set_result({"stopReason": "end_turn"})
+
+    result = await runner.collect(handle)
+
+    assert result.raw is not None
+    assert [event["event_type"] for event in result.raw["permission_events"]] == [
+        "permission.request.observed",
+        "permission.request.decided",
+    ]
 
 
 @pytest.mark.anyio

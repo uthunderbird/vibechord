@@ -272,6 +272,7 @@ class AcpSessionRunner:
                 "stop_reason": session.stop_reason,
                 "response": response,
                 "notifications": raw_notifications,
+                "permission_events": list(session.permission_event_payloads),
                 "stderr": stderr,
                 "session_snapshot_available": session.session_snapshot is not None,
             },
@@ -309,6 +310,7 @@ class AcpSessionRunner:
                 "acp_session_id": session.acp_session_id,
                 "stop_reason": session.stop_reason,
                 "notifications": raw_notifications,
+                "permission_events": list(session.permission_event_payloads),
                 "stderr": stderr,
                 "pending_input_message": session.pending_input_message,
                 "pending_input_raw": pending_raw,
@@ -476,6 +478,7 @@ class AcpSessionRunner:
         session.last_error = None
         session.pending_input_message = None
         session.pending_input_raw = None
+        session.permission_event_payloads.clear()
 
     def _apply_structured_session_update(
         self,

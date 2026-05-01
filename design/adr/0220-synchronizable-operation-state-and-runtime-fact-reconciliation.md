@@ -375,6 +375,9 @@ Implemented slices:
 - v2 `DriveService` now persists technical facts for materialized agent terminal outcomes and
   permission outcomes, links the resulting canonical events by `causation_id`, and advances the
   translated-fact cursor after canonical append.
+- ACP session collection now preserves accumulated permission event payloads in `AgentResult.raw`,
+  so v2 drive materialization and fact persistence see permission outcomes from both success and
+  terminal collection paths.
 
 Still planned:
 
