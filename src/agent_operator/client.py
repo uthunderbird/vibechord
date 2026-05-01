@@ -26,6 +26,8 @@ from agent_operator.bootstrap import (
     build_background_run_inspection_store,
     build_command_inbox,
     build_event_sink,
+    build_event_store,
+    build_fact_store,
     build_replay_service,
     build_service,
     build_store,
@@ -58,7 +60,7 @@ from agent_operator.domain import (
     TaskStatus,
 )
 from agent_operator.protocols import OperationCommandInbox, OperationStore
-from agent_operator.runtime import prepare_operator_settings
+from agent_operator.runtime import FileReadModelProjectionStore, prepare_operator_settings
 
 
 class OperatorClient:
@@ -159,6 +161,11 @@ class OperatorClient:
             background_inspection_store=build_background_run_inspection_store(self._settings),
             wakeup_inspection_store=build_wakeup_inbox(self._settings),
             replay_service=build_replay_service(self._settings),
+            event_store=build_event_store(self._settings),
+            fact_store=build_fact_store(self._settings),
+            read_model_projection_store=FileReadModelProjectionStore(
+                self._settings.data_dir / "read_models"
+            ),
             state_view_service=OperationStateViewService(),
             build_runtime_alert=build_runtime_alert,
             render_status_brief=render_status_brief,

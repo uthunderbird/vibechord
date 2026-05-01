@@ -94,6 +94,30 @@ class _FactStore:
         return self._translated_sequence
 
 
+class _ReadModelProjectionStore:
+    def __init__(self, sequence: int | None) -> None:
+        self._sequence = sequence
+
+    async def load_source_event_sequence(
+        self,
+        operation_id: str,
+        projection_type: str,
+    ) -> int | None:
+        assert operation_id
+        assert projection_type == "status"
+        return self._sequence
+
+    def projection_lag(
+        self,
+        *,
+        canonical_sequence: int,
+        projection_sequence: int | None,
+    ) -> int | None:
+        if projection_sequence is None:
+            return None
+        return max(canonical_sequence - projection_sequence, 0)
+
+
 def test_build_runtime_alert_ignores_terminal_background_run_when_live_run_exists() -> None:
     """Catches the mutation where resume guidance appears during active progress."""
     alert = build_runtime_alert(
@@ -610,6 +634,79 @@ async def test_status_json_reports_translated_fact_cursor_in_sync_health() -> No
     assert sync_health["translated_fact_sequence"] == 4
     assert sync_health["untranslated_fact_count"] == 2
     assert sync_health["sync_alert"] == "technical_facts_pending_translation"
+
+
+@pytest.mark.anyio
+async def test_status_json_reports_persisted_read_model_projection_lag() -> None:
+    """Catches stale persisted projections hidden behind a fresh checkpoint."""
+    checkpoint = OperationCheckpoint.initial("op-status-v2-read-model-lag")
+    checkpoint.objective = ObjectiveState(objective="Report read model projection lag.")
+    timestamp = datetime.now(UTC)
+    canonical_events = [
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-read-model-lag",
+            sequence=1,
+            event_type="operation.created",
+            payload={},
+            timestamp=timestamp,
+        ),
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-read-model-lag",
+            sequence=2,
+            event_type="operation.objective.updated",
+            payload={},
+            timestamp=timestamp,
+        ),
+        StoredOperationDomainEvent(
+            operation_id="op-status-v2-read-model-lag",
+            sequence=3,
+            event_type="agent.turn.completed",
+            payload={
+                "session_id": "sess-1",
+                "adapter_key": "codex_acp",
+                "status": "completed",
+            },
+            timestamp=timestamp,
+        ),
+    ]
+    service = OperationStatusQueryService(
+        store=MemoryStore(),
+        projection_service=OperationProjectionService(),
+        trace_store=MemoryTraceStore(),
+        background_inspection_store=_BackgroundInspectionStore(),
+        wakeup_inspection_store=None,
+        replay_service=_ReplayService(checkpoint, last_applied_sequence=3),
+        event_store=_EventStore(canonical_events),
+        read_model_projection_store=_ReadModelProjectionStore(sequence=1),
+        build_runtime_alert=lambda **kwargs: None,
+        render_status_brief=lambda operation: "",
+        render_inspect_summary=lambda operation, brief, runtime_alert=None: "",
+        render_status_summary=(
+            lambda operation, brief, runtime_alert=None, action_hint=None: ""
+        ),
+    )
+
+    payload = json.loads(
+        await service.render_status_output(
+            "op-status-v2-read-model-lag",
+            json_mode=True,
+            brief=False,
+        )
+    )
+
+    sync_health = payload["runtime_overlay"]["sync_health"]
+    assert sync_health["canonical_sequence"] == 3
+    assert sync_health["checkpoint_sequence"] == 3
+    assert sync_health["checkpoint_lag"] == 0
+    assert sync_health["projection_sequence"] == 3
+    assert sync_health["projection_lag"] == 0
+    assert sync_health["persisted_read_model_projection_type"] == "status"
+    assert sync_health["persisted_read_model_projection_sequence"] == 1
+    assert sync_health["persisted_read_model_projection_lag"] == 2
+    assert (
+        sync_health["sync_alert"]
+        == "persisted_read_model_projection_lagging_canonical_events"
+    )
 
 
 @pytest.mark.anyio

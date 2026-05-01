@@ -38,6 +38,7 @@ from agent_operator.domain import (
     ProjectProfile,
 )
 from agent_operator.runtime import (
+    FileReadModelProjectionStore,
     ProjectingEventSink,
     committed_default_profile_path,
     prepare_operator_settings,
@@ -187,6 +188,9 @@ def build_status_query_service(settings: OperatorSettings) -> OperationStatusQue
         replay_service=build_replay_service(settings),
         event_store=build_event_store(settings),
         fact_store=build_fact_store(settings),
+        read_model_projection_store=FileReadModelProjectionStore(
+            settings.data_dir / "read_models"
+        ),
         state_view_service=OperationStateViewService(),
         build_runtime_alert=build_runtime_alert,
         render_status_brief=render_status_brief,

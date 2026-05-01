@@ -52,6 +52,21 @@ class FactStoreLike(Protocol):
     async def load_translated_sequence(self, operation_id: str) -> int: ...
 
 
+class ReadModelProjectionStoreLike(Protocol):
+    async def load_source_event_sequence(
+        self,
+        operation_id: str,
+        projection_type: str,
+    ) -> int | None: ...
+
+    def projection_lag(
+        self,
+        *,
+        canonical_sequence: int,
+        projection_sequence: int | None,
+    ) -> int | None: ...
+
+
 @dataclass(slots=True)
 class OperationRuntimeOverlay:
     """Runtime inspection facts attached to a canonical operation read.
@@ -124,6 +139,8 @@ class OperationStatusQueryService:
     replay_service: ReplayServiceLike | None = None
     event_store: EventStoreLike | None = None
     fact_store: FactStoreLike | None = None
+    read_model_projection_store: ReadModelProjectionStoreLike | None = None
+    read_model_projection_type: str = "status"
     state_view_service: OperationStateViewService = field(
         default_factory=OperationStateViewService
     )
@@ -256,6 +273,23 @@ class OperationStatusQueryService:
             if isinstance(canonical_sequence, int) and isinstance(projection_sequence, int)
             else None
         )
+        persisted_read_model_projection_sequence = (
+            await self.read_model_projection_store.load_source_event_sequence(
+                operation_id,
+                self.read_model_projection_type,
+            )
+            if self.read_model_projection_store is not None
+            else None
+        )
+        persisted_read_model_projection_lag = (
+            self.read_model_projection_store.projection_lag(
+                canonical_sequence=canonical_sequence,
+                projection_sequence=persisted_read_model_projection_sequence,
+            )
+            if self.read_model_projection_store is not None
+            and isinstance(canonical_sequence, int)
+            else None
+        )
         active_session = operation.active_session_record
         last_runtime_observation = None
         last_runtime_observed_at = None
@@ -272,6 +306,11 @@ class OperationStatusQueryService:
             sync_alert = "checkpoint_lagging_canonical_events"
         elif untranslated_fact_count is not None and untranslated_fact_count > 0:
             sync_alert = "technical_facts_pending_translation"
+        elif (
+            persisted_read_model_projection_lag is not None
+            and persisted_read_model_projection_lag > 0
+        ):
+            sync_alert = "persisted_read_model_projection_lagging_canonical_events"
         elif operation.status.value == "running" and active_session is None:
             sync_alert = "running_without_active_session"
 
@@ -285,6 +324,11 @@ class OperationStatusQueryService:
             "canonical_lag": checkpoint_lag,
             "checkpoint_lag": checkpoint_lag,
             "projection_lag": projection_lag,
+            "persisted_read_model_projection_type": self.read_model_projection_type,
+            "persisted_read_model_projection_sequence": (
+                persisted_read_model_projection_sequence
+            ),
+            "persisted_read_model_projection_lag": persisted_read_model_projection_lag,
             "active_runtime_present": active_runtime_present,
             "last_runtime_observation": last_runtime_observation,
             "last_runtime_observed_at": last_runtime_observed_at,
