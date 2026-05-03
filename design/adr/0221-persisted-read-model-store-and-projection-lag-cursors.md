@@ -4,11 +4,11 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Implementation grounding on 2026-05-02:
 
@@ -63,6 +63,9 @@ Implementation grounding on 2026-05-02:
   `src/agent_operator/cli/tui/rendering_detail.py`.
 - `verified`: TUI tests assert sync-health labels survive payload parsing and render in fleet
   detail. Evidence: `tests/test_tui.py`.
+- `verified`: focused acceptance suite passed on 2026-05-04:
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_read_model_projection_store.py tests/test_operation_status_queries.py tests/test_operation_read_model_projector.py tests/test_event_sourced_birth.py tests/test_event_sourced_command_application.py tests/test_event_sourced_operation_loop.py tests/test_operation_dashboard_queries.py tests/test_operation_agenda_queries.py tests/test_mcp_server.py tests/test_tui.py`
+  (`145 passed`).
 - `follow-up`: no production delivery surface currently reads persisted projections as cached
   business data. If a future surface starts doing that, it must add a store-specific freshness gate
   that rejects or labels stale reads at that read boundary.
@@ -123,8 +126,9 @@ Planned implementation should introduce:
 
 ## Current Status
 
-This ADR is proposed and implemented. The standalone projection store foundation exists, status
-sync-health can report its cursor lag, and event-sourced write paths refresh the persisted status
-projection. Dashboard, fleet, MCP status, and TUI fleet-detail surfaces share sync-health labels.
-No production surface currently treats persisted projections as cached business data; any future
-cached reader must add an explicit freshness gate at its read boundary.
+This ADR is accepted and verified for its current foundation scope. The standalone projection store
+foundation exists, status sync-health can report its cursor lag, and event-sourced write paths
+refresh the persisted status projection. Dashboard, fleet, MCP status, and TUI fleet-detail
+surfaces share sync-health labels. No production surface currently treats persisted projections as
+cached business data; any future cached reader must add an explicit freshness gate at its read
+boundary.
