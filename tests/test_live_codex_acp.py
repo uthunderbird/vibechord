@@ -56,20 +56,40 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.anyio
-async def test_codex_acp_live_roundtrip() -> None:
+def _live_codex_acp_adapter() -> CodexAcpAgentAdapter:
     command = _codex_acp_command()
     executable = command.split()[0]
     if shutil.which(executable) is None:
         pytest.skip(f"missing executable for live codex-acp command: {executable}")
     _skip_if_codex_acp_unavailable(command)
 
-    adapter = CodexAcpAgentAdapter(
+    return CodexAcpAgentAdapter(
         command=command,
         model=os.environ.get("OPERATOR_CODEX_ACP_MODEL"),
         reasoning_effort=os.environ.get("OPERATOR_CODEX_ACP_REASONING_EFFORT"),
         substrate_backend=_codex_acp_substrate_backend(),
     )
+
+
+@pytest.mark.anyio
+async def test_codex_acp_live_one_shot() -> None:
+    adapter = _live_codex_acp_adapter()
+    with anyio.fail_after(_codex_acp_live_timeout_seconds()):
+        handle = await adapter.start(
+            AgentRunRequest(
+                goal="live acp smoke",
+                instruction="Reply with exactly ACP_OK and nothing else.",
+            )
+        )
+        result = await adapter.collect(handle)
+
+        assert result.status.value == "success"
+        assert result.output_text.strip() == "ACP_OK"
+
+
+@pytest.mark.anyio
+async def test_codex_acp_live_follow_up_reload() -> None:
+    adapter = _live_codex_acp_adapter()
     with anyio.fail_after(_codex_acp_live_timeout_seconds()):
         handle = await adapter.start(
             AgentRunRequest(

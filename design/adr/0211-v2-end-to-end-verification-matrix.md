@@ -20,27 +20,28 @@ Implementation grounding on 2026-04-28:
   one fresh operator-on-operator smoke in this repository and one fresh external-project smoke in
   `../erdosreshala/problems/625`
 - `verified`: the repository-wide baseline row was rerun on 2026-05-03 with
-  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1101 passed, 11 skipped`) and recorded in
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1103 passed, 12 skipped`) and recorded in
   `design/internal/v2-verification-evidence-2026-05-03-full-suite.md`
-- `blocked`: the live Codex ACP preflight row was attempted on 2026-05-03 and failed before ACP
-  initialize with `AcpProtocolError: ACP subprocess closed before completing all pending requests`;
-  direct `npx @zed-industries/codex-acp --help` diagnostics also failed with npm registry DNS
-  resolution (`ENOTFOUND registry.npmjs.org`). Evidence:
+- `verified`: the split live Codex ACP one-shot and follow-up reload rows passed on 2026-05-03
+  with direct `codex-acp` and escalated sandbox/network permissions after fixing ACP subprocess
+  close cleanup. Evidence:
   `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
-- `blocked`: a local `codex-acp` executable is available and passes readiness, but the live ACP
-  roundtrip remains blocked at `session/new` with JSON-RPC `Internal error`; ACP logs show
-  ChatGPT model-refresh network failure plus `Failed to create session: Operation not permitted`.
-  Evidence: `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
-- `blocked`: rerunning the direct `codex-acp` live row with escalated sandbox/network permissions
-  did not complete; it produced no pytest output for more than three minutes and was stopped after
-  process inspection showed live pytest plus a child `codex-acp` process still running. Evidence:
+- `noted`: earlier same-day attempts exposed three distinct blockers before the fix: sandboxed
+  `npx` failed npm registry DNS resolution (`ENOTFOUND registry.npmjs.org`), sandboxed direct
+  `codex-acp` failed at `session/new` with provider/environment permission errors, and escalated
+  direct `codex-acp` initially hung during subprocess close after the ACP response arrived. Evidence:
   `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
 - `implemented`: the live Codex ACP row now has a configurable bounded timeout; the escalated
-  direct-executable row fails in bounded time (`TimeoutError` at 20 seconds in the recorded probe)
-  instead of hanging until manual cleanup. Evidence:
+  direct-executable row fails in bounded time if this provider path regresses instead of hanging
+  until manual cleanup. Evidence:
   `tests/test_live_codex_acp.py`,
   `tests/test_live_codex_acp_preflight.py`,
   `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
+- `implemented`: the live Codex ACP pytest row is split into a one-shot prompt row and a
+  follow-up reload row, so future evidence can distinguish basic ACP prompt success from
+  continuation/reload failure instead of reporting one opaque roundtrip. Evidence:
+  `tests/test_live_codex_acp.py`,
+  `tests/test_live_codex_acp_preflight.py`
 - `implemented`: the live Codex ACP pytest row now performs a bounded readiness check before
   opening the ACP JSON-RPC session, so unavailable ACP executables are reported as explicit skips
   instead of late protocol failures. Evidence:
@@ -124,13 +125,14 @@ needed to do so later without guessing.
 
 | Matrix row | Required evidence | Current state on 2026-04-28 |
 | --- | --- | --- |
-| full `uv run pytest` | one recorded green repository-wide run tied to the repo state under review | recorded on 2026-05-03: `1101 passed, 11 skipped` |
+| full `uv run pytest` | one recorded green repository-wide run tied to the repo state under review | recorded on 2026-05-03: `1103 passed, 12 skipped` |
 | targeted command/control tests | explicit green commands for the touched v2 control-plane tests | grounded by ADR 0205, not rerun here |
 | targeted query/read-model tests | explicit green commands for read-model/query tests | grounded by existing ADR/test references, not rerun here |
 | restart/resume smoke | one fresh v2 operation survives restart/resume path or records the blocker | not verified in this slice |
 | permission approve/reject/escalate/needs_human smoke | one fresh run records the permission path and resulting operator behavior without external ACP UI selection | not verified in this slice |
 | stream/TUI visibility smoke | status/watch/debug inspect evidence reflects the live/canonical result | procedure documented; not run here |
-| live Codex ACP roundtrip | narrow ACP transport preflight before larger live smokes | blocked on 2026-05-03 before ACP initialize; see recorded evidence note |
+| live Codex ACP one-shot | narrow ACP transport/prompt preflight before larger live smokes | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
+| live Codex ACP follow-up reload | prove collected Codex sessions can be reloaded and prompted again | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
 | operator-on-operator v2 smoke | one fresh run in this repository with persisted evidence artifacts | procedure documented; not run here |
 | external project smoke against `../erdosreshala/problems/625` | one fresh run in that target with persisted evidence artifacts | procedure documented; not run here |
 | no `.operator/runs` dependency for v2 operation success | live result proves success does not depend on legacy `.operator/runs` semantics | not verified in this slice |

@@ -211,9 +211,14 @@ class AcpSubprocessConnection:
                 process.kill()
                 await process.wait()
         for task in (self._reader_task, self._stderr_task):
+            if task is not None and not task.done():
+                task.cancel()
+        for task in (self._reader_task, self._stderr_task):
             if task is not None:
                 await asyncio.gather(task, return_exceptions=True)
         self._process = None
+        self._reader_task = None
+        self._stderr_task = None
 
     async def _send_message(self, payload: JsonObject) -> None:
         process = self._process

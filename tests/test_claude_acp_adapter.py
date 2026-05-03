@@ -538,6 +538,61 @@ async def test_acp_subprocess_connection_writes_raw_log_file(
 
 
 @pytest.mark.anyio
+async def test_acp_subprocess_connection_close_cancels_lingering_reader_tasks(
+    tmp_path: Path,
+) -> None:
+    """Catches close waiting forever on reader tasks after process exit."""
+
+    class DummyStdin:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+        def is_closing(self) -> bool:
+            return self.closed
+
+    class DummyProcess:
+        def __init__(self) -> None:
+            self.stdin = DummyStdin()
+            self.pid = 4321
+            self.returncode = 0
+            self.waited = False
+
+        async def wait(self) -> int:
+            self.waited = True
+            return self.returncode
+
+        def terminate(self) -> None:
+            raise AssertionError("terminate should not run for an already-exited process")
+
+        def kill(self) -> None:
+            raise AssertionError("kill should not run for an already-exited process")
+
+    async def never_finishes() -> None:
+        await asyncio.Event().wait()
+
+    connection = AcpSubprocessConnection(command="claude-code-acp", cwd=tmp_path)
+    process = DummyProcess()
+    reader_task = asyncio.create_task(never_finishes())
+    stderr_task = asyncio.create_task(never_finishes())
+    connection._process = process  # type: ignore[assignment]
+    connection._reader_task = reader_task
+    connection._stderr_task = stderr_task
+
+    await connection.close()
+
+    assert process.waited
+    assert process.stdin.closed
+    assert reader_task.cancelled()
+    assert stderr_task.cancelled()
+    assert connection._process is None
+    assert connection._reader_task is None
+    assert connection._stderr_task is None
+
+
+@pytest.mark.anyio
 async def test_claude_acp_adapter_sets_permission_mode_env_for_subprocess(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -13,6 +13,14 @@ _codex_acp_readiness_command = LIVE_TEST_MODULE._codex_acp_readiness_command
 _codex_acp_live_timeout_seconds = LIVE_TEST_MODULE._codex_acp_live_timeout_seconds
 
 
+def test_live_codex_acp_tests_split_one_shot_from_follow_up_reload() -> None:
+    """Catches collapsing the live ACP matrix back into one opaque roundtrip."""
+
+    assert hasattr(LIVE_TEST_MODULE, "test_codex_acp_live_one_shot")
+    assert hasattr(LIVE_TEST_MODULE, "test_codex_acp_live_follow_up_reload")
+    assert not hasattr(LIVE_TEST_MODULE, "test_codex_acp_live_roundtrip")
+
+
 def test_codex_acp_readiness_command_ignores_npx_separator() -> None:
     """Catches passing readiness `--help` through the ACP stdio separator."""
 

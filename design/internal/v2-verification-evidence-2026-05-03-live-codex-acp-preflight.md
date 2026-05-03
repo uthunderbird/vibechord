@@ -3,8 +3,8 @@
 - Date: 2026-05-03
 - Repository HEAD: `493272696cdf353b9f8926bbece58134aede86eb`
 - Worktree state: clean before the live preflight attempts
-- Matrix row: live Codex ACP roundtrip
-- Result: `blocked`
+- Matrix row: live Codex ACP preflight
+- Result: `passed` after ACP close-cleanup fix
 
 ## Environment Assumptions
 
@@ -13,10 +13,10 @@
 - local `codex-acp` executable available: yes,
   `/Users/thunderbird/.local/share/mise/installs/node/24.13.1/bin/codex-acp`
 - `claude` available: yes, `/Users/thunderbird/.local/bin/claude`
-- ACP executable/provider access: local executable initializes, but `session/new` is blocked by
-  environment/provider setup
-- Network access: blocked for npm registry lookup through `npx`; direct `codex-acp` also logged a
-  model-refresh network failure
+- ACP executable/provider access: local executable initializes and completed the split one-shot and
+  follow-up reload live rows when run with escalated sandbox/network permissions
+- Network access: blocked for npm registry lookup through `npx`; direct `codex-acp` required
+  escalated sandbox/network permissions for live rows
 - Target workspace: `/Users/thunderbird/Projects/operator`
 
 ## Command
@@ -68,6 +68,28 @@ UV_CACHE_DIR=/tmp/uv-cache \
 uv run pytest -q -rs tests/test_live_codex_acp.py
 ```
 
+Post-fix split live rows:
+
+```sh
+OPERATOR_RUN_CODEX_ACP_LIVE=1 \
+OPERATOR_CODEX_ACP_LIVE_COMMAND=codex-acp \
+OPERATOR_CODEX_ACP_MODEL=gpt-5.4 \
+OPERATOR_CODEX_ACP_REASONING_EFFORT=low \
+OPERATOR_CODEX_ACP_LIVE_TIMEOUT_SECONDS=30 \
+UV_CACHE_DIR=/tmp/uv-cache \
+uv run pytest -q -rs tests/test_live_codex_acp.py::test_codex_acp_live_one_shot
+```
+
+```sh
+OPERATOR_RUN_CODEX_ACP_LIVE=1 \
+OPERATOR_CODEX_ACP_LIVE_COMMAND=codex-acp \
+OPERATOR_CODEX_ACP_MODEL=gpt-5.4 \
+OPERATOR_CODEX_ACP_REASONING_EFFORT=low \
+OPERATOR_CODEX_ACP_LIVE_TIMEOUT_SECONDS=45 \
+UV_CACHE_DIR=/tmp/uv-cache \
+uv run pytest -q -rs tests/test_live_codex_acp.py::test_codex_acp_live_follow_up_reload
+```
+
 ## Operation Context
 
 - Operation id: not created
@@ -76,7 +98,8 @@ uv run pytest -q -rs tests/test_live_codex_acp.py
 
 ## Evidence
 
-- Status / outcome: both pytest attempts failed before an ACP session handle was initialized
+- Status / outcome: initial pytest attempts failed or hung; after the close-cleanup fix, both split
+  live rows passed with direct `codex-acp`
 - Watch / stream signal: not applicable; no operation was created
 - Inspect / forensic signal: not applicable; no operation was created
 - Transcript / log signal: not applicable; no Codex ACP session was established
@@ -147,16 +170,40 @@ TimeoutError
 Post-timeout process checks found no remaining `test_live_codex_acp.py` pytest process and no
 fresh `codex-acp` child process from that attempt.
 
+Follow-up harness change:
+
+- `tests/test_live_codex_acp.py::test_codex_acp_live_one_shot` now covers a single ACP prompt and
+  collect.
+- `tests/test_live_codex_acp.py::test_codex_acp_live_follow_up_reload` now covers the collected
+  session reload/follow-up path separately.
+- `AcpSubprocessConnection.close()` now cancels lingering stdout/stderr reader tasks after the
+  process exits, preventing `collect()` from timing out after an ACP response has already arrived.
+
+Post-fix results:
+
+```text
+tests/test_live_codex_acp.py::test_codex_acp_live_one_shot
+1 passed in 7.89s
+```
+
+```text
+tests/test_live_codex_acp.py::test_codex_acp_live_follow_up_reload
+1 passed in 16.22s
+```
+
 ## Failure Or Blocker Notes
 
-- This row is blocked by live ACP subprocess startup in the current environment.
-- The canonical trailing `--` command shape did not resolve the blocker.
-- A local `codex-acp` executable avoids the `npx` registry lookup blocker, but the live row remains
-  blocked at ACP `session/new` by environment/provider permissions.
-- Escalating the direct executable row removed the immediate sandbox failure but exposed a hang with
-  no pytest output for more than three minutes.
+- The initial `npx @zed-industries/codex-acp --` command shape was blocked by npm registry DNS in
+  the sandboxed environment.
+- A local `codex-acp` executable avoided the `npx` registry lookup blocker.
+- Running direct `codex-acp` without escalation still hit environment/provider permission failures
+  while creating a session.
+- Escalating the direct executable row removed the immediate sandbox failure but exposed a close
+  hang after the ACP response had arrived.
 - The live test now has a configurable bounded timeout; the same escalated row fails in bounded
-  time instead of requiring manual process cleanup.
+  time instead of requiring manual process cleanup if this regression returns.
+- The live test has been split so one-shot success and follow-up reload success are recorded
+  independently.
 - Follow-up on 2026-05-03 changed `tests/test_live_codex_acp.py` to run a bounded readiness check
   before opening the ACP JSON-RPC session. With the same blocked environment, the live row now
   reports:
@@ -166,18 +213,20 @@ fresh `codex-acp` child process from that attempt.
   codex ACP readiness check timed out: npx @zed-industries/codex-acp --help
   ```
 
-- Because no operation id was created, this evidence does not exercise stream/TUI visibility,
+- Because no operation id was created, this evidence still does not exercise stream/TUI visibility,
   restart/resume, permission, external-project, or no-`.operator/runs` dependency rows.
 
 ## Autopsy
 
-- What was broken: the live Codex ACP preflight could not create a usable ACP session in this
-  environment.
+- What was broken: the live Codex ACP preflight mixed environment failures with an adapter cleanup
+  bug; once direct `codex-acp` could answer, `AcpSubprocessConnection.close()` could still wait
+  forever on reader tasks after the process had exited.
 - Why it was not caught earlier: skipped live tests do not exercise provider subprocess startup,
   and earlier diagnostics only covered the `npx` lookup path rather than the direct local
-  executable path.
-- Category: unchecked external response.
+  executable path; unit coverage did not model reader tasks that outlive process exit.
+- Category: leaked resource / lifecycle cleanup.
 - Preventive mechanism: keep blocked live-preflight evidence explicit in ADR 0211 and keep the live
   test readiness guard so unavailable ACP executables are reported as bounded skips before the
-  adapter opens a JSON-RPC session; rerun the direct executable row only in an environment where
-  Codex ACP can create sessions without filesystem/provider permission errors.
+  adapter opens a JSON-RPC session; keep the regression test that proves `close()` cancels lingering
+  reader tasks; run direct `codex-acp` live rows with explicit escalation when validating this
+  provider path.

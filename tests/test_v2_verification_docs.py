@@ -35,11 +35,11 @@ def test_v2_verification_reference_points_to_recorded_full_suite_evidence() -> N
     assert FULL_SUITE_EVIDENCE_PATH.exists()
     assert "Matrix row: full `uv run pytest`" in evidence
     assert "Result: `passed`" in evidence
-    assert "1101 passed, 11 skipped" in evidence
+    assert "1103 passed, 12 skipped" in evidence
 
 
-def test_v2_verification_reference_points_to_recorded_live_acp_blocker_evidence() -> None:
-    """Catches hiding a blocked live ACP preflight as an unrecorded skip."""
+def test_v2_verification_reference_points_to_recorded_live_acp_evidence() -> None:
+    """Catches hiding live ACP preflight evidence as an unrecorded skip."""
 
     procedure = _load_procedure()
     evidence = LIVE_CODEX_ACP_EVIDENCE_PATH.read_text(encoding="utf-8")
@@ -49,8 +49,8 @@ def test_v2_verification_reference_points_to_recorded_live_acp_blocker_evidence(
         in procedure
     )
     assert LIVE_CODEX_ACP_EVIDENCE_PATH.exists()
-    assert "Matrix row: live Codex ACP roundtrip" in evidence
-    assert "Result: `blocked`" in evidence
+    assert "Matrix row: live Codex ACP preflight" in evidence
+    assert "Result: `passed`" in evidence
     assert "ACP subprocess closed before completing all pending requests" in evidence
     assert "ENOTFOUND registry.npmjs.org" in evidence
 
