@@ -14,6 +14,7 @@ from agent_operator.application.commands.operation_delivery_commands import (
 from agent_operator.application.delivery_surface import DeliverySurfaceService
 from agent_operator.application.live_feed import (
     LiveFeedEnvelope,
+    build_sequence_gap_warning,
     parse_canonical_live_feed_line,
     parse_legacy_live_feed_line,
 )
@@ -520,6 +521,8 @@ class OperatorClient:
         The iterator waits for the event file to appear, tails appended lines, and
         exits after a terminal event plus a quiet drain window. If the operation is
         already terminal when called, the iterator drains the existing file and exits.
+        Synthetic live-feed warnings are skipped; use `stream_live_feed()` when warning
+        envelopes are required.
 
         Args:
             operation_id: Exact operation id, unique prefix, or `"last"`.
@@ -535,9 +538,27 @@ class OperatorClient:
             ```
         """
 
+        async for envelope in self.stream_live_feed(operation_id):
+            if envelope.event is not None:
+                yield envelope.event
+
+    async def stream_live_feed(
+        self,
+        operation_id: str,
+    ) -> AsyncIterator[LiveFeedEnvelope]:
+        """Yield typed live-feed envelopes, including warning records.
+
+        Args:
+            operation_id: Exact operation id, unique prefix, or `"last"`.
+
+        Yields:
+            Parsed `LiveFeedEnvelope` records from the canonical or legacy stream.
+        """
+
         resolved_operation_id = await self._resolve_operation_id(operation_id)
         path, parser = self._resolve_stream_path(resolved_operation_id)
         initial_terminal = await self._is_terminal_operation(resolved_operation_id)
+        previous_sequence: int | None = None
         wait_deadline = anyio.current_time() + self._event_file_timeout_seconds
         terminal_deadline: float | None = None
         handle = None
@@ -572,10 +593,25 @@ class OperatorClient:
                     await anyio.sleep(self._stream_poll_interval_seconds)
                     continue
                 envelope = parser(resolved_operation_id, line)
-                assert envelope.event is not None
-                event = envelope.event
-                yield event
-                if event.event_type in self._TERMINAL_EVENT_TYPES:
+                if (
+                    envelope.layer == "canonical"
+                    and envelope.sequence is not None
+                    and previous_sequence is not None
+                ):
+                    warning = build_sequence_gap_warning(
+                        operation_id=resolved_operation_id,
+                        previous_sequence=previous_sequence,
+                        next_sequence=envelope.sequence,
+                    )
+                    if warning is not None:
+                        yield warning
+                if envelope.sequence is not None:
+                    previous_sequence = envelope.sequence
+                yield envelope
+                if (
+                    envelope.event is not None
+                    and envelope.event.event_type in self._TERMINAL_EVENT_TYPES
+                ):
                     terminal_deadline = anyio.current_time() + self._stream_drain_window_seconds
         finally:
             if handle is not None:

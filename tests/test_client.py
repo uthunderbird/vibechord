@@ -74,6 +74,40 @@ def state_settings(
     }
 
 
+def write_completed_canonical_operation_stream(
+    tmp_path: Path,
+    *,
+    operation_id: str,
+    events: list[StoredOperationDomainEvent],
+) -> None:
+    """Write a terminal canonical stream fixture for SDK streaming tests."""
+
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Canonical SDK stream")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = datetime(2026, 4, 25, tzinfo=UTC)
+    checkpoint.updated_at = checkpoint.created_at
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=max((event.sequence for event in events), default=0),
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir(exist_ok=True)
+    event_path = event_dir / f"{operation_id}.jsonl"
+    event_path.write_text(
+        "\n".join([*(event.model_dump_json() for event in events), ""]),
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.anyio
 async def test_operator_client_requires_context_manager(tmp_path: Path) -> None:
     client = OperatorClient(data_dir=tmp_path)
@@ -294,6 +328,79 @@ async def test_operator_client_stream_events_prefers_canonical_v2_stream_over_le
         events = [event async for event in client.stream_events(operation_id)]
 
     assert [event.event_type for event in events] == ["operation.created"]
+
+
+@pytest.mark.anyio
+async def test_operator_client_stream_live_feed_surfaces_sequence_gap_warning(
+    tmp_path: Path,
+) -> None:
+    """Catches deleting SDK sequence-gap warning emission from canonical live feeds."""
+
+    operation_id = "op-sdk-stream-gap"
+    write_completed_canonical_operation_stream(
+        tmp_path,
+        operation_id=operation_id,
+        events=[
+            StoredOperationDomainEvent(
+                operation_id=operation_id,
+                sequence=1,
+                event_type="operation.created",
+                payload={"objective": "Canonical SDK stream"},
+                timestamp=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+            ),
+            StoredOperationDomainEvent(
+                operation_id=operation_id,
+                sequence=3,
+                event_type="operation.status.changed",
+                payload={"status": "completed", "iteration": 3},
+                timestamp=datetime(2026, 4, 25, 10, 1, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        envelopes = [envelope async for envelope in client.stream_live_feed(operation_id)]
+
+    assert [envelope.record_type for envelope in envelopes] == ["event", "warning", "event"]
+    assert envelopes[1].warning_code == "sequence_gap"
+    assert envelopes[1].sequence == 2
+    assert envelopes[1].message is not None
+    assert "missing sequence 2" in envelopes[1].message
+
+
+@pytest.mark.anyio
+async def test_operator_client_stream_events_skips_live_feed_warnings(tmp_path: Path) -> None:
+    """Catches turning backward-compatible `stream_events` into a warning-envelope stream."""
+
+    operation_id = "op-sdk-stream-events-gap"
+    write_completed_canonical_operation_stream(
+        tmp_path,
+        operation_id=operation_id,
+        events=[
+            StoredOperationDomainEvent(
+                operation_id=operation_id,
+                sequence=1,
+                event_type="operation.created",
+                payload={"objective": "Canonical SDK stream"},
+                timestamp=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+            ),
+            StoredOperationDomainEvent(
+                operation_id=operation_id,
+                sequence=3,
+                event_type="operation.status.changed",
+                payload={"status": "completed", "iteration": 3},
+                timestamp=datetime(2026, 4, 25, 10, 1, tzinfo=UTC),
+            ),
+        ],
+    )
+
+    async with OperatorClient(data_dir=tmp_path) as client:
+        events = [event async for event in client.stream_events(operation_id)]
+
+    assert [event.event_type for event in events] == [
+        "operation.created",
+        "operation.status.changed",
+    ]
 
 
 @pytest.mark.anyio

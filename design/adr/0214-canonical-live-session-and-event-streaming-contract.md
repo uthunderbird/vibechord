@@ -46,6 +46,12 @@ Implementation grounding on 2026-04-26:
   `src/agent_operator/cli/workflows/control_runtime.py`,
   `tests/test_cli.py::test_watch_surfaces_canonical_sequence_gap_warning`,
   `tests/test_live_feed.py::test_build_attention_stale_warning_reports_answered_attention_still_open`.
+- `implemented`: Python SDK streaming now exposes warning-capable
+  `OperatorClient.stream_live_feed()` envelopes while keeping backward-compatible
+  `OperatorClient.stream_events()` event-only semantics by skipping warning records. Evidence:
+  `src/agent_operator/client.py`,
+  `tests/test_client.py::test_operator_client_stream_live_feed_surfaces_sequence_gap_warning`,
+  `tests/test_client.py::test_operator_client_stream_events_skips_live_feed_warnings`.
 - `implemented`: JSON status-like surfaces already expose overlay provenance and staleness
   explicitly through `runtime_overlay.authorities` and `runtime_overlay.staleness`. Evidence:
   `src/agent_operator/application/queries/operation_status_queries.py`,
@@ -54,8 +60,9 @@ Implementation grounding on 2026-04-26:
 - `partial`: the new typed live-feed family currently closes CLI `watch` plus shared SDK/CLI
   parsing, but TUI and other future supervisory consumers do not yet consume the same envelope
   contract directly.
-- `partial`: explicit gap/stale warnings now exist for CLI `watch`, but SDK/TUI parity for those
-  warnings is not yet a closed repository contract.
+- `partial`: explicit gap warnings now exist for CLI `watch` and SDK `stream_live_feed()`, and
+  stale-attention warnings exist for CLI `watch`, but TUI parity for those warnings is not yet a
+  closed repository contract.
 - `blocked`: the live verification row still depends on the fresh end-to-end evidence captured by
   ADR 0211, which remains partial.
 

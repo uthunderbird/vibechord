@@ -141,6 +141,34 @@ def parse_legacy_live_feed_line(operation_id: str, raw_line: str) -> LiveFeedEnv
     )
 
 
+def build_sequence_gap_warning(
+    *,
+    operation_id: str,
+    previous_sequence: int,
+    next_sequence: int,
+) -> LiveFeedEnvelope | None:
+    """Build a canonical sequence-gap warning when an envelope skips records."""
+
+    if next_sequence <= previous_sequence + 1:
+        return None
+    missing_from = previous_sequence + 1
+    missing_to = next_sequence - 1
+    missing_range = (
+        str(missing_from) if missing_from == missing_to else f"{missing_from}-{missing_to}"
+    )
+    return LiveFeedEnvelope.warning(
+        operation_id=operation_id,
+        layer="canonical",
+        warning_code="sequence_gap",
+        message=(
+            "Canonical live stream is missing sequence "
+            f"{missing_range}; replayed status may be ahead of visible events."
+        ),
+        record_suffix=f"sequence-gap:{missing_range}",
+        sequence=missing_from,
+    )
+
+
 def iter_live_feed(
     path: Path,
     *,
@@ -163,26 +191,14 @@ def iter_live_feed(
                     envelope.layer == "canonical"
                     and envelope.sequence is not None
                     and previous_sequence is not None
-                    and envelope.sequence > previous_sequence + 1
                 ):
-                    missing_from = previous_sequence + 1
-                    missing_to = envelope.sequence - 1
-                    missing_range = (
-                        str(missing_from)
-                        if missing_from == missing_to
-                        else f"{missing_from}-{missing_to}"
-                    )
-                    yield LiveFeedEnvelope.warning(
+                    warning = build_sequence_gap_warning(
                         operation_id=operation_id,
-                        layer="canonical",
-                        warning_code="sequence_gap",
-                        message=(
-                            "Canonical live stream is missing sequence "
-                            f"{missing_range}; replayed status may be ahead of visible events."
-                        ),
-                        record_suffix=f"sequence-gap:{missing_range}",
-                        sequence=missing_from,
+                        previous_sequence=previous_sequence,
+                        next_sequence=envelope.sequence,
                     )
+                    if warning is not None:
+                        yield warning
                 if envelope.sequence is not None:
                     previous_sequence = envelope.sequence
                 yield envelope
