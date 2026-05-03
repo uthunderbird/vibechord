@@ -36,6 +36,11 @@ Every matrix run must record:
 
 Use `design/internal/v2-verification-evidence-template.md` as the recording format.
 
+Committed evidence notes live under `design/internal/` and use the
+`v2-verification-evidence-<date>-<row>.md` naming pattern. Current recorded notes:
+
+- `design/internal/v2-verification-evidence-2026-05-03-full-suite.md`
+
 ## Preflight
 
 Run these checks before any live row:

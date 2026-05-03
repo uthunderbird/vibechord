@@ -2,6 +2,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROCEDURE_PATH = REPO_ROOT / "docs" / "reference" / "v2-verification.md"
+FULL_SUITE_EVIDENCE_PATH = (
+    REPO_ROOT / "design" / "internal" / "v2-verification-evidence-2026-05-03-full-suite.md"
+)
 
 
 def _load_procedure() -> str:
@@ -14,6 +17,19 @@ def test_v2_verification_reference_points_to_real_evidence_template() -> None:
 
     assert needle in procedure
     assert (REPO_ROOT / "design" / "internal" / "v2-verification-evidence-template.md").exists()
+
+
+def test_v2_verification_reference_points_to_recorded_full_suite_evidence() -> None:
+    """Catches dropping the pinned repository-wide baseline evidence note."""
+
+    procedure = _load_procedure()
+    evidence = FULL_SUITE_EVIDENCE_PATH.read_text(encoding="utf-8")
+
+    assert "design/internal/v2-verification-evidence-2026-05-03-full-suite.md" in procedure
+    assert FULL_SUITE_EVIDENCE_PATH.exists()
+    assert "Matrix row: full `uv run pytest`" in evidence
+    assert "Result: `passed`" in evidence
+    assert "1097 passed, 11 skipped" in evidence
 
 
 def test_v2_verification_matrix_lists_required_adr_0211_rows() -> None:
