@@ -41,6 +41,7 @@ Committed evidence notes live under `design/internal/` and use the
 
 - `design/internal/v2-verification-evidence-2026-05-03-full-suite.md`
 - `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
+- `design/internal/v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md`
 
 ## Preflight
 
@@ -219,7 +220,8 @@ Do not upgrade the row to passed based on a partial trace.
 ## Promotion Rules
 
 - `ADR 0211` is not `Verified` until this procedure has been used for:
-  - one fresh operator-on-operator live run
+  - one fresh operator-on-operator live run; recorded on 2026-05-03 in
+    `design/internal/v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md`
   - one fresh external-project run against `../erdosreshala/problems/625`
 - `ADR 0202` is not `Verified` until the external-project evidence includes a real permission path
 - `ADR 0205` may use the targeted local rows plus broader v2 evidence, but it still should not be

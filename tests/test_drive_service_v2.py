@@ -59,6 +59,18 @@ class MoreActionsBrain:
         )
 
 
+class OneShotBrain:
+    async def decide_next_action(self, state) -> BrainDecision:
+        return BrainDecision(
+            action_type=BrainActionType.START_AGENT,
+            target_agent="codex_acp",
+            instruction="inspect",
+            rationale="Run one bounded one-shot task.",
+            one_shot=True,
+            focus_task_id="task-1",
+        )
+
+
 class RecentDecisionsBrain:
     def __init__(self) -> None:
         self.calls = 0
@@ -611,6 +623,62 @@ async def test_policy_executor_records_terminal_success_before_close_returns() -
     assert "agent.turn.completed" in event_types
     assert "session.observed_state.changed" in event_types
     assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+
+
+@pytest.mark.anyio
+async def test_policy_executor_completes_successful_one_shot_turn() -> None:
+    """Catches one-shot successes being replanned into duplicate agent starts."""
+
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=OneShotBrain(),
+            session_manager=StubSessionManager(),
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=StubReplayService(),
+        event_sink=event_sink,
+    )
+
+    outcome = await drive.drive("op-1", RunOptions(max_cycles=3))
+    turn_events = [
+        event for event in event_sink.events if event.event_type == "agent.turn.completed"
+    ]
+
+    assert outcome.status is OperationStatus.COMPLETED
+    assert len(turn_events) == 1
+    assert turn_events[0].payload["iteration"] == 0
+    assert turn_events[0].payload["task_id"] == "task-1"
 
 
 @pytest.mark.anyio

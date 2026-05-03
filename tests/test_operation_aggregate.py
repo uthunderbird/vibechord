@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from agent_operator.domain.aggregate import OperationAggregate
-from agent_operator.domain.enums import OperationStatus, SchedulerState
+from agent_operator.domain.enums import OperationStatus, SchedulerState, SessionStatus
 from agent_operator.domain.event_sourcing import StoredOperationDomainEvent
 from agent_operator.domain.operation import OperationGoal, OperationPolicy
 
@@ -152,7 +152,7 @@ def test_operation_created_updates_policy_budget_and_runtime_hints() -> None:
 
 def test_session_registered_via_event() -> None:
     from agent_operator.domain.agent import AgentSessionHandle
-    from agent_operator.domain.enums import SessionObservedState, SessionStatus
+    from agent_operator.domain.enums import SessionObservedState
 
     agg = OperationAggregate.create(_goal())
     handle = AgentSessionHandle(adapter_key="claude", session_id="sess-1")
@@ -172,6 +172,31 @@ def test_session_registered_via_event() -> None:
     assert result.sessions[0].status is SessionStatus.IDLE
     assert "observed_state" not in result.sessions[0].model_dump()
     assert "terminal_state" not in result.sessions[0].model_dump()
+
+
+def test_session_observed_state_changed_preserves_status_enum() -> None:
+    """Catches replay storing raw status strings that crash prompt session serialization."""
+
+    from agent_operator.domain.agent import AgentSessionHandle
+
+    agg = OperationAggregate.create(_goal())
+    handle = AgentSessionHandle(adapter_key="codex_acp", session_id="sess-1")
+    result = agg.apply_events(
+        [
+            _event("session.created", {"handle": handle.model_dump()}),
+            _event(
+                "session.observed_state.changed",
+                {
+                    "session_id": "sess-1",
+                    "observed_state": "terminal",
+                    "terminal_state": "completed",
+                },
+            ),
+        ]
+    )
+
+    assert result.sessions[0].status is SessionStatus.COMPLETED
+    assert result.sessions[0].status.value == "completed"
 
 
 # ── coordination state ────────────────────────────────────────────────────────

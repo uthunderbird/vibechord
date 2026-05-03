@@ -11,6 +11,12 @@ LIVE_CODEX_ACP_EVIDENCE_PATH = (
     / "internal"
     / "v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md"
 )
+OPERATOR_ON_OPERATOR_EVIDENCE_PATH = (
+    REPO_ROOT
+    / "design"
+    / "internal"
+    / "v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md"
+)
 
 
 def _load_procedure() -> str:
@@ -35,7 +41,7 @@ def test_v2_verification_reference_points_to_recorded_full_suite_evidence() -> N
     assert FULL_SUITE_EVIDENCE_PATH.exists()
     assert "Matrix row: full `uv run pytest`" in evidence
     assert "Result: `passed`" in evidence
-    assert "1103 passed, 12 skipped" in evidence
+    assert "1106 passed, 12 skipped" in evidence
 
 
 def test_v2_verification_reference_points_to_recorded_live_acp_evidence() -> None:
@@ -53,6 +59,24 @@ def test_v2_verification_reference_points_to_recorded_live_acp_evidence() -> Non
     assert "Result: `passed`" in evidence
     assert "ACP subprocess closed before completing all pending requests" in evidence
     assert "ENOTFOUND registry.npmjs.org" in evidence
+
+
+def test_v2_verification_reference_points_to_operator_on_operator_evidence() -> None:
+    """Catches dropping the fresh operator-on-operator smoke evidence note."""
+
+    procedure = _load_procedure()
+    evidence = OPERATOR_ON_OPERATOR_EVIDENCE_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "design/internal/v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md"
+        in procedure
+    )
+    assert OPERATOR_ON_OPERATOR_EVIDENCE_PATH.exists()
+    assert "Matrix row: operator-on-operator v2 smoke" in evidence
+    assert "Result: `passed`" in evidence
+    assert "2d4bd45f-68fb-4709-a91c-6cb587591689" in evidence
+    assert "silent type coercion" in evidence
+    assert "forgotten branch/missed case" in evidence
 
 
 def test_v2_verification_matrix_lists_required_adr_0211_rows() -> None:

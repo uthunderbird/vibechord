@@ -21,6 +21,7 @@ from agent_operator.domain.enums import (
     InvolvementLevel,
     OperationStatus,
     SchedulerState,
+    SessionStatus,
 )
 from agent_operator.domain.operation import (
     ArtifactRecord,
@@ -39,6 +40,12 @@ from agent_operator.domain.operation import (
     SessionState,
     TaskState,
 )
+
+
+def _session_status_from_payload(value: object) -> SessionStatus:
+    if isinstance(value, SessionStatus):
+        return value
+    return SessionStatus(str(value).lower())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -350,7 +357,9 @@ class OperationAggregate:
                         and value is not None
                     }
                     if payload.get("status") is not None:
-                        session_updates["status"] = payload["status"]
+                        session_updates["status"] = _session_status_from_payload(
+                            payload["status"]
+                        )
                     else:
                         observed_state = payload.get("observed_state")
                         terminal_state = payload.get("terminal_state")
@@ -361,7 +370,9 @@ class OperationAggregate:
                             str(terminal_state).lower() if terminal_state is not None else None
                         )
                         if normalized_observed_state in {"idle", "running", "waiting"}:
-                            session_updates["status"] = normalized_observed_state
+                            session_updates["status"] = _session_status_from_payload(
+                                normalized_observed_state
+                            )
                         elif normalized_observed_state in {
                             "terminal",
                             "completed",
@@ -375,7 +386,9 @@ class OperationAggregate:
                             )
                             if normalized_terminal == "interrupted":
                                 normalized_terminal = "cancelled"
-                            session_updates["status"] = normalized_terminal
+                            session_updates["status"] = _session_status_from_payload(
+                                normalized_terminal
+                            )
                     s = s.model_copy(update=session_updates)
                 updated_sessions.append(s)
             return dataclasses.replace(self, sessions=updated_sessions, updated_at=now)

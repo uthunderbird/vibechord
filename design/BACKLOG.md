@@ -23,3 +23,15 @@ wave.
 
 - Promote `RFC 0009` from `Proposed` only after the event stream plus checkpoint model becomes the
   canonical live operation truth for run/resume/recover/cancel.
+
+## ADR 0211 verification follow-ups
+
+- Make targeted live-verification commands avoid sweeping unrelated backlog operations.
+  Current truth: `operator debug daemon --once --max-cycles-per-operation ...` processes eligible
+  backlog operations instead of only the operation being verified, so it can pollute targeted ADR
+  evidence unless the verifier avoids it.
+
+- Align `operator watch --once --json` latest-turn projection with `operator status --json`.
+  Current truth: the 2026-05-03 operator-on-operator smoke completed successfully, and
+  `status --json` exposed `latest_turn`, but `watch --once --json` reported the same terminal
+  operation with `latest_turn: null`.

@@ -384,6 +384,8 @@ class PolicyExecutor:
                 OperationDomainEventDraft(
                     event_type="agent.turn.completed",
                     payload={
+                        "iteration": result.iteration_index,
+                        "task_id": decision.focus_task_id,
                         "session_id": session_id,
                         "adapter_key": adapter_key,
                         "status": turn_status,
@@ -420,12 +422,31 @@ class PolicyExecutor:
                 OperationDomainEventDraft(
                     event_type="session.observed_state.changed",
                     payload={
+                        "iteration": result.iteration_index,
+                        "task_id": decision.focus_task_id,
                         "session_id": session_id,
                         **self._session_observed_state_payload(agent_result.status),
                         "updated_at": completed_at.isoformat(),
                     },
                 )
             )
+            if (
+                decision.one_shot
+                and agent_result.status is AgentResultStatus.SUCCESS
+                and not decision.more_actions
+            ):
+                result.events.append(
+                    OperationDomainEventDraft(
+                        event_type="operation.status.changed",
+                        payload={
+                            "status": OperationStatus.COMPLETED.value,
+                            "final_summary": (
+                                agent_result.output_text or "One-shot agent turn completed."
+                            ),
+                        },
+                    )
+                )
+                result.should_break = True
             self._close_session_nonblocking(handle)
 
         return result
