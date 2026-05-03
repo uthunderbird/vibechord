@@ -1188,6 +1188,45 @@ def test_tui_session_timeline_reads_permission_events_from_durable_truth() -> No
     )
 
 
+def test_tui_session_timeline_includes_live_feed_warning_records() -> None:
+    payload = {
+        "tasks": [
+            {
+                "task_id": "task-1",
+                "task_short_id": "task-1",
+                "title": "Watch live state",
+                "linked_session_id": "session-1",
+            }
+        ],
+        "live_feed": [
+            {
+                "record_type": "warning",
+                "sequence": 7,
+                "warning_code": "sequence_gap",
+                "message": "Canonical stream warning: missing event sequence 4-6.",
+            },
+            {
+                "record_type": "warning",
+                "sequence": 8,
+                "warning_code": "answered_attention_stale",
+                "message": "Overlay warning: attention att-1 still appears open in status.",
+            },
+        ],
+    }
+    task = dashboard_tasks(payload)[0]
+
+    events = session_timeline_events(payload, task)
+
+    assert [event.event_type for event in events] == [
+        "warning.answered_attention_stale",
+        "warning.sequence_gap",
+    ]
+    assert events[0].summary == (
+        "Overlay warning: attention att-1 still appears open in status."
+    )
+    assert events[1].summary == "Canonical stream warning: missing event sequence 4-6."
+
+
 async def test_operation_view_navigation_follows_lane_order() -> None:
     async def _load_operation_payload_lane_order(operation_id: str) -> dict[str, object]:
         payload = await _load_operation_payload(operation_id)
@@ -2096,6 +2135,46 @@ async def test_session_timeline_uses_human_event_labels() -> None:
 
     assert "agent started" in rendered
     assert "agent completed" in rendered
+
+
+def test_session_timeline_renders_human_warning_labels() -> None:
+    state = FleetWorkbenchState(
+        view_level="session",
+        selected_operation_payload={
+            "tasks": [
+                {
+                    "task_id": "task-1",
+                    "task_short_id": "task-1",
+                    "title": "Watch live state",
+                    "status": "running",
+                    "linked_session_id": "session-1",
+                }
+            ],
+            "live_feed": [
+                {
+                    "record_type": "warning",
+                    "sequence": 7,
+                    "warning_code": "sequence_gap",
+                    "message": "Canonical stream warning: missing event sequence 4-6.",
+                },
+                {
+                    "record_type": "warning",
+                    "sequence": 8,
+                    "warning_code": "answered_attention_stale",
+                    "message": "Overlay warning: attention att-1 still appears open in status.",
+                },
+            ],
+        },
+        selected_task_index=0,
+    )
+
+    table = render_session_timeline(state)
+    console = Console(record=True, width=180, markup=False)
+    console.print(table)
+    rendered = console.export_text(styles=False)
+
+    assert "stream gap" in rendered
+    assert "stale attention" in rendered
 
 
 def test_session_timeline_renders_newest_event_first() -> None:

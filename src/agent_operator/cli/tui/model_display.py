@@ -100,6 +100,10 @@ def normalize_key(key: str) -> str:
 
 def session_event_label(event: TimelineEventItem) -> str:
     event_type = event.event_type
+    if event_type == "warning.sequence_gap":
+        return "stream gap"
+    if event_type == "warning.answered_attention_stale":
+        return "stale attention"
     if event_type.startswith("warning."):
         return "warning"
     if event_type == "agent.invocation.started":

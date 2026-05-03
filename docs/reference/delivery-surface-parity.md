@@ -24,9 +24,10 @@ each adapter.
 - `OperatorClient.stream_live_feed()` exposes warning-capable `LiveFeedEnvelope` records;
   `OperatorClient.stream_events()` remains event-only and skips warning records for backward
   compatibility.
-- TUI parity for explicit sequence-gap and stale-stream warnings still trails CLI `watch`; the
-  shared live-feed parsing path exists, but warning/rendering parity remains incomplete across every
-  supervisory surface.
+- TUI session timelines now render explicit human-facing labels for sequence-gap and
+  answered-attention-stale warnings from the shared live-feed payload, but broader TUI/live-
+  supervisory parity still remains incomplete because other supervisory surfaces do not yet consume
+  the shared warning-capable envelope directly.
 - TUI keeps callback injection at the controller boundary for UI tests. Production callback
   construction is backed by `DeliverySurfaceService`; controller tests may still pass fakes.
 

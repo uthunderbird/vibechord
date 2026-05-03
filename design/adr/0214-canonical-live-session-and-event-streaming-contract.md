@@ -52,6 +52,11 @@ Implementation grounding on 2026-04-26:
   `src/agent_operator/client.py`,
   `tests/test_client.py::test_operator_client_stream_live_feed_surfaces_sequence_gap_warning`,
   `tests/test_client.py::test_operator_client_stream_events_skips_live_feed_warnings`.
+- `implemented`: TUI session timelines now render shared live-feed warning records with explicit
+  human-facing labels for canonical sequence gaps and stale answered-attention overlays instead of
+  collapsing them into a generic warning bucket. Evidence:
+  `src/agent_operator/cli/tui/model_display.py`,
+  `src/agent_operator/cli/tui/model_text.py`.
 - `implemented`: JSON status-like surfaces already expose overlay provenance and staleness
   explicitly through `runtime_overlay.authorities` and `runtime_overlay.staleness`. Evidence:
   `src/agent_operator/application/queries/operation_status_queries.py`,
@@ -60,11 +65,18 @@ Implementation grounding on 2026-04-26:
 - `partial`: the new typed live-feed family currently closes CLI `watch` plus shared SDK/CLI
   parsing, but TUI and other future supervisory consumers do not yet consume the same envelope
   contract directly.
-- `partial`: explicit gap warnings now exist for CLI `watch` and SDK `stream_live_feed()`, and
-  stale-attention warnings exist for CLI `watch`, but TUI parity for those warnings is not yet a
-  closed repository contract.
-- `blocked`: the live verification row still depends on the fresh end-to-end evidence captured by
-  ADR 0211, which remains partial.
+- `partial`: explicit gap warnings now exist for CLI `watch`, SDK `stream_live_feed()`, and TUI
+  session timelines for the currently covered session-detail path, but broader TUI/live-supervisory
+  parity remains open because other supervisory consumers still do not consume the shared envelope
+  contract directly.
+- `verified`: focused TUI regression coverage now proves shared live-feed warning records survive
+  TUI session timeline projection and render with explicit warning labels. Evidence:
+  `tests/test_tui.py::test_tui_session_timeline_includes_live_feed_warning_records`,
+  `tests/test_tui.py::test_session_timeline_renders_human_warning_labels`.
+- `verified`: the live verification prerequisite named by this ADR is now satisfied by the fresh
+  end-to-end evidence recorded under ADR 0211. That closes the earlier external-verification block
+  for this ADR, but it does not change the overall `Partial` implementation status because broader
+  TUI/live-supervisory parity still remains open.
 
 Acceptance grounding on 2026-04-26:
 
