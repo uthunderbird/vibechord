@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -252,6 +253,18 @@ class SessionState(BaseModel):
         if not isinstance(data, dict):
             return data
         upgraded = dict(data)
+        if upgraded.get("execution_profile_stamp") is None and upgraded.get("handle") is not None:
+            from agent_operator.domain.execution_profiles import (
+                execution_profile_stamp_from_handle,
+            )
+
+            handle = upgraded["handle"]
+            if isinstance(handle, dict):
+                handle = AgentSessionHandle(**handle)
+            if isinstance(handle, AgentSessionHandle):
+                stamp = execution_profile_stamp_from_handle(handle)
+                if stamp is not None:
+                    upgraded["execution_profile_stamp"] = stamp
         legacy_status = upgraded.get("status")
         if legacy_status is not None:
             upgraded["status"] = (
@@ -526,7 +539,7 @@ class ExecutionState(BaseModel):
     def model_copy(
         self,
         *,
-        update: dict[str, Any] | None = None,
+        update: Mapping[str, Any] | None = None,
         deep: bool = False,
     ) -> ExecutionState:
         normalized = dict(update or {})

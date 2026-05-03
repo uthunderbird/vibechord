@@ -28,6 +28,7 @@ from agent_operator.domain.enums import (
     SessionReusePolicy,
 )
 from agent_operator.domain.event_sourcing import OperationDomainEventDraft
+from agent_operator.domain.execution_profiles import execution_profile_request_metadata
 from agent_operator.domain.operation import OperationState, RunOptions
 from agent_operator.domain.policy import PolicyCoverage
 from agent_operator.domain.read_model import DecisionRecord
@@ -324,6 +325,11 @@ class PolicyExecutor:
                 session_reuse_policy=SessionReusePolicy.ALWAYS_NEW,
                 **({"working_directory": working_dir} if working_dir is not None else {}),
                 metadata={
+                    **execution_profile_request_metadata(
+                        goal_metadata=agg.goal.metadata,
+                        execution_profile_overrides=agg.execution_profile_overrides,
+                        adapter_key=adapter_key,
+                    ),
                     "operation_id": agg.operation_id,
                     "adapter_key": adapter_key,
                 },
@@ -452,12 +458,13 @@ class PolicyExecutor:
         return result
 
     def _close_session_nonblocking(self, handle: AgentSessionHandle) -> None:
-        if self._session_manager is None:
+        session_manager = self._session_manager
+        if session_manager is None:
             return
 
         async def _close() -> None:
             with suppress(Exception):
-                await self._session_manager.close(handle)
+                await session_manager.close(handle)
 
         asyncio.create_task(_close())
 
@@ -578,11 +585,7 @@ class PolicyExecutor:
                 payload={
                     **observed_payload,
                     "rationale": raw.get("rationale"),
-                    "suggested_options": (
-                        list(raw.get("suggested_options"))
-                        if isinstance(raw.get("suggested_options"), list)
-                        else []
-                    ),
+                    "suggested_options": self._list_payload(raw.get("suggested_options")),
                     "policy_title": raw.get("policy_title"),
                     "policy_rule_text": raw.get("policy_rule_text"),
                     "involvement_level": involvement_level,
@@ -677,3 +680,7 @@ class PolicyExecutor:
             operator_messages=list(agg.operator_messages),
         )
         return state
+
+    @staticmethod
+    def _list_payload(value: object) -> list[object]:
+        return list(value) if isinstance(value, list) else []

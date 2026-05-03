@@ -25,7 +25,7 @@ from agent_operator.domain.event_sourcing import (
     StoredOperationDomainEvent,
 )
 from agent_operator.domain.events import RunEvent
-from agent_operator.domain.operation import RunOptions
+from agent_operator.domain.operation import ObjectiveState, RunOptions, SessionState
 from agent_operator.domain.policy import PolicyApplicability, PolicyCategory, PolicyEntry
 from agent_operator.dtos.requests import AgentRunRequest
 from agent_operator.runtime import FileFactStore
@@ -121,18 +121,20 @@ class DependencyBarrierApplyPolicyBrain:
 class StubSessionManager:
     def __init__(self) -> None:
         self.collected = False
+        self.started_requests: list[AgentRunRequest] = []
 
     async def start(self, adapter_key: str, request: AgentRunRequest):
         from agent_operator.domain import AgentSessionHandle
 
         assert adapter_key == "codex_acp"
+        self.started_requests.append(request)
         return AgentSessionHandle(
             adapter_key=adapter_key,
             session_id="sess-1",
             session_name="sess",
             display_name="Codex",
             one_shot=False,
-            metadata={"operation_id": "op-1"},
+            metadata=dict(request.metadata),
         )
 
     async def collect(self, handle):
@@ -445,6 +447,34 @@ class ReplayServiceWithSuffixEvents:
         )()
 
 
+class ReplayServiceWithExecutionProfileMetadata:
+    async def load(self, operation_id: str):
+        checkpoint = OperationCheckpoint.initial(operation_id)
+        checkpoint.objective = ObjectiveState(
+            objective="do the task",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                        "approval_policy": "auto",
+                        "sandbox_mode": "workspace-write",
+                    }
+                }
+            },
+        )
+        checkpoint.allowed_agents = ["codex_acp"]
+        return type(
+            "ReplayState",
+            (),
+            {
+                "checkpoint": checkpoint,
+                "last_applied_sequence": 1,
+                "suffix_events": [],
+            },
+        )()
+
+
 class ReplayServiceWithCheckpointPermissionEvents:
     async def load(self, operation_id: str):
         checkpoint = OperationCheckpoint.initial(operation_id)
@@ -572,6 +602,87 @@ async def test_drive_service_emits_session_created_before_turn_completion() -> N
         "agent.turn.completed",
     ]
     assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+
+
+@pytest.mark.anyio
+async def test_policy_executor_session_created_carries_effective_execution_profile() -> None:
+    """Catches v2 real session launches dropping Codex profile metadata."""
+
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+    session_manager = StubSessionManager()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                    "metadata": {
+                        "effective_adapter_settings": {
+                            "codex_acp": {
+                                "model": "gpt-5.4",
+                                "reasoning_effort": "low",
+                                "approval_policy": "auto",
+                                "sandbox_mode": "workspace-write",
+                            }
+                        }
+                    },
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=StubBrain(),
+            session_manager=session_manager,
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=ReplayServiceWithExecutionProfileMetadata(),
+        event_sink=event_sink,
+    )
+
+    await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    request_metadata = session_manager.started_requests[0].metadata
+    assert request_metadata["execution_profile_model"] == "gpt-5.4"
+    assert request_metadata["execution_profile_reasoning_effort"] == "low"
+    assert request_metadata["execution_profile_approval_policy"] == "auto"
+    assert request_metadata["execution_profile_sandbox_mode"] == "workspace-write"
+
+    session_created = next(
+        event for event in event_sink.events if event.event_type == "session.created"
+    )
+    handle_metadata = session_created.payload["handle"]["metadata"]
+    assert handle_metadata["execution_profile_model"] == "gpt-5.4"
+    assert handle_metadata["execution_profile_reasoning_effort"] == "low"
+    assert handle_metadata["execution_profile_approval_policy"] == "auto"
+    assert handle_metadata["execution_profile_sandbox_mode"] == "workspace-write"
+
+    session = SessionState(**session_created.payload)
+    assert session.execution_profile_stamp is not None
+    assert session.execution_profile_stamp.model == "gpt-5.4"
+    assert session.execution_profile_stamp.effort_value == "low"
+    assert session.execution_profile_stamp.approval_policy == "auto"
+    assert session.execution_profile_stamp.sandbox_mode == "workspace-write"
 
 
 @pytest.mark.anyio
