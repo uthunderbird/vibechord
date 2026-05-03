@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +18,8 @@ from agent_operator.domain import (
 )
 
 pytestmark = pytest.mark.anyio
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @dataclass(slots=True)
@@ -159,3 +162,24 @@ async def test_delivery_surface_resolves_before_command_application() -> None:
     assert commands.answered == [("op-canonical", "att", "approved")]
     assert commands.cancelled == ["op-canonical"]
     assert commands.interrupted == [("op-canonical", "task-1")]
+
+
+def test_cli_and_sdk_live_streams_use_shared_live_feed_contract() -> None:
+    """Catches CLI watch or SDK streaming reverting to private event-stream parsers."""
+
+    client_source = (REPO_ROOT / "src" / "agent_operator" / "client.py").read_text(
+        encoding="utf-8"
+    )
+    watch_source = (
+        REPO_ROOT / "src" / "agent_operator" / "cli" / "workflows" / "control_runtime.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from agent_operator.application.live_feed import (" in client_source
+    assert "LiveFeedEnvelope" in client_source
+    assert "parse_canonical_live_feed_line" in client_source
+    assert "parse_legacy_live_feed_line" in client_source
+    assert "async def stream_live_feed" in client_source
+    assert "from agent_operator.application.live_feed import (" in watch_source
+    assert "iter_live_feed" in watch_source
+    assert "parse_canonical_live_feed_line" in watch_source
+    assert "parse_legacy_live_feed_line" in watch_source

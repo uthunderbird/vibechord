@@ -78,12 +78,20 @@ Phase 2 implementation on 2026-04-25:
 - `implemented`: public reference documentation lists the covered shared authorities, surface-local
   output shapes, machine-facing error mapping, and intentional gaps. Evidence:
   `docs/reference/delivery-surface-parity.md:7-33`.
-- `partial`: stream/watch parity is not complete for canonical v2 operation events. `operator
-  watch` and `OperatorClient.stream_events()` still read legacy run event files after shared
-  operation-reference resolution. Evidence: `src/agent_operator/client.py:438-465`,
-  `src/agent_operator/cli/commands/operation_detail.py:542-548`,
-  `src/agent_operator/cli/workflows/control_runtime.py:129-188`,
-  `docs/reference/delivery-surface-parity.md:18-24`.
+- `implemented`: stream/watch parity now uses the shared `LiveFeedEnvelope` contract and shared
+  canonical/legacy parser family for CLI `watch`, SDK `stream_live_feed()`, and SDK
+  `stream_events()`. These paths prefer canonical
+  `.operator/operation_events/<operation_id>.jsonl` and fall back to legacy
+  `.operator/events/<operation_id>.jsonl` only when no canonical stream exists. Evidence:
+  `src/agent_operator/application/live_feed.py`,
+  `src/agent_operator/client.py`,
+  `src/agent_operator/cli/workflows/control_runtime.py`,
+  `tests/test_delivery_surface_parity.py::test_cli_and_sdk_live_streams_use_shared_live_feed_contract`,
+  `tests/test_client.py::test_operator_client_stream_events_prefers_canonical_v2_stream_over_legacy`,
+  `tests/test_cli.py::test_watch_prefers_canonical_v2_events_over_legacy_event_file`.
+- `partial`: TUI parity for explicit sequence-gap and stale-stream warnings still trails CLI
+  `watch` and SDK `stream_live_feed()`. The shared live-feed parsing path exists, but TUI warning
+  rendering parity remains incomplete across every supervisory surface.
 - `partial`: full typing verification is not complete. `uv run mypy` on the touched delivery
   modules still traverses existing repository-wide typing debt outside this ADR slice; full pytest
   completed with `975 passed, 11 skipped`.

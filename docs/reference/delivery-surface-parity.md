@@ -14,12 +14,16 @@ each adapter.
 | answer | `DeliverySurfaceService.answer_attention()` over `OperationDeliveryCommandService` | TUI production callbacks, MCP, SDK, CLI command facade | command acknowledgements or `None` |
 | cancel | `DeliverySurfaceService.cancel_operation()` over `OperationDeliveryCommandService` | TUI production callbacks, MCP, SDK, CLI command facade | outcome projection or `None` |
 | interrupt | `DeliverySurfaceService.interrupt_operation()` over `OperationDeliveryCommandService` | TUI production callbacks, MCP, SDK, CLI command facade | acknowledgement or `None` |
+| stream/watch parsing | `LiveFeedEnvelope` and canonical/legacy parsers under `agent_operator.application.live_feed` | CLI `watch`, SDK `stream_live_feed()`, SDK `stream_events()` | CLI rendered lines, SDK envelopes or `RunEvent` records |
 
 ## Intentional Gaps
 
 - `operator watch` and `OperatorClient.stream_events()` now prefer canonical
   `.operator/operation_events/<operation_id>.jsonl` and fall back to legacy
   `.operator/events/<operation_id>.jsonl` only when no canonical stream exists.
+- `OperatorClient.stream_live_feed()` exposes warning-capable `LiveFeedEnvelope` records;
+  `OperatorClient.stream_events()` remains event-only and skips warning records for backward
+  compatibility.
 - TUI parity for explicit sequence-gap and stale-stream warnings still trails CLI `watch`; the
   shared live-feed parsing path exists, but warning/rendering parity remains incomplete across every
   supervisory surface.
