@@ -38,7 +38,13 @@ class AgentSessionRuntimeFactory(Protocol):
         One session runtime instance.
     """
 
-    def __call__(self, *, working_directory: Path, log_path: Path) -> AgentSessionRuntime: ...
+    def __call__(
+        self,
+        *,
+        working_directory: Path,
+        log_path: Path,
+        session_metadata: dict[str, str] | None = None,
+    ) -> AgentSessionRuntime: ...
 
 
 class AttachedRuntimeBinding(Protocol):

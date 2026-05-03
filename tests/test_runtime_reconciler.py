@@ -1,17 +1,25 @@
 """Unit tests for RuntimeReconciler — event-returning reconciliation (ADR 0195)."""
 from __future__ import annotations
 
+import builtins
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from agent_operator.application.drive.agent_run_supervisor import AgentRunSupervisorV2
 from agent_operator.application.drive.process_manager_context import ProcessManagerContext
 from agent_operator.application.drive.runtime_reconciler import RuntimeReconciler
+from agent_operator.domain.agent import AgentSessionHandle
 from agent_operator.domain.aggregate import OperationAggregate
-from agent_operator.domain.enums import BackgroundRunStatus, CommandStatus, OperationCommandType
-from agent_operator.domain.operation import OperationGoal
+from agent_operator.domain.enums import (
+    BackgroundRunStatus,
+    CommandStatus,
+    OperationCommandType,
+    SessionStatus,
+)
+from agent_operator.domain.operation import OperationGoal, SessionState
+from agent_operator.protocols import AgentRunSupervisor
 
 # ── In-memory stubs ────────────────────────────────────────────────────────────
 
@@ -51,10 +59,10 @@ class StubCommandInbox:
     async def enqueue(self, command: Any) -> None:
         self._commands.append(command)
 
-    async def list(self, operation_id: str) -> list[Any]:
+    async def list(self, operation_id: str) -> builtins.list[Any]:
         return list(self._commands)
 
-    async def list_pending(self, operation_id: str) -> list[Any]:
+    async def list_pending(self, operation_id: str) -> builtins.list[Any]:
         return list(self._commands)
 
     async def update_status(self, command_id: str, status: Any, **kwargs: Any) -> Any:
@@ -150,6 +158,13 @@ def _agg(**kwargs: Any) -> OperationAggregate:
 
 def _ctx() -> ProcessManagerContext:
     return ProcessManagerContext()
+
+
+def _session(session_id: str, status: SessionStatus = SessionStatus.RUNNING) -> SessionState:
+    return SessionState(
+        handle=AgentSessionHandle(adapter_key="codex_acp", session_id=session_id),
+        status=status,
+    )
 
 
 # ── drain_commands ─────────────────────────────────────────────────────────────
@@ -271,7 +286,7 @@ async def test_drain_wakeups_acks_completed_run() -> None:
     reconciler = RuntimeReconciler(
         wakeup_inbox=inbox,
         command_inbox=StubCommandInbox(),
-        supervisor=supervisor,
+        supervisor=cast(AgentRunSupervisor, supervisor),
     )
     events = await reconciler.drain_wakeups(_agg(), _ctx())
     assert any(e.event_type == "execution.observed_state.changed" for e in events)
@@ -312,7 +327,7 @@ async def test_detect_orphaned_sessions_no_orphans_when_supervisor_knows_run() -
     reconciler = RuntimeReconciler(
         wakeup_inbox=StubWakeupInbox(),
         command_inbox=StubCommandInbox(),
-        supervisor=supervisor,
+        supervisor=cast(AgentRunSupervisor, supervisor),
     )
     # agg with no executions → nothing to orphan-check
     events = await reconciler.detect_orphaned_sessions(_agg(), _ctx())
@@ -366,15 +381,8 @@ async def test_detect_orphaned_v2_known_session_not_orphaned() -> None:
     task = sup.spawn(_noop(), operation_id="op-1", session_id="s-running")
     await task
 
-    # Build aggregate with a RUNNING session
-    from agent_operator.domain.operation import OperationGoal
     base = OperationAggregate.create(OperationGoal(objective="test"), operation_id="op-1")
-
-    class _FakeSession:
-        session_id = "s-running"
-        status = type("S", (), {"value": "running"})()
-
-    agg_with_session = dataclasses.replace(base, sessions=[_FakeSession()])
+    agg_with_session = dataclasses.replace(base, sessions=[_session("s-running")])
 
     reconciler = RuntimeReconciler(
         wakeup_inbox=StubWakeupInbox(),
@@ -393,12 +401,7 @@ async def test_detect_orphaned_v2_unknown_session_generates_crashed_event() -> N
     # Supervisor has NO knowledge of "s-orphan" — simulates crash+restart
 
     base = OperationAggregate.create(OperationGoal(objective="test"), operation_id="op-1")
-
-    class _FakeSession:
-        session_id = "s-orphan"
-        status = type("S", (), {"value": "running"})()
-
-    agg_with_session = dataclasses.replace(base, sessions=[_FakeSession()])
+    agg_with_session = dataclasses.replace(base, sessions=[_session("s-orphan")])
 
     reconciler = RuntimeReconciler(
         wakeup_inbox=StubWakeupInbox(),
@@ -418,12 +421,7 @@ async def test_detect_orphaned_v2_runs_once_per_drive_call() -> None:
 
     sup = AgentRunSupervisorV2()
     base = OperationAggregate.create(OperationGoal(objective="test"), operation_id="op-1")
-
-    class _FakeSession:
-        session_id = "s-orphan"
-        status = type("S", (), {"value": "running"})()
-
-    agg_with_session = dataclasses.replace(base, sessions=[_FakeSession()])
+    agg_with_session = dataclasses.replace(base, sessions=[_session("s-orphan")])
     ctx = _ctx()
     reconciler = RuntimeReconciler(
         wakeup_inbox=StubWakeupInbox(),

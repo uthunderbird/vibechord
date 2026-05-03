@@ -38,6 +38,7 @@ from agent_operator.domain.read_model import DecisionRecord
 from agent_operator.protocols import EventSink, OperationEventStore
 from agent_operator.protocols.event_sourcing import OperationCheckpointStore
 from agent_operator.protocols.facts import FactStore
+from agent_operator.protocols.runtime import PolicyStore
 
 if TYPE_CHECKING:
     from agent_operator.domain.checkpoints import OperationCheckpoint
@@ -73,7 +74,7 @@ class DriveService:
         event_store: OperationEventStore,
         checkpoint_store: OperationCheckpointStore,
         replay_service: ReplayService,
-        policy_store: object | None = None,
+        policy_store: PolicyStore | None = None,
         adapter_registry: object | None = None,
         event_sink: EventSink | None = None,
         history_ledger: HistoryLedger | None = None,

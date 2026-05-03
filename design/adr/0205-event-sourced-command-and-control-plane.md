@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Phase 1 grounding on 2026-04-25:
 
@@ -75,17 +75,14 @@ Implementation closure on 2026-04-25:
   `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1043 passed, 11 skipped`) on 2026-04-28.
 - `verified`: changed-file lint passed:
   `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent_operator/application/drive/process_manager_context.py src/agent_operator/application/drive/runtime_reconciler.py src/agent_operator/application/drive/drive_service.py src/agent_operator/application/event_sourcing/event_sourced_commands.py src/agent_operator/bootstrap.py tests/test_runtime_reconciler.py tests/test_event_sourced_command_application.py`.
-- `blocked`: targeted `mypy` still fails on 2026-04-28, so this ADR cannot truthfully move to
-  `Verified` yet. Current failures are in the touched slice itself, not only unrelated imports:
-  `tests/test_runtime_reconciler.py:57`,
-  `tests/test_runtime_reconciler.py:274`,
-  `tests/test_runtime_reconciler.py:315`,
-  `tests/test_runtime_reconciler.py:377`,
-  `tests/test_runtime_reconciler.py:401`,
-  `tests/test_runtime_reconciler.py:426`,
-  `src/agent_operator/application/drive/drive_service.py:374`,
-  `src/agent_operator/bootstrap.py:233`, and
-  `src/agent_operator/bootstrap.py:661`.
+- `verified`: targeted `mypy` for the previously blocked slice passed on 2026-05-04:
+  `UV_CACHE_DIR=/tmp/uv-cache uv run mypy tests/test_runtime_reconciler.py src/agent_operator/application/drive/drive_service.py src/agent_operator/bootstrap.py`
+  returned `Success: no issues found in 3 source files`.
+- `verified`: changed-file lint and focused runtime/drive tests passed on 2026-05-04:
+  `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent_operator/application/attached_session_registry.py src/agent_operator/application/drive/drive_service.py tests/test_runtime_reconciler.py`
+  and
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_runtime_reconciler.py tests/test_drive_service_v2.py`
+  (`36 passed`).
 
 ## Context
 
