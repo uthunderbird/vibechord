@@ -20,12 +20,26 @@ Implementation grounding on 2026-04-28:
   one fresh operator-on-operator smoke in this repository and one fresh external-project smoke in
   `../erdosreshala/problems/625`
 - `verified`: the repository-wide baseline row was rerun on 2026-05-03 with
-  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1100 passed, 11 skipped`) and recorded in
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1101 passed, 11 skipped`) and recorded in
   `design/internal/v2-verification-evidence-2026-05-03-full-suite.md`
 - `blocked`: the live Codex ACP preflight row was attempted on 2026-05-03 and failed before ACP
   initialize with `AcpProtocolError: ACP subprocess closed before completing all pending requests`;
   direct `npx @zed-industries/codex-acp --help` diagnostics also failed with npm registry DNS
   resolution (`ENOTFOUND registry.npmjs.org`). Evidence:
+  `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
+- `blocked`: a local `codex-acp` executable is available and passes readiness, but the live ACP
+  roundtrip remains blocked at `session/new` with JSON-RPC `Internal error`; ACP logs show
+  ChatGPT model-refresh network failure plus `Failed to create session: Operation not permitted`.
+  Evidence: `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
+- `blocked`: rerunning the direct `codex-acp` live row with escalated sandbox/network permissions
+  did not complete; it produced no pytest output for more than three minutes and was stopped after
+  process inspection showed live pytest plus a child `codex-acp` process still running. Evidence:
+  `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
+- `implemented`: the live Codex ACP row now has a configurable bounded timeout; the escalated
+  direct-executable row fails in bounded time (`TimeoutError` at 20 seconds in the recorded probe)
+  instead of hanging until manual cleanup. Evidence:
+  `tests/test_live_codex_acp.py`,
+  `tests/test_live_codex_acp_preflight.py`,
   `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
 - `implemented`: the live Codex ACP pytest row now performs a bounded readiness check before
   opening the ACP JSON-RPC session, so unavailable ACP executables are reported as explicit skips
@@ -110,7 +124,7 @@ needed to do so later without guessing.
 
 | Matrix row | Required evidence | Current state on 2026-04-28 |
 | --- | --- | --- |
-| full `uv run pytest` | one recorded green repository-wide run tied to the repo state under review | recorded on 2026-05-03: `1100 passed, 11 skipped` |
+| full `uv run pytest` | one recorded green repository-wide run tied to the repo state under review | recorded on 2026-05-03: `1101 passed, 11 skipped` |
 | targeted command/control tests | explicit green commands for the touched v2 control-plane tests | grounded by ADR 0205, not rerun here |
 | targeted query/read-model tests | explicit green commands for read-model/query tests | grounded by existing ADR/test references, not rerun here |
 | restart/resume smoke | one fresh v2 operation survives restart/resume path or records the blocker | not verified in this slice |

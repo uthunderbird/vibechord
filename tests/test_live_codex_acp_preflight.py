@@ -10,6 +10,7 @@ LIVE_TEST_MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(LIVE_TEST_MODULE)
 _codex_acp_readiness_command = LIVE_TEST_MODULE._codex_acp_readiness_command
+_codex_acp_live_timeout_seconds = LIVE_TEST_MODULE._codex_acp_live_timeout_seconds
 
 
 def test_codex_acp_readiness_command_ignores_npx_separator() -> None:
@@ -26,3 +27,11 @@ def test_codex_acp_readiness_command_appends_help_to_direct_executable() -> None
     command = _codex_acp_readiness_command("/tmp/codex-acp")
 
     assert command == ["/tmp/codex-acp", "--help"]
+
+
+def test_codex_acp_live_timeout_defaults_to_bounded_value(monkeypatch) -> None:
+    """Catches live ACP roundtrip losing its bounded timeout."""
+
+    monkeypatch.delenv("OPERATOR_CODEX_ACP_LIVE_TIMEOUT_SECONDS", raising=False)
+
+    assert _codex_acp_live_timeout_seconds() == 120

@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 
+import anyio
 import pytest
 
 from agent_operator.adapters.codex_acp import CodexAcpAgentAdapter
@@ -17,6 +18,10 @@ def _codex_acp_command() -> str:
 
 def _codex_acp_substrate_backend() -> str:
     return os.environ.get("OPERATOR_CODEX_ACP_LIVE_SUBSTRATE_BACKEND", "bespoke")
+
+
+def _codex_acp_live_timeout_seconds() -> float:
+    return float(os.environ.get("OPERATOR_CODEX_ACP_LIVE_TIMEOUT_SECONDS", "120"))
 
 
 def _codex_acp_readiness_command(command: str) -> list[str]:
@@ -65,19 +70,20 @@ async def test_codex_acp_live_roundtrip() -> None:
         reasoning_effort=os.environ.get("OPERATOR_CODEX_ACP_REASONING_EFFORT"),
         substrate_backend=_codex_acp_substrate_backend(),
     )
-    handle = await adapter.start(
-        AgentRunRequest(
-            goal="live acp smoke",
-            instruction="Reply with exactly ACP_OK and nothing else.",
+    with anyio.fail_after(_codex_acp_live_timeout_seconds()):
+        handle = await adapter.start(
+            AgentRunRequest(
+                goal="live acp smoke",
+                instruction="Reply with exactly ACP_OK and nothing else.",
+            )
         )
-    )
-    result = await adapter.collect(handle)
+        result = await adapter.collect(handle)
 
-    assert result.status.value == "success"
-    assert result.output_text.strip() == "ACP_OK"
+        assert result.status.value == "success"
+        assert result.output_text.strip() == "ACP_OK"
 
-    await adapter.send(handle, "Reply with exactly ACP_SECOND and nothing else.")
-    second = await adapter.collect(handle)
+        await adapter.send(handle, "Reply with exactly ACP_SECOND and nothing else.")
+        second = await adapter.collect(handle)
 
-    assert second.status.value == "success"
-    assert second.output_text.strip() == "ACP_SECOND"
+        assert second.status.value == "success"
+        assert second.output_text.strip() == "ACP_SECOND"

@@ -35,7 +35,7 @@ def test_v2_verification_reference_points_to_recorded_full_suite_evidence() -> N
     assert FULL_SUITE_EVIDENCE_PATH.exists()
     assert "Matrix row: full `uv run pytest`" in evidence
     assert "Result: `passed`" in evidence
-    assert "1100 passed, 11 skipped" in evidence
+    assert "1101 passed, 11 skipped" in evidence
 
 
 def test_v2_verification_reference_points_to_recorded_live_acp_blocker_evidence() -> None:
