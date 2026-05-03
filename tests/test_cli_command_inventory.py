@@ -13,6 +13,7 @@ from agent_operator.cli.command_inventory import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INVENTORY_DOC = REPO_ROOT / "docs" / "reference" / "cli-command-inventory.md"
+CLI_REF_DOC = REPO_ROOT / "docs" / "reference" / "cli.md"
 
 
 def _iter_command_paths(command, prefix: str = "") -> set[str]:
@@ -88,6 +89,18 @@ def test_cli_command_inventory_doc_lists_required_adr_0210_sections() -> None:
     assert "`run`" in inventory_doc
     assert "`resume`" in inventory_doc
     assert "`debug resume`" in inventory_doc
+
+
+def test_cli_reference_examples_prefer_adr_0219_canonical_paths() -> None:
+    """Catches the mutation where the CLI reference teaches transitional aliases as defaults."""
+    cli_ref = CLI_REF_DOC.read_text(encoding="utf-8")
+
+    assert "uv run operator show dashboard last --once" in cli_ref.lower()
+    assert "uv run operator show report last" in cli_ref.lower()
+    assert "uv run operator show log last --limit 20" in cli_ref.lower()
+    assert "uv run operator fleet history last" in cli_ref.lower()
+    assert "uv run operator show session last --task task-1 --once" in cli_ref.lower()
+    assert "uv run operator dashboard last --once" not in cli_ref.lower()
 
 
 def test_adr_0219_canonical_root_surface_is_explicit_subset() -> None:

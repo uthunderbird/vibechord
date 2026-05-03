@@ -4,11 +4,33 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
+
+Closeout grounding on 2026-05-04:
+
+- `accepted`: the repository now uses ADR 0219 canonical homes, not transitional aliases, in
+  generated fleet/dashboard action commands and in the primary CLI reference examples. Evidence:
+  `src/agent_operator/application/queries/operation_projections.py`,
+  `docs/reference/cli.md`.
+- `accepted`: root `dashboard`, `report`, `log`, `session`, `history`, and `resume` remain
+  callable only as transitional/debug aliases rather than being taught as the default shell story
+  for operator-facing examples or action hints. Evidence:
+  `src/agent_operator/cli/command_inventory.py`,
+  `docs/reference/cli-command-inventory.md`,
+  `docs/reference/cli.md`.
+- `verified`: focused regressions now catch ADR 0219 drift in both command inventory and published
+  CLI examples, and fleet/dashboard rendering tests assert canonical grouped/debug command hints.
+  Evidence: `tests/test_cli_command_inventory.py`, `tests/test_cli.py`,
+  `tests/test_operation_projections.py`.
+- `verified`: focused ADR 0219 slice passed on 2026-05-04 with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_cli_command_inventory.py tests/test_operation_projections.py tests/test_cli.py -k 'adr_0219 or fleet_once_renders_cross_operation_dashboard or build_project_dashboard_payload_merges_fleet_actions'`
+  (`6 passed`).
+- `verified`: repository-wide verification passed on 2026-05-04 with
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1114 passed, 12 skipped`).
 
 Implementation grounding on 2026-05-02:
 

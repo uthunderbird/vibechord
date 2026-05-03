@@ -112,8 +112,8 @@ Inspect the latest operation:
 
 ```sh
 UV_CACHE_DIR=/tmp/uv-cache uv run operator status last
-UV_CACHE_DIR=/tmp/uv-cache uv run operator report last
-UV_CACHE_DIR=/tmp/uv-cache uv run operator dashboard last --once
+UV_CACHE_DIR=/tmp/uv-cache uv run operator show report last
+UV_CACHE_DIR=/tmp/uv-cache uv run operator show dashboard last --once
 UV_CACHE_DIR=/tmp/uv-cache uv run operator watch last
 UV_CACHE_DIR=/tmp/uv-cache uv run operator ask last "what is the current status?"
 ```
@@ -127,25 +127,25 @@ persisted operation. It prints a grounded natural-language answer. Use `--json` 
 Inspect transcript, ledger, and retrospective surfaces:
 
 ```sh
-UV_CACHE_DIR=/tmp/uv-cache uv run operator log last --limit 20
-UV_CACHE_DIR=/tmp/uv-cache uv run operator history last
-UV_CACHE_DIR=/tmp/uv-cache uv run operator report last --json
+UV_CACHE_DIR=/tmp/uv-cache uv run operator show log last --limit 20
+UV_CACHE_DIR=/tmp/uv-cache uv run operator fleet history last
+UV_CACHE_DIR=/tmp/uv-cache uv run operator show report last --json
 ```
 
 Inspect the session bound to a task:
 
 ```sh
-UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --once
-UV_CACHE_DIR=/tmp/uv-cache uv run operator session last --task task-1 --follow --once
+UV_CACHE_DIR=/tmp/uv-cache uv run operator show session last --task task-1 --once
+UV_CACHE_DIR=/tmp/uv-cache uv run operator show session last --task task-1 --follow --once
 ```
 
-`session` remains task-addressed rather than session-id-addressed. Default/`--once` output is the
-bounded investigation snapshot; `--follow` is the more compact live variant and keeps transcript
-escalation explicit via `operator log` rather than inlining transcript body. In a real TTY,
-`session --follow` redraws the current Level 2 snapshot in place instead of appending duplicate
-snapshots. Snapshot mode keeps `Now`, one decisive `Wait` or `Attention` line, `Latest`, a bounded
-recent slice, and optional event detail; `--follow` trims that further while keeping the transcript
-escalation hint explicit.
+`show session` remains task-addressed rather than session-id-addressed. Default/`--once` output is
+the bounded investigation snapshot; `--follow` is the more compact live variant and keeps
+transcript escalation explicit via `operator show log` rather than inlining transcript body. In a
+real TTY, `show session --follow` redraws the current Level 2 snapshot in place instead of
+appending duplicate snapshots. Snapshot mode keeps `Now`, one decisive `Wait` or `Attention` line,
+`Latest`, a bounded recent slice, and optional event detail; `--follow` trims that further while
+keeping the transcript escalation hint explicit.
 
 Inspect project defaults and effective resolved run settings:
 

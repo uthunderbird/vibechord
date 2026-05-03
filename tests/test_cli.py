@@ -2636,7 +2636,7 @@ def test_fleet_once_renders_cross_operation_dashboard(tmp_path: Path, monkeypatc
     assert "op-agenda-blocked" in result.stdout
     assert "op-agenda-active" in result.stdout
     assert "op-agenda-completed" in result.stdout
-    assert "operator dashboard op-agenda-blocked" in result.stdout
+    assert "operator show dashboard op-agenda-blocked" in result.stdout
 
 
 def test_no_args_non_tty_renders_fleet_snapshot_when_operations_exist(
@@ -2881,7 +2881,7 @@ def test_fleet_surfaces_resume_hint_for_runtime_alert_operations(
 
     assert result.exit_code == 0
     assert "Needs Attention (1)" in result.stdout
-    assert "operator resume op-fleet-runtime-alert" in result.stdout
+    assert "operator debug resume op-fleet-runtime-alert" in result.stdout
 
 
 def test_run_with_attach_session_requires_attach_agent(tmp_path: Path, monkeypatch) -> None:

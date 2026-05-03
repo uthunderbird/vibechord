@@ -574,7 +574,7 @@ def test_build_project_dashboard_payload_merges_fleet_actions() -> None:
                 {
                     "key": "dashboard",
                     "label": "Dashboard",
-                    "cli_command": "operator dashboard op-1",
+                    "cli_command": "operator show dashboard op-1",
                     "scope": "operation",
                     "destructive": False,
                     "enabled": True,
@@ -587,7 +587,7 @@ def test_build_project_dashboard_payload_merges_fleet_actions() -> None:
 
     commands = [item["cli_command"] for item in payload["actions"]]
     assert "operator project inspect operator" in commands
-    assert "operator dashboard op-1" in commands
+    assert "operator show dashboard op-1" in commands
 
 
 def test_build_project_dashboard_payload_uses_explicit_profile_serializer(

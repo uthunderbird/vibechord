@@ -2198,7 +2198,7 @@ class OperationProjectionService:
                 ProjectionAction(
                     "dashboard",
                     "Dashboard",
-                    f"operator dashboard {item.operation_id}",
+                    f"operator show dashboard {item.operation_id}",
                     "operation",
                     False,
                 )
@@ -2207,7 +2207,7 @@ class OperationProjectionService:
                 ProjectionAction(
                     "context",
                     "Context",
-                    f"operator context {item.operation_id}",
+                    f"operator debug context {item.operation_id}",
                     "operation",
                     False,
                 )
@@ -2217,7 +2217,7 @@ class OperationProjectionService:
                     ProjectionAction(
                         "resume",
                         "Resume",
-                        f"operator resume {item.operation_id}",
+                        f"operator debug resume {item.operation_id}",
                         "operation",
                         False,
                     )
@@ -2227,7 +2227,7 @@ class OperationProjectionService:
                     ProjectionAction(
                         "attention",
                         "Attention",
-                        f"operator attention {item.operation_id}",
+                        f"operator show attention {item.operation_id}",
                         "operation",
                         False,
                     )
@@ -2248,7 +2248,7 @@ class OperationProjectionService:
                 ProjectionAction(
                     "dashboard",
                     "Dashboard",
-                    f"operator dashboard {item.operation_id}",
+                    f"operator show dashboard {item.operation_id}",
                     "operation",
                     False,
                 )
@@ -2262,7 +2262,7 @@ class OperationProjectionService:
                 ProjectionAction(
                     "context",
                     "Context",
-                    f"operator context {item.operation_id}",
+                    f"operator debug context {item.operation_id}",
                     "operation",
                     False,
                 )
@@ -2354,7 +2354,7 @@ class OperationProjectionService:
             ProjectionAction(
                 "context",
                 "Context",
-                f"operator context {operation.operation_id}",
+                f"operator debug context {operation.operation_id}",
                 "operation",
                 False,
             ),
