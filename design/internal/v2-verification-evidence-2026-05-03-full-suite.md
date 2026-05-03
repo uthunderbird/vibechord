@@ -1,10 +1,8 @@
 # v2 Verification Evidence Note: Full Suite Baseline
 
 - Date: 2026-05-03
-- Repository HEAD: `1228de6fec8e8f30bfe757af65099e2f7ff48a18`
-- Worktree state: dirty with this evidence note, `docs/reference/v2-verification.md`,
-  `design/adr/0211-v2-end-to-end-verification-matrix.md`, and
-  `tests/test_v2_verification_docs.py` modified
+- Repository HEAD: `c751aef59431375a58de9fdbf27584cf80a7124a`
+- Worktree state: dirty with live ACP preflight harness and ADR 0211 evidence updates
 - Matrix row: full `uv run pytest`
 - Result: `passed`
 
@@ -30,7 +28,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest
 
 ## Evidence
 
-- Status / outcome: `1097 passed, 11 skipped in 48.44s`
+- Status / outcome: `1100 passed, 11 skipped in 42.88s`
 - Watch / stream signal: not applicable to this local row
 - Inspect / forensic signal: not applicable to this local row
 - Transcript / log signal: not applicable to this local row

@@ -76,6 +76,15 @@ reason: getaddrinfo ENOTFOUND registry.npmjs.org
 
 - This row is blocked by live ACP subprocess startup in the current environment.
 - The canonical trailing `--` command shape did not resolve the blocker.
+- Follow-up on 2026-05-03 changed `tests/test_live_codex_acp.py` to run a bounded readiness check
+  before opening the ACP JSON-RPC session. With the same blocked environment, the live row now
+  reports:
+
+  ```text
+  SKIPPED [1] tests/test_live_codex_acp.py:41:
+  codex ACP readiness check timed out: npx @zed-industries/codex-acp --help
+  ```
+
 - Because no operation id was created, this evidence does not exercise stream/TUI visibility,
   restart/resume, permission, external-project, or no-`.operator/runs` dependency rows.
 
@@ -85,6 +94,6 @@ reason: getaddrinfo ENOTFOUND registry.npmjs.org
 - Why it was not caught earlier: skipped live tests do not exercise provider subprocess startup,
   and the environment lacked npm registry resolution during diagnostic execution.
 - Category: unchecked external response.
-- Preventive mechanism: keep blocked live-preflight evidence explicit in ADR 0211 until the ACP
-  executable is available without registry lookup or the live row is rerun in a network-enabled
-  environment.
+- Preventive mechanism: keep blocked live-preflight evidence explicit in ADR 0211 and keep the live
+  test readiness guard so unavailable ACP executables are reported as bounded skips before the
+  adapter opens a JSON-RPC session.
