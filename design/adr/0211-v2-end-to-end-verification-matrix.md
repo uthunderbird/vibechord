@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Partial
+Verified
 
 Implementation grounding on 2026-04-28:
 
@@ -52,8 +52,7 @@ Implementation grounding on 2026-04-28:
   `design/internal/v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md`
 - `noted`: the operator-on-operator row exposed a visibility consistency gap:
   `watch --once --json` reported the same completed operation but left `latest_turn: null` while
-  `status --json` populated `latest_turn`. This is recorded in `design/BACKLOG.md` and does not
-  promote the stream/TUI visibility row beyond partial evidence.
+  `status --json` populated `latest_turn`. The gap was fixed and verified later on 2026-05-04.
 - `implemented`: replay now normalizes `SessionState.status` through `SessionStatus` when applying
   `session.observed_state.changed`, preventing prompt/log serialization from crashing on raw status
   strings. Evidence: `tests/test_operation_aggregate.py`.
@@ -75,6 +74,11 @@ Implementation grounding on 2026-04-28:
   `9dae40c7-b49c-4e54-a184-4094d0c827c2`; no matching `.operator/runs` snapshot existed, and
   `status`, `debug inspect`, and `list` resolved the operation from v2 truth. Evidence:
   `design/internal/v2-verification-evidence-2026-05-04-no-runs-dependency.md`
+- `verified`: the stream/TUI visibility row passed on 2026-05-04 after fixing `watch --once --json`
+  to preserve the same canonical latest-turn fallback used by `status --json`; live replay/read
+  evidence against operation `9dae40c7-b49c-4e54-a184-4094d0c827c2` showed `latest_turn.status:
+  completed` in watch JSON. Evidence:
+  `design/internal/v2-verification-evidence-2026-05-04-stream-visibility.md`
 - `noted`: the external smoke's raw ACP log grew to about 2.1 GB for one bounded read-only run;
   this is recorded in `design/BACKLOG.md` as an operational evidence/storage gap.
 - `noted`: `../erdosreshala/problems/625` exists locally and already contains `.operator/`,
@@ -107,8 +111,9 @@ Acceptance grounding on 2026-04-26:
 - `verified`: static regressions now fail if the procedure drops those required row names or the
   canonical `status` / `watch --once` / `debug inspect --full` visibility commands. Evidence:
   `tests/test_v2_verification_docs.py`.
-- `blocked`: this ADR still has a stream/TUI visibility consistency gap, so implementation status
-  remains `Partial`.
+- `verified`: after the 2026-05-04 stream visibility fix, all ADR 0211 matrix rows have recorded
+  passing evidence or explicitly bounded non-blocking outcomes; ADR 0202's stronger permission
+  approve/reject/escalate behavior remains outside this ADR's verification claim.
 
 ## Context
 
@@ -119,21 +124,18 @@ verification gate.
 
 Current repository truth also shows that parts of the live verification workflow already exist:
 
-- ADR 0202 records targeted permission-path coverage and leaves the external
-  `../erdosreshala/problems/625` smoke as an explicit remaining blocker
+- ADR 0202 records targeted permission-path coverage and leaves stronger permission-policy
+  approve/reject/escalate verification outside this ADR's claim
 - ADR 0205 records repository test coverage for the canonical v2 control plane
 - ADR 0212 records a debug-only repair surface for canonical event-stream repair when normal CLI
   lifecycle control is insufficient during verification or incident response
 
-What is still missing is a single in-repo procedure that says exactly how to run the bounded live
-checks, what evidence to capture, and what currently blocks closure.
+The repository now has a single in-repo procedure that says exactly how to run the bounded live
+checks, what evidence to capture, and what blocks or promotes closure.
 
-Current repository truth also includes one newly observed verification blocker: replay-backed public
-surfaces are not yet schema-stable for all canonical v2 event payloads. During this wave,
-`operator status`, `operator answer`, and operation-resolution paths were observed failing in replay
-with projector validation errors while materializing `operation.created`. That failure belongs to
-the ADR 0206 closure scope, but it must also be recorded here because it blocks honest end-to-end
-verification.
+Historical verification attempts also exposed replay-backed public-surface schema drift for
+canonical v2 event payloads. Those failures were fixed before this ADR was promoted to `Verified`;
+future replay/query crashes on canonical persisted events remain blocker evidence until fixed.
 
 ## Decision
 
@@ -146,8 +148,8 @@ The required external e2e target is:
 ../erdosreshala/problems/625
 ```
 
-This ADR does not mark v2 as verified. It defines the minimum manual procedure and evidence bar
-needed to do so later without guessing.
+This ADR now marks its own matrix as verified because the minimum manual procedure and evidence bar
+have recorded passing evidence or explicitly bounded non-blocking outcomes.
 
 ## Required Matrix
 
@@ -158,7 +160,7 @@ needed to do so later without guessing.
 | targeted query/read-model tests | explicit green commands for read-model/query tests | grounded by existing ADR/test references, not rerun here |
 | restart/resume smoke | one fresh v2 operation survives restart/resume path or records the blocker | passed on 2026-05-04: external operation `b77cfdca-6991-4869-af9d-5c71100be3fc` completed in attached mode without manual resume |
 | permission approve/reject/escalate/needs_human smoke | one fresh run records the permission path and resulting operator behavior without external ACP UI selection | passed on 2026-05-04: bounded repo-local write/delete probe completed with `no permission event observed` |
-| stream/TUI visibility smoke | status/watch/debug inspect evidence reflects the live/canonical result | partial on 2026-05-03: terminal outcome agrees, but `watch --once --json` left `latest_turn: null` while `status --json` populated it |
+| stream/TUI visibility smoke | status/watch/debug inspect evidence reflects the live/canonical result | passed on 2026-05-04: `watch --once --json` now preserves canonical latest-turn fallback and showed `latest_turn.status: completed` for operation `9dae40c7-b49c-4e54-a184-4094d0c827c2` |
 | live Codex ACP one-shot | narrow ACP transport/prompt preflight before larger live smokes | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
 | live Codex ACP follow-up reload | prove collected Codex sessions can be reloaded and prompted again | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
 | operator-on-operator v2 smoke | one fresh run in this repository with persisted evidence artifacts | passed on 2026-05-03: operation `2d4bd45f-68fb-4709-a91c-6cb587591689` completed with status/watch/inspect/log evidence |

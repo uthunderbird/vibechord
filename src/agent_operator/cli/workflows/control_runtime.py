@@ -159,8 +159,16 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
                 typer.echo(rendered)
     last_snapshot: dict[str, object] | None = None
     if once:
-        operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
-        snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
+        operation, outcome, brief, runtime_alert = await status_queries.build_status_payload(
+            operation_id
+        )
+        snapshot = status_queries.build_live_snapshot(
+            operation_id,
+            operation,
+            outcome,
+            brief=brief,
+            runtime_alert=runtime_alert,
+        )
         if json_mode:
             typer.echo(json.dumps(snapshot, indent=2, ensure_ascii=False))
         else:
@@ -170,11 +178,18 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
         return
     if use_live_tty:
         console = RichConsole()
-        initial_operation, initial_outcome, _, _ = await status_queries.build_status_payload(
-            operation_id
-        )
+        (
+            initial_operation,
+            initial_outcome,
+            initial_brief,
+            initial_runtime_alert,
+        ) = await status_queries.build_status_payload(operation_id)
         initial_snapshot = status_queries.build_live_snapshot(
-            operation_id, initial_operation, initial_outcome
+            operation_id,
+            initial_operation,
+            initial_outcome,
+            brief=initial_brief,
+            runtime_alert=initial_runtime_alert,
         )
         last_snapshot = initial_snapshot
         with Live(
@@ -193,7 +208,9 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
                     )
                     if rendered is not None:
                         latest_update = rendered
-                operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
+                operation, outcome, brief, runtime_alert = (
+                    await status_queries.build_status_payload(operation_id)
+                )
                 stale_warning = _build_attention_stale_warning(
                     operation,
                     attention_id=pending_answered_attention_id,
@@ -201,7 +218,13 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
                 if stale_warning is not None and stale_warning.record_id not in seen_record_ids:
                     seen_record_ids.add(stale_warning.record_id)
                     latest_update = stale_warning.message
-                snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
+                snapshot = status_queries.build_live_snapshot(
+                    operation_id,
+                    operation,
+                    outcome,
+                    brief=brief,
+                    runtime_alert=runtime_alert,
+                )
                 if snapshot != last_snapshot:
                     last_snapshot = snapshot
                 live.update(
@@ -226,7 +249,9 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
                 projector.handle_event(envelope.event)
             elif rendered is not None:
                 typer.echo(rendered)
-        operation, outcome, _, _ = await status_queries.build_status_payload(operation_id)
+        operation, outcome, brief, runtime_alert = await status_queries.build_status_payload(
+            operation_id
+        )
         stale_warning = _build_attention_stale_warning(
             operation,
             attention_id=pending_answered_attention_id,
@@ -234,7 +259,13 @@ async def watch_async(operation_id: str, once: bool, json_mode: bool, poll_inter
         if stale_warning is not None and stale_warning.record_id not in seen_record_ids:
             seen_record_ids.add(stale_warning.record_id)
             typer.echo(stale_warning.message)
-        snapshot = status_queries.build_live_snapshot(operation_id, operation, outcome)
+        snapshot = status_queries.build_live_snapshot(
+            operation_id,
+            operation,
+            outcome,
+            brief=brief,
+            runtime_alert=runtime_alert,
+        )
         if snapshot != last_snapshot:
             projector.emit_snapshot(snapshot)
             last_snapshot = snapshot

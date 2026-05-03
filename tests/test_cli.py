@@ -8009,6 +8009,85 @@ def test_watch_once_emits_single_snapshot_and_exits(tmp_path: Path, monkeypatch)
     assert payload["status"] == "running"
 
 
+def test_watch_once_json_includes_canonical_latest_turn_without_trace_brief(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Catches watch JSON bypassing canonical latest-turn fallback used by status."""
+    monkeypatch.setenv("OPERATOR_DATA_DIR", str(tmp_path))
+    operation_id = "op-watch-once-v2-turn"
+    timestamp = datetime(2026, 5, 4, 12, 0, tzinfo=UTC)
+    checkpoint = OperationCheckpoint.initial(operation_id)
+    checkpoint.objective = ObjectiveState(objective="Inspect canonical latest turn.")
+    checkpoint.status = OperationStatus.COMPLETED
+    checkpoint.created_at = timestamp
+    checkpoint.updated_at = timestamp
+    checkpoint_record = OperationCheckpointRecord(
+        operation_id=operation_id,
+        checkpoint_payload=checkpoint.model_dump(mode="json"),
+        last_applied_sequence=3,
+        checkpoint_format_version=1,
+    )
+    checkpoint_path = tmp_path / "operation_checkpoints" / f"{operation_id}.json"
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(
+        json.dumps({**checkpoint_record.model_dump(mode="json"), "epoch_id": 0}, indent=2),
+        encoding="utf-8",
+    )
+    event_dir = tmp_path / "operation_events"
+    event_dir.mkdir()
+    (event_dir / f"{operation_id}.jsonl").write_text(
+        "\n".join(
+            [
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=1,
+                    event_type="session.created",
+                    payload={
+                        "handle": {
+                            "adapter_key": "codex_acp",
+                            "session_id": "sess-watch-once",
+                            "display_name": "Codex via ACP",
+                        },
+                        "adapter_key": "codex_acp",
+                    },
+                    timestamp=timestamp,
+                ).model_dump_json(),
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=2,
+                    event_type="agent.turn.completed",
+                    payload={
+                        "session_id": "sess-watch-once",
+                        "adapter_key": "codex_acp",
+                        "status": "completed",
+                        "output_text": "Canonical turn summary from event log.",
+                    },
+                    timestamp=timestamp,
+                ).model_dump_json(),
+                StoredOperationDomainEvent(
+                    operation_id=operation_id,
+                    sequence=3,
+                    event_type="operation.status.changed",
+                    payload={"status": "completed", "iteration": 1},
+                    timestamp=timestamp,
+                ).model_dump_json(),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["watch", operation_id, "--once", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout[result.stdout.index("{") :])
+    latest_turn = payload["summary"]["latest_turn"]
+    assert latest_turn["agent_key"] == "codex_acp"
+    assert latest_turn["session_id"] == "sess-watch-once"
+    assert latest_turn["status"] == "completed"
+    assert payload["summary"]["work_summary"] == "Canonical turn summary from event log."
+
+
 def test_watch_reads_canonical_v2_events_without_legacy_event_file(
     tmp_path: Path, monkeypatch
 ) -> None:
