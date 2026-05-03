@@ -44,6 +44,7 @@ Committed evidence notes live under `design/internal/` and use the
 - `design/internal/v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md`
 - `design/internal/v2-verification-evidence-2026-05-04-external-625-smoke.md`
 - `design/internal/v2-verification-evidence-2026-05-04-permission-slice.md`
+- `design/internal/v2-verification-evidence-2026-05-04-no-runs-dependency.md`
 
 ## Preflight
 

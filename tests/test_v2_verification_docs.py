@@ -29,6 +29,12 @@ PERMISSION_SLICE_EVIDENCE_PATH = (
     / "internal"
     / "v2-verification-evidence-2026-05-04-permission-slice.md"
 )
+NO_RUNS_EVIDENCE_PATH = (
+    REPO_ROOT
+    / "design"
+    / "internal"
+    / "v2-verification-evidence-2026-05-04-no-runs-dependency.md"
+)
 
 
 def _load_procedure() -> str:
@@ -120,6 +126,21 @@ def test_v2_verification_reference_points_to_permission_slice_evidence() -> None
     assert "Permission-path outcome: no permission event observed" in evidence
     assert "not enough to" in procedure
     assert "promote ADR 0202" in procedure
+
+
+def test_v2_verification_reference_points_to_no_runs_evidence() -> None:
+    """Catches dropping the outcome-based no-.operator/runs dependency evidence."""
+
+    procedure = _load_procedure()
+    evidence = NO_RUNS_EVIDENCE_PATH.read_text(encoding="utf-8")
+
+    assert "design/internal/v2-verification-evidence-2026-05-04-no-runs-dependency.md" in procedure
+    assert NO_RUNS_EVIDENCE_PATH.exists()
+    assert "Matrix row: no `.operator/runs` dependency" in evidence
+    assert "Result: `passed`" in evidence
+    assert "9dae40c7-b49c-4e54-a184-4094d0c827c2" in evidence
+    assert "printed no files" in evidence
+    assert "operator list --json" in evidence
 
 
 def test_v2_verification_matrix_lists_required_adr_0211_rows() -> None:
