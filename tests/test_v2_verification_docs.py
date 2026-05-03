@@ -17,6 +17,12 @@ OPERATOR_ON_OPERATOR_EVIDENCE_PATH = (
     / "internal"
     / "v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md"
 )
+EXTERNAL_625_EVIDENCE_PATH = (
+    REPO_ROOT
+    / "design"
+    / "internal"
+    / "v2-verification-evidence-2026-05-04-external-625-smoke.md"
+)
 
 
 def _load_procedure() -> str:
@@ -77,6 +83,21 @@ def test_v2_verification_reference_points_to_operator_on_operator_evidence() -> 
     assert "2d4bd45f-68fb-4709-a91c-6cb587591689" in evidence
     assert "silent type coercion" in evidence
     assert "forgotten branch/missed case" in evidence
+
+
+def test_v2_verification_reference_points_to_external_625_evidence() -> None:
+    """Catches dropping the fresh external problem 625 smoke evidence note."""
+
+    procedure = _load_procedure()
+    evidence = EXTERNAL_625_EVIDENCE_PATH.read_text(encoding="utf-8")
+
+    assert "design/internal/v2-verification-evidence-2026-05-04-external-625-smoke.md" in procedure
+    assert EXTERNAL_625_EVIDENCE_PATH.exists()
+    assert "Matrix row: external project smoke against `../erdosreshala/problems/625`" in evidence
+    assert "Result: `passed`" in evidence
+    assert "b77cfdca-6991-4869-af9d-5c71100be3fc" in evidence
+    assert "no-`.operator/runs` independence" in evidence
+    assert "leaked resource" in evidence
 
 
 def test_v2_verification_matrix_lists_required_adr_0211_rows() -> None:

@@ -60,8 +60,15 @@ Implementation grounding on 2026-04-28:
 - `implemented`: the v2 policy executor now completes successful one-shot operations and records
   stable `iteration` and `task_id` payload fields on turn/session events. Evidence:
   `tests/test_drive_service_v2.py`.
-- `blocked`: this evidence wave did not run a fresh external-project v2 smoke against
-  `../erdosreshala/problems/625`
+- `verified`: one fresh external-project v2 smoke against `../erdosreshala/problems/625`
+  completed on 2026-05-04. Evidence:
+  `design/internal/v2-verification-evidence-2026-05-04-external-625-smoke.md`
+- `noted`: the external smoke used read-only commands and observed no permission events, so it does
+  not close the permission-path row for ADR 0202 or the permission slice of this matrix.
+- `noted`: the external smoke reused a target workspace that already contained `.operator/` and
+  `.operator/runs/`, so it does not close the no-`.operator/runs` dependency row.
+- `noted`: the external smoke's raw ACP log grew to about 2.1 GB for one bounded read-only run;
+  this is recorded in `design/BACKLOG.md` as an operational evidence/storage gap.
 - `noted`: `../erdosreshala/problems/625` exists locally and already contains `.operator/`,
   including `.operator/runs/`; that existing directory is not itself proof of v2 dependency, so
   the no-`.operator/runs` matrix row still requires outcome-based verification rather than simple
@@ -92,8 +99,8 @@ Acceptance grounding on 2026-04-26:
 - `verified`: static regressions now fail if the procedure drops those required row names or the
   canonical `status` / `watch --once` / `debug inspect --full` visibility commands. Evidence:
   `tests/test_v2_verification_docs.py`.
-- `blocked`: this ADR still lacks the fresh operator-on-operator and external-project live
-  evidence required for `Verified`, so implementation status remains `Partial`.
+- `blocked`: this ADR still lacks permission-path, restart/resume, and no-`.operator/runs`
+  dependency evidence required for `Verified`, so implementation status remains `Partial`.
 
 ## Context
 
@@ -147,7 +154,7 @@ needed to do so later without guessing.
 | live Codex ACP one-shot | narrow ACP transport/prompt preflight before larger live smokes | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
 | live Codex ACP follow-up reload | prove collected Codex sessions can be reloaded and prompted again | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
 | operator-on-operator v2 smoke | one fresh run in this repository with persisted evidence artifacts | passed on 2026-05-03: operation `2d4bd45f-68fb-4709-a91c-6cb587591689` completed with status/watch/inspect/log evidence |
-| external project smoke against `../erdosreshala/problems/625` | one fresh run in that target with persisted evidence artifacts | procedure documented; not run here |
+| external project smoke against `../erdosreshala/problems/625` | one fresh run in that target with persisted evidence artifacts | passed on 2026-05-04: operation `b77cfdca-6991-4869-af9d-5c71100be3fc` completed with status/watch/inspect/log evidence |
 | no `.operator/runs` dependency for v2 operation success | live result proves success does not depend on legacy `.operator/runs` semantics | not verified in this slice |
 
 ## Required Properties
@@ -334,12 +341,14 @@ Expected positive signals include:
 
 ## Current Blockers
 
-- No fresh `../erdosreshala/problems/625` run has been recorded for this ADR wave.
+- No permission-path run has been recorded for this ADR wave.
 - The 2026-05-03 operator-on-operator smoke exposed a stream visibility consistency gap:
   `watch --once --json` can report the terminal operation outcome while omitting `latest_turn` that
   `status --json` exposes.
 - The external target already contains `.operator/` state, including `.operator/runs/`; a future
   run must distinguish reused legacy artifacts from actual v2 runtime requirements.
+- The 2026-05-04 external smoke produced a 2.1 GB ACP raw log for one bounded read-only run, so
+  evidence retention needs a bounded-log follow-up before scaling repeated live smokes.
 - If normal CLI lifecycle control fails during a verification run, record the blocker first. Use
   `operator debug event append ...` only as a separately justified repair action, not as silent
   verification scaffolding.
