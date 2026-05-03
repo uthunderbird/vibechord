@@ -22,6 +22,11 @@ Implementation grounding on 2026-04-28:
 - `verified`: the repository-wide baseline row was rerun on 2026-05-03 with
   `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1097 passed, 11 skipped`) and recorded in
   `design/internal/v2-verification-evidence-2026-05-03-full-suite.md`
+- `blocked`: the live Codex ACP preflight row was attempted on 2026-05-03 and failed before ACP
+  initialize with `AcpProtocolError: ACP subprocess closed before completing all pending requests`;
+  direct `npx @zed-industries/codex-acp --help` diagnostics also failed with npm registry DNS
+  resolution (`ENOTFOUND registry.npmjs.org`). Evidence:
+  `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
 - `blocked`: this evidence wave did not run a fresh operator-on-operator v2 smoke
 - `blocked`: this evidence wave did not run a fresh external-project v2 smoke against
   `../erdosreshala/problems/625`
@@ -106,6 +111,7 @@ needed to do so later without guessing.
 | restart/resume smoke | one fresh v2 operation survives restart/resume path or records the blocker | not verified in this slice |
 | permission approve/reject/escalate/needs_human smoke | one fresh run records the permission path and resulting operator behavior without external ACP UI selection | not verified in this slice |
 | stream/TUI visibility smoke | status/watch/debug inspect evidence reflects the live/canonical result | procedure documented; not run here |
+| live Codex ACP roundtrip | narrow ACP transport preflight before larger live smokes | blocked on 2026-05-03 before ACP initialize; see recorded evidence note |
 | operator-on-operator v2 smoke | one fresh run in this repository with persisted evidence artifacts | procedure documented; not run here |
 | external project smoke against `../erdosreshala/problems/625` | one fresh run in that target with persisted evidence artifacts | procedure documented; not run here |
 | no `.operator/runs` dependency for v2 operation success | live result proves success does not depend on legacy `.operator/runs` semantics | not verified in this slice |

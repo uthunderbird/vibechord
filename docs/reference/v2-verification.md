@@ -40,6 +40,7 @@ Committed evidence notes live under `design/internal/` and use the
 `v2-verification-evidence-<date>-<row>.md` naming pattern. Current recorded notes:
 
 - `design/internal/v2-verification-evidence-2026-05-03-full-suite.md`
+- `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
 
 ## Preflight
 
