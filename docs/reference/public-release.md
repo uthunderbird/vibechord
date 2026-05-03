@@ -100,8 +100,11 @@ Current repository truth on 2026-04-27:
 - install and quickstart docs exist
 - CLI reference docs exist
 - Python SDK reference docs exist
+- `scripts/verify_public_release.py` provides a local release-smoke harness that builds wheel and
+  sdist artifacts, installs the built wheel into an isolated virtual environment, and smoke-tests
+  the public `operator` CLI and `agent_operator.OperatorClient` SDK entrypoints
 - no committed release-notes or changelog artifact is present in this repository slice
-- no release-grade wheel/sdist evidence is recorded in this repository slice
+- no pinned release-grade wheel/sdist evidence bundle is recorded in this repository slice
 
 ## Publication Checklist
 
@@ -127,6 +130,7 @@ Mark an item complete only when repository evidence exists for the exact release
 
 ### Missing Before Public Publication
 
+- [x] local harness exists for wheel/sdist build plus built-artifact CLI and SDK smoke
 - [ ] wheel build recorded for the release state
 - [ ] sdist build recorded for the release state
 - [ ] versioned release notes or changelog entry added

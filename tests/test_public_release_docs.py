@@ -12,6 +12,7 @@ CLI_CONTRACTS_PATH = REPO_ROOT / "docs" / "reference" / "cli-command-contracts.m
 SDK_REFERENCE_PATH = REPO_ROOT / "docs" / "reference" / "python-sdk.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PACKAGE_INIT_PATH = REPO_ROOT / "src" / "agent_operator" / "__init__.py"
+RELEASE_SMOKE_SCRIPT_PATH = REPO_ROOT / "scripts" / "verify_public_release.py"
 
 
 def _load_public_release_doc() -> str:
@@ -90,3 +91,26 @@ def test_public_release_reference_remains_conservative_about_publication_readine
     assert "- [ ] wheel build recorded for the release state" in public_release_doc
     assert "- [ ] sdist build recorded for the release state" in public_release_doc
     assert "- [ ] versioned release notes or changelog entry added" in public_release_doc
+
+
+def test_public_release_reference_points_to_built_artifact_smoke_harness() -> None:
+    """Catches removing the wheel/sdist smoke harness while docs claim it exists."""
+
+    public_release_doc = _load_public_release_doc()
+    release_smoke_script = RELEASE_SMOKE_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert RELEASE_SMOKE_SCRIPT_PATH.exists()
+    assert "`scripts/verify_public_release.py` provides a local release-smoke harness" in (
+        public_release_doc
+    )
+    assert (
+        "- [x] local harness exists for wheel/sdist build plus built-artifact CLI and SDK smoke"
+        in public_release_doc
+    )
+    assert '"uv",' in release_smoke_script
+    assert '"build",' in release_smoke_script
+    assert '"pip",' in release_smoke_script
+    assert '"install",' in release_smoke_script
+    assert '"from agent_operator import OperatorClient; print(OperatorClient.__name__)"' in (
+        release_smoke_script
+    )

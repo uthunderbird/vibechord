@@ -27,6 +27,11 @@ Current grounding on 2026-04-27:
   Python API identity, or stability-boundary references drift away from current repository truth
   across package metadata, README/public docs, CLI contract docs, and SDK docs. Evidence:
   `tests/test_public_release_docs.py`.
+- `implemented`: the repository now has a local release-smoke harness that builds wheel and sdist
+  artifacts, installs the built wheel into an isolated virtual environment, and smoke-tests the
+  public `operator` CLI plus `agent_operator.OperatorClient` SDK entrypoint. Evidence:
+  `scripts/verify_public_release.py`,
+  `tests/test_public_release_docs.py::test_public_release_reference_points_to_built_artifact_smoke_harness`.
 - `partial`: the repository still does not have a recorded release-grade wheel/sdist build, public
   install smoke, CLI quickstart smoke from built artifacts, Python SDK quickstart smoke from built
   artifacts, or a versioned release-notes/changelog artifact tied to one pinned publication wave.
@@ -171,9 +176,12 @@ Current repository evidence for this slice:
   canonical public identity, public-doc alignment contract, stable-versus-experimental boundary,
   and a conservative publication checklist that distinguishes implemented documentation work from
   still-missing release evidence.
+- `scripts/verify_public_release.py` provides the local build/install/CLI/SDK smoke harness that a
+  pinned release evidence bundle can invoke.
 - `tests/test_public_release_docs.py` statically checks that the contract doc remains aligned with
   `pyproject.toml`, `README.md`, `docs/reference/cli.md`,
-  `docs/reference/cli-command-contracts.md`, and `docs/reference/python-sdk.md`.
+  `docs/reference/cli-command-contracts.md`, `docs/reference/python-sdk.md`, and the release-smoke
+  harness.
 
 ## Related
 
