@@ -4,11 +4,11 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Implementation grounding on 2026-05-04:
 
@@ -32,9 +32,11 @@ Implementation grounding on 2026-05-04:
   `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` (`1113 passed, 12 skipped`). Focused type check
   passed for the changed source files:
   `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/agent_operator/domain/execution_profiles.py src/agent_operator/application/loaded_operation.py src/agent_operator/domain/operation.py src/agent_operator/application/drive/policy_executor.py`.
-- `follow-up`: the decision remains `Proposed` pending separate architecture review and commit
-  anchoring. Implementation status remains `Implemented` rather than `Verified` until a separate
-  verification/review pass confirms the ADR claim boundary.
+- `verified-review`: separate post-commit review on 2026-05-04 confirmed that
+  `LoadedOperation` delegates execution-profile request/stamp mapping to the shared helper, v2
+  `PolicyExecutor` uses that helper before session launch, and remaining
+  `execution_profile_*` references are consumers, tests, command validation, projection/display
+  code, or operation overlay state rather than competing request-metadata authorities.
 
 ## Context
 
