@@ -4,13 +4,13 @@
 
 ## Decision Status
 
-Proposed
+Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
-Implementation grounding on 2026-05-02:
+Implementation grounding on 2026-05-04:
 
 - `implemented`: the brain action taxonomy includes `wait_for_material_change`; the drive policy
   executor persists `operation.parked.updated` and breaks the wake cycle for that action. Evidence:
@@ -24,6 +24,9 @@ Implementation grounding on 2026-05-02:
   rejects stale or missing observed contracts. Evidence:
   `src/agent_operator/application/loaded_operation.py`,
   `src/agent_operator/application/decision_execution.py`.
+- `implemented`: v2 `CONTINUE_AGENT` now targets an explicit compatible existing session instead of
+  silently starting a fresh one, closing the remaining continuation-contract gap in the v2 drive
+  path. Evidence: `src/agent_operator/application/drive/policy_executor.py`.
 - `implemented`: operation, live, and dashboard read payloads expose parked execution state so
   user-facing surfaces can distinguish non-human parked waits from ordinary running state.
   Evidence: `src/agent_operator/application/queries/operation_projections.py`,
@@ -37,9 +40,18 @@ Implementation grounding on 2026-05-02:
   non-clearing, and self-update non-clearing. Evidence: `tests/test_drive_service_v2.py`,
   `tests/test_attached_turn_service.py`, `tests/test_operation_projections.py`,
   `tests/test_operation_aggregate.py`.
-- `follow-up`: the decision remains `Proposed`; final acceptance still requires a separate review
-  of whether the implemented predicate families and surface wording are the intended public
-  contract.
+- `verified`: focused continuation regression proves v2 `CONTINUE_AGENT` reuses an explicit
+  compatible session and rejects an unstamped session when a desired execution profile exists.
+  Evidence: `tests/test_drive_service_v2.py`, `tests/test_live_codex_continuation.py`.
+- `verified`: separate post-implementation review on 2026-05-04 confirms the implemented wake
+  predicate families, parked-state surfaces, and strict continuation semantics match the intended
+  public contract expressed here, including the explicit-session v2 continuation rule added in
+  ADR 0223.
+- `verified`: local focused regressions passed on 2026-05-04:
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_drive_service_v2.py -k 'continue_agent or wait_for_material_change or parked' tests/test_attached_turn_service.py -k 'mismatch or execution_profile' tests/test_operation_projections.py -k 'parked_execution or parked' tests/test_operation_aggregate.py -k 'parked_execution' tests/test_live_codex_continuation.py`
+  (`7 passed`).
+- `verified`: full repository suite passed on 2026-05-04:
+  `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` (`1116 passed, 12 skipped`).
 
 ## Context
 
