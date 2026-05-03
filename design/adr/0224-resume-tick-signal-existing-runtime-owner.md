@@ -199,6 +199,6 @@ Focused verification run:
 - `uv run pytest -q tests/test_operation_status_queries.py -k 'runtime_alert or live_snapshot_omits_stale_waiting_reason'`
 - `uv run pytest -q tests/test_cli.py -k 'unreconciled_background_completion'`
 - `uv run ruff check src/agent_operator/application/decision_execution.py src/agent_operator/application/drive/operation_drive_decision.py src/agent_operator/bootstrap.py src/agent_operator/testing/operator_service_support.py src/agent_operator/runtime/supervisor.py tests/test_operation_drive_service.py tests/test_runtime.py`
+- pre-commit `pytest full`
 
-Not yet `Verified`: the full repository test suite and a live `answer` + `resume` smoke have not
-been run for this wave.
+Not yet `Verified`: a live `answer` + `resume` smoke has not been run for this wave.
