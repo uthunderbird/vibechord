@@ -31,11 +31,6 @@ wave.
   backlog operations instead of only the operation being verified, so it can pollute targeted ADR
   evidence unless the verifier avoids it.
 
-- Align `operator watch --once --json` latest-turn projection with `operator status --json`.
-  Current truth: the 2026-05-03 operator-on-operator smoke completed successfully, and
-  `status --json` exposed `latest_turn`, but `watch --once --json` reported the same terminal
-  operation with `latest_turn: null`.
-
 - Bound or compact ACP raw log retention for verbose streaming sessions.
   Current truth: the 2026-05-04 problem 625 external smoke completed successfully, but its raw ACP
   log `.operator/acp/codex_acp/proof-state-scan.jsonl` grew to about 2.1 GB for one bounded
