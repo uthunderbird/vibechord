@@ -825,6 +825,7 @@ class _TestServiceProvider(Provider):
             operation_drive_decision_executor_service = OperationDriveDecisionExecutorService(
                 decision_execution_service=decision_execution_service,
                 supervisor_available=supervisor is not None,
+                resumable_runtime_owner_available=supervisor is not None,
             )
         operation_drive_service = self._overrides.get("operation_drive_service")
         if operation_drive_service is None:

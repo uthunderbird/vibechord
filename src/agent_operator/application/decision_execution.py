@@ -13,6 +13,7 @@ from agent_operator.domain import (
     AgentSessionBusyError,
     AttentionRequest,
     AttentionType,
+    BackgroundRuntimeMode,
     BrainActionType,
     BrainDecision,
     CommandTargetScope,
@@ -63,6 +64,27 @@ class DecisionExecutionService:
         value = metadata.get("permission_resume_mode")
         return value if isinstance(value, str) and value else None
 
+    def _resumable_runtime_unavailable(
+        self,
+        options: RunOptions,
+        *,
+        resumable_runtime_owner_available: bool,
+    ) -> bool:
+        return (
+            options.run_mode is not RunMode.ATTACHED
+            and options.background_runtime_mode is BackgroundRuntimeMode.RESUMABLE_WAKEUP
+            and not resumable_runtime_owner_available
+        )
+
+    def _fail_resumable_runtime_unavailable(self, state: OperationState) -> None:
+        self._lifecycle_coordinator.mark_failed(
+            state,
+            summary=(
+                "resumable_runtime_unavailable: resume/tick can only signal an existing "
+                "runtime owner; start or attach an operator runtime before continuing."
+            ),
+        )
+
     async def execute_decision(
         self,
         state: OperationState,
@@ -71,6 +93,7 @@ class DecisionExecutionService:
         options: RunOptions,
         *,
         supervisor_available: bool,
+        resumable_runtime_owner_available: bool,
     ) -> bool:
         decision = iteration.decision
         assert decision is not None
@@ -203,6 +226,7 @@ class DecisionExecutionService:
                 options,
                 adapter_key,
                 supervisor_available=supervisor_available,
+                resumable_runtime_owner_available=resumable_runtime_owner_available,
             )
 
         if decision.action_type is BrainActionType.CONTINUE_AGENT:
@@ -213,6 +237,7 @@ class DecisionExecutionService:
                 options,
                 adapter_key,
                 supervisor_available=supervisor_available,
+                resumable_runtime_owner_available=resumable_runtime_owner_available,
             )
 
         if decision.action_type is BrainActionType.WAIT_FOR_AGENT:
@@ -268,7 +293,14 @@ class DecisionExecutionService:
         adapter_key: str,
         *,
         supervisor_available: bool,
+        resumable_runtime_owner_available: bool,
     ) -> bool:
+        if self._resumable_runtime_unavailable(
+            options,
+            resumable_runtime_owner_available=resumable_runtime_owner_available,
+        ):
+            self._fail_resumable_runtime_unavailable(state)
+            return True
         if (
             self._loaded_operation.resolved_session_reuse_policy(state)
             is SessionReusePolicy.REUSE_IF_IDLE
@@ -291,6 +323,7 @@ class DecisionExecutionService:
                     options,
                     adapter_key,
                     supervisor_available=supervisor_available,
+                    resumable_runtime_owner_available=resumable_runtime_owner_available,
                 )
         if (
             self._runtime_context.should_use_background_runtime(options)
@@ -339,9 +372,17 @@ class DecisionExecutionService:
         adapter_key: str,
         *,
         supervisor_available: bool,
+        resumable_runtime_owner_available: bool,
     ) -> bool:
         decision = iteration.decision
         assert decision is not None
+
+        if self._resumable_runtime_unavailable(
+            options,
+            resumable_runtime_owner_available=resumable_runtime_owner_available,
+        ):
+            self._fail_resumable_runtime_unavailable(state)
+            return True
 
         def _mark_busy_session_block(exc: AgentSessionBusyError) -> bool:
             session_id = exc.session_id or decision.session_id or (

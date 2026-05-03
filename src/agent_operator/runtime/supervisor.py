@@ -359,7 +359,10 @@ class InProcessAgentRunSupervisor:
             if explicit_cancel and session_handle is not None and spec.existing_session is None:
                 with suppress(Exception):
                     await self._session_registry.cancel(session_handle)
-            await self._persist_cancelled_result(spec, record, session_handle)
+            if explicit_cancel:
+                await self._persist_cancelled_result(spec, record, session_handle)
+            else:
+                await self._persist_host_cancelled_result(spec, record, session_handle)
             handshake.set()
             raise
         except Exception as exc:
@@ -477,6 +480,28 @@ class InProcessAgentRunSupervisor:
                 code="background_run_cancelled",
                 message="Background run cancelled.",
                 retryable=False,
+            ),
+        )
+        await self._persist_result(spec, record, result, session_handle)
+
+    async def _persist_host_cancelled_result(
+        self,
+        spec: _BackgroundJobSpec,
+        record: _BackgroundRunFile,
+        session_handle: AgentSessionHandle | None,
+    ) -> None:
+        """Persist host task disposal without misclassifying it as user cancellation."""
+
+        result = AgentResult(
+            session_id=session_handle.session_id if session_handle is not None else spec.run_id,
+            status=AgentResultStatus.DISCONNECTED,
+            completed_at=datetime.now(UTC),
+            error=AgentError(
+                code="background_run_host_cancelled",
+                message=(
+                    "Background run host task was cancelled before producing a material result."
+                ),
+                retryable=True,
             ),
         )
         await self._persist_result(spec, record, result, session_handle)

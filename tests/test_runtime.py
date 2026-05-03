@@ -876,11 +876,49 @@ async def test_inprocess_supervisor_task_cancel_does_not_cancel_live_existing_co
     assert manager.sent_messages == ["continue after approval"]
     assert manager.cancel_calls == 0
     assert final is not None
+    assert final.status is BackgroundRunStatus.DISCONNECTED
     assert result is not None
+    assert result.status is AgentResultStatus.DISCONNECTED
+    assert result.error is not None
+    assert result.error.code == "background_run_host_cancelled"
 
 
 @pytest.mark.anyio
-async def test_inprocess_supervisor_task_cancel_does_not_cancel_live_new_session(
+async def test_inprocess_supervisor_explicit_cancel_records_cancelled_result(
+    tmp_path: Path,
+) -> None:
+    inbox = FileWakeupInbox(tmp_path / "wakeups")
+    manager = _RunningNewSessionManager()
+    supervisor = InProcessAgentRunSupervisor(
+        tmp_path / "background",
+        tmp_path,
+        session_manager=manager,
+        wakeup_inbox=inbox,
+    )
+
+    run = await supervisor.start_background_turn(
+        "op-1",
+        2,
+        "claude_acp",
+        AgentRunRequest(goal="hello", instruction="start a fresh live turn"),
+    )
+
+    await supervisor.cancel_background_turn(run.run_id)
+
+    final = await supervisor.poll_background_turn(run.run_id)
+    result = await supervisor.collect_background_turn(run.run_id)
+
+    assert manager.cancel_calls == 1
+    assert final is not None
+    assert final.status is BackgroundRunStatus.CANCELLED
+    assert result is not None
+    assert result.status is AgentResultStatus.CANCELLED
+    assert result.error is not None
+    assert result.error.code == "background_run_cancelled"
+
+
+@pytest.mark.anyio
+async def test_inprocess_supervisor_task_cancel_marks_host_shutdown_not_cancelled(
     tmp_path: Path,
 ) -> None:
     inbox = FileWakeupInbox(tmp_path / "wakeups")
@@ -910,7 +948,11 @@ async def test_inprocess_supervisor_task_cancel_does_not_cancel_live_new_session
     assert manager.start_calls == 1
     assert manager.cancel_calls == 0
     assert final is not None
+    assert final.status is BackgroundRunStatus.DISCONNECTED
     assert result is not None
+    assert result.status is AgentResultStatus.DISCONNECTED
+    assert result.error is not None
+    assert result.error.code == "background_run_host_cancelled"
 
 
 @pytest.mark.anyio

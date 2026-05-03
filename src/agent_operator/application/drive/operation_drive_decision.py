@@ -12,9 +12,11 @@ class OperationDriveDecisionExecutorService:
         *,
         decision_execution_service: DecisionExecutionService,
         supervisor_available: bool,
+        resumable_runtime_owner_available: bool = False,
     ) -> None:
         self._decision_execution_service = decision_execution_service
         self._supervisor_available = supervisor_available
+        self._resumable_runtime_owner_available = resumable_runtime_owner_available
 
     async def _execute_decision(
         self,
@@ -29,4 +31,5 @@ class OperationDriveDecisionExecutorService:
             task,
             options,
             supervisor_available=self._supervisor_available,
+            resumable_runtime_owner_available=self._resumable_runtime_owner_available,
         )

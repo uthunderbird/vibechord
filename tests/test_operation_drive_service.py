@@ -345,6 +345,34 @@ async def test_resumable_run_mode_uses_enqueue_delivery_for_background_turns() -
 
 
 @pytest.mark.anyio
+async def test_resumable_wakeup_without_runtime_owner_fails_before_background_dispatch() -> None:
+    service = make_service(
+        brain=StartClaudeAcpThenStopBrain(),
+        store=MemoryStore(),
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings(
+            {"claude_acp": FakeAgent(key="claude_acp")}
+        ),
+        wakeup_inbox=MemoryWakeupInbox(),
+        supervisor=None,
+    )
+
+    outcome = await service.run(
+        OperationGoal(objective="do the task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+
+    assert outcome.status is OperationStatus.FAILED
+    assert outcome.summary is not None
+    assert "resumable_runtime_unavailable" in outcome.summary
+
+
+@pytest.mark.anyio
 async def test_wait_for_agent_is_supported_with_background_runtime() -> None:
     store = MemoryStore()
     inbox = MemoryWakeupInbox()
