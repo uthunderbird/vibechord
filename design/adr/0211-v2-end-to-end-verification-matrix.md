@@ -66,8 +66,11 @@ Implementation grounding on 2026-04-28:
 - `verified`: the restart/resume follow-up row is satisfied by the same 2026-05-04 external
   operation completing in attached mode without manual `resume` or lifecycle repair. Evidence:
   `design/internal/v2-verification-evidence-2026-05-04-external-625-smoke.md`
-- `noted`: the external smoke used read-only commands and observed no permission events, so it does
-  not close the permission-path row for ADR 0202 or the permission slice of this matrix.
+- `verified`: one bounded external-project permission slice completed on 2026-05-04 by creating,
+  reading, deleting, and checking absence of one repo-local file. Evidence:
+  `design/internal/v2-verification-evidence-2026-05-04-permission-slice.md`
+- `noted`: the permission slice observed no permission event, so it records the required ADR 0211
+  outcome but does not close ADR 0202's stronger approve/reject/escalate verification bar.
 - `noted`: the external smoke reused a target workspace that already contained `.operator/` and
   `.operator/runs/`, so it does not close the no-`.operator/runs` dependency row.
 - `noted`: the external smoke's raw ACP log grew to about 2.1 GB for one bounded read-only run;
@@ -102,8 +105,8 @@ Acceptance grounding on 2026-04-26:
 - `verified`: static regressions now fail if the procedure drops those required row names or the
   canonical `status` / `watch --once` / `debug inspect --full` visibility commands. Evidence:
   `tests/test_v2_verification_docs.py`.
-- `blocked`: this ADR still lacks permission-path and no-`.operator/runs` dependency evidence
-  required for `Verified`, so implementation status remains `Partial`.
+- `blocked`: this ADR still lacks no-`.operator/runs` dependency evidence required for `Verified`,
+  so implementation status remains `Partial`.
 
 ## Context
 
@@ -152,7 +155,7 @@ needed to do so later without guessing.
 | targeted command/control tests | explicit green commands for the touched v2 control-plane tests | grounded by ADR 0205, not rerun here |
 | targeted query/read-model tests | explicit green commands for read-model/query tests | grounded by existing ADR/test references, not rerun here |
 | restart/resume smoke | one fresh v2 operation survives restart/resume path or records the blocker | passed on 2026-05-04: external operation `b77cfdca-6991-4869-af9d-5c71100be3fc` completed in attached mode without manual resume |
-| permission approve/reject/escalate/needs_human smoke | one fresh run records the permission path and resulting operator behavior without external ACP UI selection | not verified in this slice |
+| permission approve/reject/escalate/needs_human smoke | one fresh run records the permission path and resulting operator behavior without external ACP UI selection | passed on 2026-05-04: bounded repo-local write/delete probe completed with `no permission event observed` |
 | stream/TUI visibility smoke | status/watch/debug inspect evidence reflects the live/canonical result | partial on 2026-05-03: terminal outcome agrees, but `watch --once --json` left `latest_turn: null` while `status --json` populated it |
 | live Codex ACP one-shot | narrow ACP transport/prompt preflight before larger live smokes | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
 | live Codex ACP follow-up reload | prove collected Codex sessions can be reloaded and prompted again | passed on 2026-05-03 with direct `codex-acp` and escalated sandbox/network permissions |
@@ -344,7 +347,6 @@ Expected positive signals include:
 
 ## Current Blockers
 
-- No permission-path run has been recorded for this ADR wave.
 - The 2026-05-03 operator-on-operator smoke exposed a stream visibility consistency gap:
   `watch --once --json` can report the terminal operation outcome while omitting `latest_turn` that
   `status --json` exposes.

@@ -43,6 +43,7 @@ Committed evidence notes live under `design/internal/` and use the
 - `design/internal/v2-verification-evidence-2026-05-03-live-codex-acp-preflight.md`
 - `design/internal/v2-verification-evidence-2026-05-03-operator-on-operator-smoke.md`
 - `design/internal/v2-verification-evidence-2026-05-04-external-625-smoke.md`
+- `design/internal/v2-verification-evidence-2026-05-04-permission-slice.md`
 
 ## Preflight
 
@@ -226,5 +227,8 @@ Do not upgrade the row to passed based on a partial trace.
   - one fresh external-project run against `../erdosreshala/problems/625`; recorded on 2026-05-04
     in `design/internal/v2-verification-evidence-2026-05-04-external-625-smoke.md`
 - `ADR 0202` is not `Verified` until the external-project evidence includes a real permission path
+- The 2026-05-04 permission slice recorded `no permission event observed` for one bounded
+  repo-local write/delete probe; this is evidence for ADR 0211's permission row, but not enough to
+  promote ADR 0202 beyond its own stronger approve/reject/escalate bar.
 - `ADR 0205` may use the targeted local rows plus broader v2 evidence, but it still should not be
   promoted beyond repository truth if the live command/control path remains unproven in e2e

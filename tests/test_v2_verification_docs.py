@@ -23,6 +23,12 @@ EXTERNAL_625_EVIDENCE_PATH = (
     / "internal"
     / "v2-verification-evidence-2026-05-04-external-625-smoke.md"
 )
+PERMISSION_SLICE_EVIDENCE_PATH = (
+    REPO_ROOT
+    / "design"
+    / "internal"
+    / "v2-verification-evidence-2026-05-04-permission-slice.md"
+)
 
 
 def _load_procedure() -> str:
@@ -98,6 +104,22 @@ def test_v2_verification_reference_points_to_external_625_evidence() -> None:
     assert "b77cfdca-6991-4869-af9d-5c71100be3fc" in evidence
     assert "no-`.operator/runs` independence" in evidence
     assert "leaked resource" in evidence
+
+
+def test_v2_verification_reference_points_to_permission_slice_evidence() -> None:
+    """Catches hiding the permission slice outcome after a bounded write probe."""
+
+    procedure = _load_procedure()
+    evidence = PERMISSION_SLICE_EVIDENCE_PATH.read_text(encoding="utf-8")
+
+    assert "design/internal/v2-verification-evidence-2026-05-04-permission-slice.md" in procedure
+    assert PERMISSION_SLICE_EVIDENCE_PATH.exists()
+    assert "Matrix row: external project permission slice" in evidence
+    assert "Result: `passed`" in evidence
+    assert "9dae40c7-b49c-4e54-a184-4094d0c827c2" in evidence
+    assert "Permission-path outcome: no permission event observed" in evidence
+    assert "not enough to" in procedure
+    assert "promote ADR 0202" in procedure
 
 
 def test_v2_verification_matrix_lists_required_adr_0211_rows() -> None:
