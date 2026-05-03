@@ -28,7 +28,10 @@ from agent_operator.domain.enums import (
     SessionReusePolicy,
 )
 from agent_operator.domain.event_sourcing import OperationDomainEventDraft
-from agent_operator.domain.execution_profiles import execution_profile_request_metadata
+from agent_operator.domain.execution_profiles import (
+    effective_execution_profile_stamp,
+    execution_profile_request_metadata,
+)
 from agent_operator.domain.operation import OperationState, RunOptions
 from agent_operator.domain.policy import PolicyCoverage
 from agent_operator.domain.read_model import DecisionRecord
@@ -53,6 +56,12 @@ class PolicyExecutorResult:
     persisted_fact_count: int = 0
     more_actions: bool = False
     technical_facts: list[TechnicalFactDraft] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _ContinuationResolution:
+    handle: AgentSessionHandle | None = None
+    error_summary: str | None = None
 
 
 class PolicyExecutor:
@@ -312,56 +321,74 @@ class PolicyExecutor:
                 )
                 return result
 
-            # ── Real session launch ───────────────────────────────────────────
             objective_text = agg.objective.objective if agg.objective else ""
             instruction = decision.instruction or objective_text
-            working_dir = ctx.working_directory if hasattr(ctx, "working_directory") else None
-
-            request = AgentRunRequest(
-                goal=objective_text,
-                instruction=instruction,
-                session_name=decision.session_name,
-                one_shot=getattr(decision, "one_shot", False),
-                session_reuse_policy=SessionReusePolicy.ALWAYS_NEW,
-                **({"working_directory": working_dir} if working_dir is not None else {}),
-                metadata={
-                    **execution_profile_request_metadata(
-                        goal_metadata=agg.goal.metadata,
-                        execution_profile_overrides=agg.execution_profile_overrides,
-                        adapter_key=adapter_key,
-                    ),
-                    "operation_id": agg.operation_id,
-                    "adapter_key": adapter_key,
-                },
-            )
-
-            handle = await self._session_manager.start(adapter_key, request)
+            if decision.action_type is BrainActionType.CONTINUE_AGENT:
+                continuation = self._resolve_continuation_session(
+                    agg=agg,
+                    adapter_key=adapter_key,
+                    requested_session_id=decision.session_id,
+                )
+                if continuation.error_summary is not None:
+                    result.events.append(
+                        OperationDomainEventDraft(
+                            event_type="operation.status.changed",
+                            payload={
+                                "status": OperationStatus.FAILED.value,
+                                "final_summary": continuation.error_summary,
+                            },
+                        )
+                    )
+                    result.should_break = True
+                    return result
+                assert continuation.handle is not None
+                handle = continuation.handle
+                await self._session_manager.send(handle, instruction)
+            else:
+                working_dir = ctx.working_directory if hasattr(ctx, "working_directory") else None
+                request = AgentRunRequest(
+                    goal=objective_text,
+                    instruction=instruction,
+                    session_name=decision.session_name,
+                    one_shot=getattr(decision, "one_shot", False),
+                    session_reuse_policy=SessionReusePolicy.ALWAYS_NEW,
+                    **({"working_directory": working_dir} if working_dir is not None else {}),
+                    metadata={
+                        **execution_profile_request_metadata(
+                            goal_metadata=agg.goal.metadata,
+                            execution_profile_overrides=agg.execution_profile_overrides,
+                            adapter_key=adapter_key,
+                        ),
+                        "operation_id": agg.operation_id,
+                        "adapter_key": adapter_key,
+                    },
+                )
+                handle = await self._session_manager.start(adapter_key, request)
+                result.technical_facts.append(
+                    TechnicalFactDraft(
+                        fact_type="session.started",
+                        payload={
+                            "session_id": handle.session_id,
+                            "adapter_key": adapter_key,
+                            "handle": handle.model_dump(mode="json"),
+                            "requested_at": now.isoformat(),
+                        },
+                        observed_at=now,
+                        session_id=handle.session_id,
+                    )
+                )
+                result.events.append(
+                    OperationDomainEventDraft(
+                        event_type="session.created",
+                        payload={
+                            "handle": handle.model_dump(mode="json"),
+                            "adapter_key": adapter_key,
+                            "requested_at": now.isoformat(),
+                        },
+                    )
+                )
+                await flush_events()
             session_id = handle.session_id
-
-            result.technical_facts.append(
-                TechnicalFactDraft(
-                    fact_type="session.started",
-                    payload={
-                        "session_id": session_id,
-                        "adapter_key": adapter_key,
-                        "handle": handle.model_dump(mode="json"),
-                        "requested_at": now.isoformat(),
-                    },
-                    observed_at=now,
-                    session_id=session_id,
-                )
-            )
-            result.events.append(
-                OperationDomainEventDraft(
-                    event_type="session.created",
-                    payload={
-                        "handle": handle.model_dump(mode="json"),
-                        "adapter_key": adapter_key,
-                        "requested_at": now.isoformat(),
-                    },
-                )
-            )
-            await flush_events()
 
             # Register with supervisor if available (ADR 0200)
             if hasattr(self._supervisor, "spawn"):
@@ -467,6 +494,59 @@ class PolicyExecutor:
                 await session_manager.close(handle)
 
         asyncio.create_task(_close())
+
+    def _resolve_continuation_session(
+        self,
+        *,
+        agg: OperationAggregate,
+        adapter_key: str,
+        requested_session_id: str | None,
+    ) -> _ContinuationResolution:
+        matching_session = None
+        if requested_session_id is not None:
+            for session in agg.sessions:
+                if session.handle.session_id == requested_session_id:
+                    matching_session = session
+                    break
+        if matching_session is None:
+            return _ContinuationResolution(
+                error_summary="Brain requested session continuation without reusable session."
+            )
+        if matching_session.handle.adapter_key != adapter_key:
+            return _ContinuationResolution(
+                error_summary=(
+                    "Brain requested session continuation through a different adapter than the "
+                    f"active session: requested {adapter_key!r}, active "
+                    f"{matching_session.handle.adapter_key!r}."
+                )
+            )
+        expected = effective_execution_profile_stamp(
+            goal_metadata=agg.goal.metadata,
+            execution_profile_overrides=agg.execution_profile_overrides,
+            adapter_key=adapter_key,
+        )
+        observed = matching_session.execution_profile_stamp
+        if expected is not None and observed != expected:
+            if observed is None:
+                return _ContinuationResolution(
+                    error_summary=(
+                        f"Session {matching_session.handle.session_id} cannot continue because "
+                        "it has no observed execution profile, but adapter "
+                        f"{adapter_key!r} requires {expected.model}."
+                    )
+                )
+            return _ContinuationResolution(
+                error_summary=(
+                    f"Session {matching_session.handle.session_id} cannot continue because its "
+                    "observed execution profile does not match the desired contract for adapter "
+                    f"{adapter_key!r}: observed={observed.model}/{observed.effort_value or '-'} "
+                    f"approval={observed.approval_policy or '-'} "
+                    f"sandbox={observed.sandbox_mode or '-'}; desired={expected.model}/"
+                    f"{expected.effort_value or '-'} approval={expected.approval_policy or '-'} "
+                    f"sandbox={expected.sandbox_mode or '-'}."
+                )
+            )
+        return _ContinuationResolution(handle=matching_session.handle)
 
     def _session_observed_state_payload(
         self,

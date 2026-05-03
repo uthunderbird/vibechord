@@ -25,7 +25,12 @@ from agent_operator.domain.event_sourcing import (
     StoredOperationDomainEvent,
 )
 from agent_operator.domain.events import RunEvent
-from agent_operator.domain.operation import ObjectiveState, RunOptions, SessionState
+from agent_operator.domain.operation import (
+    ExecutionProfileStamp,
+    ObjectiveState,
+    RunOptions,
+    SessionState,
+)
 from agent_operator.domain.policy import PolicyApplicability, PolicyCategory, PolicyEntry
 from agent_operator.dtos.requests import AgentRunRequest
 from agent_operator.runtime import FileFactStore
@@ -122,6 +127,7 @@ class StubSessionManager:
     def __init__(self) -> None:
         self.collected = False
         self.started_requests: list[AgentRunRequest] = []
+        self.sent_messages: list[tuple[str, str]] = []
 
     async def start(self, adapter_key: str, request: AgentRunRequest):
         from agent_operator.domain import AgentSessionHandle
@@ -145,6 +151,9 @@ class StubSessionManager:
             output_text="done",
             completed_at=datetime.now(UTC),
         )
+
+    async def send(self, handle, message: str) -> None:
+        self.sent_messages.append((handle.session_id, message))
 
     async def close(self, handle) -> None:
         return None
@@ -333,6 +342,17 @@ class PermissionFollowupBrain:
         )
 
 
+class ContinueExistingSessionBrain:
+    async def decide_next_action(self, state) -> BrainDecision:
+        return BrainDecision(
+            action_type=BrainActionType.CONTINUE_AGENT,
+            target_agent="codex_acp",
+            session_id="sess-1",
+            instruction="continue after approval",
+            rationale="Resume the compatible active session.",
+        )
+
+
 class StubEventStore:
     def __init__(self) -> None:
         self.streams: dict[str, list[StoredOperationDomainEvent]] = {}
@@ -470,6 +490,95 @@ class ReplayServiceWithExecutionProfileMetadata:
             {
                 "checkpoint": checkpoint,
                 "last_applied_sequence": 1,
+                "suffix_events": [],
+            },
+        )()
+
+
+class ReplayServiceWithStampedSession:
+    async def load(self, operation_id: str):
+        checkpoint = OperationCheckpoint.initial(operation_id)
+        checkpoint.objective = ObjectiveState(
+            objective="do the task",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                        "approval_policy": "auto",
+                        "sandbox_mode": "workspace-write",
+                    }
+                }
+            },
+        )
+        checkpoint.allowed_agents = ["codex_acp"]
+        checkpoint.sessions = [
+            SessionState(
+                handle={
+                    "adapter_key": "codex_acp",
+                    "session_id": "sess-1",
+                    "session_name": "sess",
+                    "display_name": "Codex",
+                    "metadata": {
+                        "execution_profile_model": "gpt-5.4",
+                        "execution_profile_reasoning_effort": "low",
+                        "execution_profile_approval_policy": "auto",
+                        "execution_profile_sandbox_mode": "workspace-write",
+                    },
+                },
+                execution_profile_stamp=ExecutionProfileStamp(
+                    adapter_key="codex_acp",
+                    model="gpt-5.4",
+                    effort_field_name="reasoning_effort",
+                    effort_value="low",
+                    approval_policy="auto",
+                    sandbox_mode="workspace-write",
+                ),
+            )
+        ]
+        return type(
+            "ReplayState",
+            (),
+            {
+                "checkpoint": checkpoint,
+                "last_applied_sequence": 2,
+                "suffix_events": [],
+            },
+        )()
+
+
+class ReplayServiceWithUnstampedSession:
+    async def load(self, operation_id: str):
+        checkpoint = OperationCheckpoint.initial(operation_id)
+        checkpoint.objective = ObjectiveState(
+            objective="do the task",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                    }
+                }
+            },
+        )
+        checkpoint.allowed_agents = ["codex_acp"]
+        checkpoint.sessions = [
+            SessionState(
+                handle={
+                    "adapter_key": "codex_acp",
+                    "session_id": "sess-1",
+                    "session_name": "sess",
+                    "display_name": "Codex",
+                    "metadata": {},
+                }
+            )
+        ]
+        return type(
+            "ReplayState",
+            (),
+            {
+                "checkpoint": checkpoint,
+                "last_applied_sequence": 2,
                 "suffix_events": [],
             },
         )()
@@ -683,6 +792,117 @@ async def test_policy_executor_session_created_carries_effective_execution_profi
     assert session.execution_profile_stamp.effort_value == "low"
     assert session.execution_profile_stamp.approval_policy == "auto"
     assert session.execution_profile_stamp.sandbox_mode == "workspace-write"
+
+
+@pytest.mark.anyio
+async def test_policy_executor_continue_agent_reuses_compatible_session() -> None:
+    """Catches v2 continue-agent decisions incorrectly starting a fresh session."""
+
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+    session_manager = StubSessionManager()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=ContinueExistingSessionBrain(),
+            session_manager=session_manager,
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=ReplayServiceWithStampedSession(),
+        event_sink=event_sink,
+    )
+
+    outcome = await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+    assert session_manager.started_requests == []
+    assert session_manager.sent_messages == [("sess-1", "continue after approval")]
+    assert [event.event_type for event in event_sink.events].count("session.created") == 0
+
+
+@pytest.mark.anyio
+async def test_policy_executor_continue_agent_rejects_unstamped_session() -> None:
+    """Catches v2 continuation silently reusing sessions without observed profile stamps."""
+
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+    session_manager = StubSessionManager()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=ContinueExistingSessionBrain(),
+            session_manager=session_manager,
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=ReplayServiceWithUnstampedSession(),
+        event_sink=event_sink,
+    )
+
+    outcome = await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    assert outcome.status is OperationStatus.FAILED
+    assert session_manager.started_requests == []
+    assert session_manager.sent_messages == []
+    status_event = next(
+        event for event in event_sink.events if event.event_type == "operation.status.changed"
+    )
+    assert "has no observed execution profile" in status_event.payload["final_summary"]
 
 
 @pytest.mark.anyio
