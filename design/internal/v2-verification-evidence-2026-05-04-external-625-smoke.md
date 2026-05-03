@@ -38,6 +38,9 @@ uv run operator run --v2 --mode attached --agent codex_acp --max-iterations 30 \
 - Status / outcome: `operator status b77cfdca-6991-4869-af9d-5c71100be3fc --json` returned
   `status: completed`, `source: event_sourced`, `task_counts.completed: 1`, `latest_turn.status:
   completed`, and `sync_alert: null`.
+- Restart / resume / cancel signal: this same external operation completed in attached mode without
+  manual `resume` and without lifecycle repair, satisfying the ADR 0211 follow-up option for
+  attached-mode completion without manual resume.
 - Watch / stream signal: `operator watch b77cfdca-6991-4869-af9d-5c71100be3fc --once --json`
   emitted canonical events through `operation.status.changed` and reported `status: completed`.
   As in the operator-on-operator row, the JSON snapshot left `latest_turn` as `null` while
