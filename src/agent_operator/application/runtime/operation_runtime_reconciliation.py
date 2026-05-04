@@ -497,9 +497,9 @@ class OperationRuntimeReconciliationService:
             return False
         record = self._loaded_operation.find_session_record(state, event.session_id)
         if record is None or self._terminal_run_already_folded(record, run):
-            return False
+            return record is not None
         if not self._loaded_operation.session_has_pending_result_slot(record):
-            return False
+            return True
         iteration = self._loaded_operation.find_iteration_for_session(
             state,
             record.handle.session_id,

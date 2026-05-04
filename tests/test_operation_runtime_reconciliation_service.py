@@ -271,6 +271,65 @@ async def test_resume_reconciles_completed_background_run_without_wakeup() -> No
 
 
 @pytest.mark.anyio
+async def test_terminal_wakeup_for_already_folded_run_is_acked_not_released() -> None:
+    """Catches the mutation where duplicate terminal wakeups stay pending forever."""
+
+    store = MemoryStore()
+    inbox = MemoryWakeupInbox()
+    supervisor = FakeSupervisor()
+    service = make_service(
+        brain=StartThenStopBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=MemoryEventSink(),
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        wakeup_inbox=inbox,
+        supervisor=supervisor,
+    )
+
+    first = await service.run(
+        OperationGoal(objective="background task"),
+        **run_settings(max_iterations=4, allowed_agents=["claude_acp"]),
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+    operation = await store.load_operation(first.operation_id)
+    assert operation is not None
+    run_id = operation.background_runs[0].run_id
+    session_id = operation.sessions[0].session_id
+    task_id = operation.tasks[0].task_id
+    supervisor.runs[run_id].status = BackgroundRunStatus.COMPLETED
+    supervisor.runs[run_id].completed_at = datetime.now(UTC)
+
+    await service._operation_runtime_reconciliation_service.reconcile_stale_background_runs(
+        operation
+    )
+    assert operation.iterations[0].result is not None
+    assert operation.sessions[0].last_terminal_execution_id == run_id
+
+    await inbox.enqueue(
+        RunEvent(
+            event_type="background_run.completed",
+            kind=RunEventKind.WAKEUP,
+            operation_id=operation.operation_id,
+            iteration=1,
+            task_id=task_id,
+            session_id=session_id,
+            dedupe_key=f"{run_id}:completed",
+            payload={"run_id": run_id},
+        )
+    )
+
+    await service._operation_runtime_reconciliation_service.reconcile_background_wakeups(
+        operation
+    )
+
+    assert await inbox.list_pending(operation.operation_id) == []
+
+
+@pytest.mark.anyio
 async def test_resume_releases_unhandled_wakeup_for_retry() -> None:
     store = MemoryStore()
     trace_store = MemoryTraceStore()
