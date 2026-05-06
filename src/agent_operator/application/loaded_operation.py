@@ -133,6 +133,8 @@ class LoadedOperation:
             return True
         current = session.execution_profile_stamp
         if current is None:
+            current = execution_profile_stamp_from_handle(session.handle)
+        if current is None:
             return False
         return current == expected
 
@@ -146,6 +148,8 @@ class LoadedOperation:
         if expected is None:
             return None
         current = session.execution_profile_stamp
+        if current is None:
+            current = execution_profile_stamp_from_handle(session.handle)
         if current == expected:
             return None
         if current is None:

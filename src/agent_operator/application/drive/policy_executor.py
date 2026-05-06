@@ -31,6 +31,7 @@ from agent_operator.domain.event_sourcing import OperationDomainEventDraft
 from agent_operator.domain.execution_profiles import (
     effective_execution_profile_stamp,
     execution_profile_request_metadata,
+    execution_profile_stamp_from_handle,
 )
 from agent_operator.domain.operation import OperationState, RunOptions
 from agent_operator.domain.policy import PolicyCoverage
@@ -526,6 +527,8 @@ class PolicyExecutor:
             adapter_key=adapter_key,
         )
         observed = matching_session.execution_profile_stamp
+        if observed is None:
+            observed = execution_profile_stamp_from_handle(matching_session.handle)
         if expected is not None and observed != expected:
             if observed is None:
                 return _ContinuationResolution(

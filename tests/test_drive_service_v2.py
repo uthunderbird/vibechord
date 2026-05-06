@@ -584,6 +584,57 @@ class ReplayServiceWithUnstampedSession:
         )()
 
 
+class ReplayServiceWithHandleOnlyStampedSession:
+    """Session has execution_profile_model in handle metadata but no stamp field.
+
+    Simulates a session created through the attached path where stamp is stored
+    in-memory only and lost when the process restarts.
+    """
+
+    async def load(self, operation_id: str):
+        checkpoint = OperationCheckpoint.initial(operation_id)
+        checkpoint.objective = ObjectiveState(
+            objective="do the task",
+            metadata={
+                "effective_adapter_settings": {
+                    "codex_acp": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "low",
+                        "approval_policy": "auto",
+                        "sandbox_mode": "workspace-write",
+                    }
+                }
+            },
+        )
+        checkpoint.allowed_agents = ["codex_acp"]
+        checkpoint.sessions = [
+            SessionState(
+                handle={
+                    "adapter_key": "codex_acp",
+                    "session_id": "sess-1",
+                    "session_name": "sess",
+                    "display_name": "Codex",
+                    "metadata": {
+                        "execution_profile_model": "gpt-5.4",
+                        "execution_profile_reasoning_effort": "low",
+                        "execution_profile_approval_policy": "auto",
+                        "execution_profile_sandbox_mode": "workspace-write",
+                    },
+                },
+                # execution_profile_stamp is intentionally absent (None)
+            )
+        ]
+        return type(
+            "ReplayState",
+            (),
+            {
+                "checkpoint": checkpoint,
+                "last_applied_sequence": 2,
+                "suffix_events": [],
+            },
+        )()
+
+
 class ReplayServiceWithCheckpointPermissionEvents:
     async def load(self, operation_id: str):
         checkpoint = OperationCheckpoint.initial(operation_id)
@@ -903,6 +954,70 @@ async def test_policy_executor_continue_agent_rejects_unstamped_session() -> Non
         event for event in event_sink.events if event.event_type == "operation.status.changed"
     )
     assert "has no observed execution profile" in status_event.payload["final_summary"]
+
+
+@pytest.mark.anyio
+async def test_policy_executor_continue_agent_recovers_stamp_from_handle_metadata() -> None:
+    """Session with stamp only in handle metadata (not in stamp field) can be continued.
+
+    Regression test: attached-path sessions store execution_profile_model in
+    handle.metadata but may lose the stamp field when the process restarts.
+    The continuation guard must fall back to handle.metadata before rejecting.
+    """
+
+    event_store = StubEventStore()
+    checkpoint_store = StubCheckpointStore()
+    event_sink = RecordingEventSink()
+    session_manager = StubSessionManager()
+
+    await event_store.append(
+        "op-1",
+        0,
+        [
+            OperationDomainEventDraft(
+                event_type="operation.created",
+                payload={
+                    "objective": "do the task",
+                    "allowed_agents": ["codex_acp"],
+                    "policy": {"allowed_agents": ["codex_acp"], "involvement_level": "auto"},
+                    "execution_budget": {
+                        "max_iterations": 3,
+                        "timeout_seconds": None,
+                        "max_task_retries": 2,
+                    },
+                    "runtime_hints": {"operator_message_window": 3, "metadata": {}},
+                },
+            )
+        ],
+    )
+
+    drive = DriveService(
+        lifecycle_gate=LifecycleGate(),
+        reconciler=RuntimeReconciler(
+            wakeup_inbox=StubWakeupInbox(),
+            command_inbox=StubCommandInbox(),
+        ),
+        executor=PolicyExecutor(
+            brain=ContinueExistingSessionBrain(),
+            session_manager=session_manager,
+        ),
+        event_store=event_store,
+        checkpoint_store=checkpoint_store,
+        replay_service=ReplayServiceWithHandleOnlyStampedSession(),
+        event_sink=event_sink,
+    )
+
+    outcome = await drive.drive("op-1", RunOptions(max_cycles=1))
+
+    # Must NOT fail — stamp recovered from handle.metadata
+    assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+    assert session_manager.started_requests == []
+    assert session_manager.sent_messages == [("sess-1", "continue after approval")]
+    assert not any(
+        "has no observed execution profile" in str(e.payload)
+        for e in event_sink.events
+        if e.event_type == "operation.status.changed"
+    )
 
 
 @pytest.mark.anyio
