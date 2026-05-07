@@ -529,15 +529,7 @@ class PolicyExecutor:
         observed = matching_session.execution_profile_stamp
         if observed is None:
             observed = execution_profile_stamp_from_handle(matching_session.handle)
-        if expected is not None and observed != expected:
-            if observed is None:
-                return _ContinuationResolution(
-                    error_summary=(
-                        f"Session {matching_session.handle.session_id} cannot continue because "
-                        "it has no observed execution profile, but adapter "
-                        f"{adapter_key!r} requires {expected.model}."
-                    )
-                )
+        if expected is not None and observed is not None and observed != expected:
             return _ContinuationResolution(
                 error_summary=(
                     f"Session {matching_session.handle.session_id} cannot continue because its "

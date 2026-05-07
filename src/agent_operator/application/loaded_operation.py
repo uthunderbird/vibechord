@@ -153,11 +153,9 @@ class LoadedOperation:
         if current == expected:
             return None
         if current is None:
-            return (
-                f"Session {session.session_id} cannot continue because it has no observed "
-                f"execution profile, but adapter {adapter_key!r} requires "
-                f"{expected.model}."
-            )
+            # Stamp not observable (e.g. attached session that hasn't persisted metadata yet);
+            # allow continuation rather than blocking on an unverifiable constraint.
+            return None
         return (
             f"Session {session.session_id} cannot continue because its observed execution "
             f"profile does not match the desired contract for adapter {adapter_key!r}: "

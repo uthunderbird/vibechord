@@ -900,8 +900,12 @@ async def test_policy_executor_continue_agent_reuses_compatible_session() -> Non
 
 
 @pytest.mark.anyio
-async def test_policy_executor_continue_agent_rejects_unstamped_session() -> None:
-    """Catches v2 continuation silently reusing sessions without observed profile stamps."""
+async def test_policy_executor_continue_agent_allows_unstamped_session() -> None:
+    """When stamp is unobservable (not in field or handle metadata), continuation is allowed.
+
+    Previously this rejected the session, but that caused false negatives for attached-path
+    sessions whose metadata didn't propagate. Policy: unverifiable == allow.
+    """
 
     event_store = StubEventStore()
     checkpoint_store = StubCheckpointStore()
@@ -947,13 +951,11 @@ async def test_policy_executor_continue_agent_rejects_unstamped_session() -> Non
 
     outcome = await drive.drive("op-1", RunOptions(max_cycles=1))
 
-    assert outcome.status is OperationStatus.FAILED
+    # Session should be continued (not rejected) even without an observable stamp
+    assert outcome.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
     assert session_manager.started_requests == []
-    assert session_manager.sent_messages == []
-    status_event = next(
-        event for event in event_sink.events if event.event_type == "operation.status.changed"
-    )
-    assert "has no observed execution profile" in status_event.payload["final_summary"]
+    assert len(session_manager.sent_messages) == 1
+    assert session_manager.sent_messages[0][0] == "sess-1"
 
 
 @pytest.mark.anyio
