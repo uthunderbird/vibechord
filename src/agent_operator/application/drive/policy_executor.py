@@ -744,6 +744,7 @@ class PolicyExecutor:
             executions=list(agg.executions),
             artifacts=list(agg.artifacts),
             recent_decisions=list(ctx.recent_decisions),
+            agent_turn_briefs=list(ctx.recent_agent_outputs),
             memory_entries=list(agg.memory_entries),
             permission_events=[dict(event) for event in agg.permission_events],
             current_focus=agg.current_focus,

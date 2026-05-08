@@ -35,6 +35,7 @@ from agent_operator.domain.operation import (
     RunOptions,
 )
 from agent_operator.domain.read_model import DecisionRecord
+from agent_operator.domain.traceability import AgentTurnBrief
 from agent_operator.protocols import EventSink, OperationEventStore
 from agent_operator.protocols.event_sourcing import OperationCheckpointStore
 from agent_operator.protocols.facts import FactStore
@@ -424,6 +425,7 @@ class DriveService:
         else:
             ctx = ProcessManagerContext()
         ctx.recent_decisions = self._recent_decisions_from_events(suffix_events)
+        ctx.recent_agent_outputs = self._recent_agent_outputs_from_events(suffix_events)
         return ctx
 
     def _recent_decisions_from_events(
@@ -452,6 +454,33 @@ class DriveService:
                 )
             )
         return records[-limit:]
+
+    def _recent_agent_outputs_from_events(
+        self,
+        events: Sequence[StoredOperationDomainEvent],
+        *,
+        limit: int = 5,
+    ) -> list[AgentTurnBrief]:
+        briefs: list[AgentTurnBrief] = []
+        for event in events:
+            if event.event_type != "agent.turn.completed":
+                continue
+            payload = event.payload
+            if not isinstance(payload, dict):
+                continue
+            briefs.append(
+                AgentTurnBrief(
+                    operation_id=event.operation_id,
+                    iteration=payload.get("iteration", 0),
+                    agent_key=payload.get("adapter_key", ""),
+                    session_id=payload.get("session_id", ""),
+                    assignment_brief=payload.get("task_id") or payload.get("adapter_key", ""),
+                    result_brief=payload.get("output_text"),
+                    status=payload.get("status", ""),
+                    created_at=event.timestamp,
+                )
+            )
+        return briefs[-limit:]
 
     async def _save_checkpoint(
         self, agg: OperationAggregate, last_sequence: int, epoch_id: int

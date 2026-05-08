@@ -153,6 +153,21 @@ def _serialize_recent_decisions(
     ]
 
 
+def _serialize_recent_agent_outputs(
+    state: OperationState,
+    limit: int = 5,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "iteration": brief.iteration,
+            "agent_key": brief.agent_key,
+            "status": brief.status,
+            "output_text": brief.result_brief or "",
+        }
+        for brief in state.agent_turn_briefs[-limit:]
+    ]
+
+
 def _serialize_tasks(state: OperationState) -> list[dict[str, object]]:
     tasks = sorted(state.tasks, key=lambda item: (-item.effective_priority, item.created_at))
     return [
@@ -504,6 +519,13 @@ def build_decision_prompt(state: OperationState) -> str:
         f"{_attention_requests_json(state, statuses={'answered'})}\n\n"
         "Recent decision history:\n"
         f"{json.dumps(_serialize_recent_decisions(state), ensure_ascii=True)}\n\n"
+        "Recent agent outputs (last agent turn output_text per iteration):\n"
+        "Use this to detect orientation loops (agent reads files and reports assessment without "
+        "making progress) and repeated identical outputs. If you see the same assessment text "
+        "appearing across multiple iterations without any task status change, the agent is stuck "
+        "and you should change strategy (e.g., provide a more specific directive, decompose the "
+        "task further, or escalate).\n"
+        f"{json.dumps(_serialize_recent_agent_outputs(state), ensure_ascii=True)}\n\n"
         "Recent iteration history:\n"
         f"{json.dumps(_serialize_recent_iterations(state), ensure_ascii=True)}"
     )

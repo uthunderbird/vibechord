@@ -14,6 +14,7 @@ from agent_operator.domain.operation import OperationState
 from agent_operator.domain.policy import PolicyCoverage
 from agent_operator.domain.policy_matching import assess_policy_coverage, policy_match_reasons
 from agent_operator.domain.read_model import DecisionRecord
+from agent_operator.domain.traceability import AgentTurnBrief
 from agent_operator.protocols.runtime import PolicyStore
 
 
@@ -37,6 +38,7 @@ class ProcessManagerContext:
     policy_context: PolicyCoverage | None = None
     available_agents: list[AgentDescriptor] = field(default_factory=list)
     recent_decisions: list[DecisionRecord] = field(default_factory=list)
+    recent_agent_outputs: list[AgentTurnBrief] = field(default_factory=list)
     session_contexts: dict[str, RuntimeSessionContext] = field(default_factory=dict)
     pending_replan_command_ids: list[str] = field(default_factory=list)
     orphan_check_completed: bool = False
