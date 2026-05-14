@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 Implementation grounding on 2026-05-02:
 
