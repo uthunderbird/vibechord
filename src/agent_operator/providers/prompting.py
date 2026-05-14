@@ -199,6 +199,7 @@ def _serialize_sessions(state: OperationState) -> list[dict[str, object]]:
             "display_name": record.handle.display_name,
             "session_name": record.handle.session_name,
             "one_shot": record.handle.one_shot,
+            "resumable": not record.handle.one_shot,
             "status": record.status.value,
             "bound_task_ids": record.bound_task_ids,
             "last_result_iteration": record.last_result_iteration,
@@ -460,6 +461,9 @@ def build_decision_prompt(state: OperationState) -> str:
         "session reuse, and invalid waits.\n"
         "When starting a new session, you may set session_name to a short human-readable name.\n"
         "Set one_shot=true for disposable runs that should not be resumed.\n"
+        "CRITICAL: Sessions with one_shot=true or resumable=false CANNOT be continued with "
+        "CONTINUE_AGENT — attempting to do so will fail. Use START_AGENT for a new session "
+        "instead.\n"
         f"{separate_phase_instruction}"
         f"{continuation_instruction}"
         f"{one_shot_instruction}"

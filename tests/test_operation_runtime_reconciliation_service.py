@@ -723,7 +723,7 @@ async def test_resume_marks_stale_background_run_as_failed() -> None:
             adapter_key="claude_acp",
             session_id="session-1",
             status=BackgroundRunStatus.RUNNING,
-            last_heartbeat_at=datetime.now(UTC) - timedelta(minutes=10),
+            last_heartbeat_at=datetime.now(UTC) - timedelta(hours=2),
         )
     )
     operation.current_focus = FocusState(

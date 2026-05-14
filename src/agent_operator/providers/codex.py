@@ -203,7 +203,48 @@ class CodexStructuredOutputProvider:
                     f"HTTP {response.status_code}: {text}"
                 )
             text = await _consume_sse_text(response)
-        return cast(dict[str, Any], httpx.Response(200, content=text.encode("utf-8")).json())
+        # Hot-fix 2026-05-11: brain (e.g. gpt-5.3-codex-spark) occasionally
+        # returns malformed JSON despite strict-schema mode. Retry once after
+        # surfacing the failing payload, then raise a typed error that the
+        # caller can translate to a soft FAILED iteration instead of a process
+        # crash. Tracked in
+        # docs/issues/codex-brain-returns-invalid-json-structured-output.md.
+        for attempt in (1, 2):
+            try:
+                return cast(
+                    dict[str, Any],
+                    httpx.Response(200, content=text.encode("utf-8")).json(),
+                )
+            except json.JSONDecodeError as exc:
+                import sys as _sys
+                preview = text[max(0, exc.pos - 80): exc.pos + 80]
+                print(
+                    f"WARN codex brain returned invalid JSON (attempt {attempt}, "
+                    f"pos={exc.pos}, len={len(text)}): {exc.msg} | preview={preview!r}",
+                    file=_sys.stderr, flush=True,
+                )
+                if attempt == 2:
+                    raise RuntimeError(
+                        f"Codex returned invalid JSON after retry "
+                        f"(pos={exc.pos}, len={len(text)}): {exc.msg}"
+                    ) from exc
+                # Retry the request once with the same body — Codex is
+                # nondeterministic, a second sample often succeeds.
+                async with (
+                    httpx.AsyncClient(timeout=self._httpx_timeout) as client,
+                    client.stream(
+                        "POST", self._base_url, headers=headers, json=body
+                    ) as response,
+                ):
+                    if response.status_code != 200:
+                        text2 = (await response.aread()).decode("utf-8", "ignore")
+                        raise RuntimeError(
+                            "Codex structured output retry failed with "
+                            f"HTTP {response.status_code}: {text2}"
+                        ) from None
+                    text = await _consume_sse_text(response)
+        # Unreachable, but keeps the type checker happy.
+        raise RuntimeError("codex structured output: unreachable retry loop exit")
 
 async def _consume_sse_text(response: httpx.Response) -> str:
     chunks: list[str] = []

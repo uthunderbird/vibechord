@@ -43,6 +43,12 @@ dev = [
     { name = "types-pyyaml" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "agent-client-protocol", specifier = ">=0.9.0" },
@@ -65,6 +71,12 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20250915" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "ruff", specifier = ">=0.15.8" },
+]
 
 [[package]]
 name = "annotated-doc"

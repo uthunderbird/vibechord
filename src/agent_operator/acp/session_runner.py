@@ -40,6 +40,7 @@ class AcpSessionState:
     # attached-turn timeout recovery (or explicit operator actions) to reconcile.
     assume_running: bool = False
     output_chunks: list[str] = field(default_factory=list)
+    tool_calls_summary: list[str] = field(default_factory=list)
     notifications: list[JsonObject] = field(default_factory=list)
     stop_reason: str | None = None
     last_error: str | None = None
@@ -254,6 +255,9 @@ class AcpSessionRunner:
             error = classification.error
             response = {}
         transcript = "".join(session.output_chunks)
+        if session.tool_calls_summary:
+            tools_line = "[Tools used this turn: " + ", ".join(session.tool_calls_summary) + "]"
+            transcript = (transcript + "\n\n" + tools_line) if transcript else tools_line
         raw_notifications = list(session.notifications)
         stderr = session.connection.stderr_text() if session.connection is not None else ""
         session.active_prompt = None
@@ -284,6 +288,9 @@ class AcpSessionRunner:
         session: AcpSessionState,
     ) -> AgentResult:
         transcript = "".join(session.output_chunks)
+        if session.tool_calls_summary:
+            tools_line = "[Tools used this turn: " + ", ".join(session.tool_calls_summary) + "]"
+            transcript = (transcript + "\n\n" + tools_line) if transcript else tools_line
         raw_notifications = list(session.notifications)
         stderr = session.connection.stderr_text() if session.connection is not None else ""
         pending_raw = session.pending_input_raw
@@ -461,7 +468,22 @@ class AcpSessionRunner:
             if not isinstance(update, dict):
                 continue
             self._apply_structured_session_update(session, params)
-            if update.get("sessionUpdate") not in {
+            session_update = update.get("sessionUpdate")
+            if isinstance(session_update, str) and session_update.startswith("tool_call"):
+                meta = update.get("_meta") or {}
+                cc = meta.get("claudeCode") or {} if isinstance(meta, dict) else {}
+                tool_name = cc.get("toolName", "") if isinstance(cc, dict) else ""
+                if tool_name:
+                    raw_input = update.get("rawInput") or {}
+                    detail = ""
+                    if isinstance(raw_input, dict):
+                        detail = (
+                            raw_input.get("file_path")
+                            or raw_input.get("command", "")[:80]
+                        )
+                    entry = f"{tool_name}({detail})" if detail else tool_name
+                    session.tool_calls_summary.append(entry)
+            if session_update not in {
                 "agent_message_chunk",
                 "agent_message",
                 "user_message_chunk",
@@ -473,6 +495,7 @@ class AcpSessionRunner:
 
     def _reset_session(self, session: AcpSessionState) -> None:
         session.output_chunks.clear()
+        session.tool_calls_summary.clear()
         session.notifications.clear()
         session.stop_reason = None
         session.last_error = None

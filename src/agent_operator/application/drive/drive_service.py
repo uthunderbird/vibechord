@@ -485,10 +485,30 @@ class DriveService:
     async def _save_checkpoint(
         self, agg: OperationAggregate, last_sequence: int, epoch_id: int
     ) -> None:
+        from agent_operator.domain.checkpoints import OperationCheckpoint
         from agent_operator.domain.event_sourcing import OperationCheckpointRecord
+        checkpoint = OperationCheckpoint(
+            operation_id=agg.operation_id,
+            objective=agg.objective,
+            status=agg.status,
+            tasks=list(agg.tasks),
+            sessions=list(agg.sessions),
+            executions=list(agg.executions),
+            attention_requests=list(agg.attention_requests),
+            scheduler_state=agg.scheduler_state,
+            operator_messages=list(agg.operator_messages),
+            allowed_agents=list(agg.allowed_agents),
+            execution_profile_overrides=dict(agg.execution_profile_overrides),
+            final_summary=agg.final_summary,
+            current_focus=agg.current_focus,
+            parked_execution=agg.parked_execution,
+            created_at=agg.created_at,
+            updated_at=agg.updated_at,
+            permission_events=list(agg.permission_events),
+        )
         record = OperationCheckpointRecord(
             operation_id=agg.operation_id,
-            checkpoint_payload={"status": agg.status.value, "operation_id": agg.operation_id},
+            checkpoint_payload=checkpoint.model_dump(mode="json"),
             last_applied_sequence=last_sequence,
             checkpoint_format_version=2,
         )

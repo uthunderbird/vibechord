@@ -75,7 +75,7 @@ from agent_operator.protocols import (
 
 
 class OperatorService:
-    _STALE_BACKGROUND_RUN_THRESHOLD = timedelta(seconds=90)
+    _STALE_BACKGROUND_RUN_THRESHOLD = timedelta(minutes=60)
 
     def __init__(
         self,

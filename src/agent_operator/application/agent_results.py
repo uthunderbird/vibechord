@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
@@ -38,6 +39,8 @@ from agent_operator.domain import (
     TaskState,
     TaskStatus,
 )
+
+_log = logging.getLogger(__name__)
 
 
 class AgentResultService:
@@ -539,9 +542,24 @@ class AgentResultService:
             and memory.scope_id == task.task_id
             and memory.freshness is MemoryFreshness.CURRENT
         ]
+        # Hot-fix 2026-05-11: brain (e.g. gpt-5.3-codex-spark) sometimes returns
+        # malformed `scope` values — observed `task:<uuid>` and full English
+        # sentences. Validate; on failure, fall back to TASK/task.task_id.
+        # Tracked in docs/issues/memoryscope-crash-on-malformed-brain-draft.md.
+        try:
+            coerced_scope = MemoryScope(draft.scope)
+            coerced_scope_id = draft.scope_id
+        except (ValueError, TypeError):
+            _log.warning(
+                "brain returned malformed memory scope %r (scope_id=%r); "
+                "falling back to TASK/%s for task %s",
+                draft.scope, draft.scope_id, task.task_id, task.task_id,
+            )
+            coerced_scope = MemoryScope.TASK
+            coerced_scope_id = task.task_id
         entry = MemoryEntry(
-            scope=MemoryScope(draft.scope),
-            scope_id=draft.scope_id,
+            scope=coerced_scope,
+            scope_id=coerced_scope_id,
             summary=draft.summary,
             source_refs=draft.source_refs
             or [MemorySourceRef(kind="artifact", ref_id=artifact.artifact_id)],
