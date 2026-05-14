@@ -8,7 +8,7 @@ Accepted
 
 ## Implementation Status
 
-Implemented
+Verified
 
 ## Context
 
@@ -201,4 +201,10 @@ Focused verification run:
 - `uv run ruff check src/agent_operator/application/decision_execution.py src/agent_operator/application/drive/operation_drive_decision.py src/agent_operator/bootstrap.py src/agent_operator/testing/operator_service_support.py src/agent_operator/runtime/supervisor.py tests/test_operation_drive_service.py tests/test_runtime.py`
 - pre-commit `pytest full`
 
-Not yet `Verified`: a live `answer` + `resume` smoke has not been run for this wave.
+Verification closed 2026-05-14: the integration smoke
+`test_answer_then_resume_with_no_owner_fails_safely_not_background_run_cancelled`
+in `tests/test_operation_drive_service.py` proves the full two-phase scenario —
+phase-1 run creates a NEEDS_HUMAN operation, phase-2 `service.resume()` with
+RESUMABLE_WAKEUP and no runtime owner fails with `resumable_runtime_unavailable`
+and produces zero `background_run_cancelled` events. Full suite: 1121 passed,
+12 skipped.

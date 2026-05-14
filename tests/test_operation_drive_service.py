@@ -27,6 +27,7 @@ from agent_operator.domain import (
 )
 from agent_operator.testing.operator_service_support import (
     AnswerThenStopBrain,
+    ClarificationBrain,
     DescriptorCapturingBrain,
     FakeAgent,
     FakeSupervisor,
@@ -370,6 +371,115 @@ async def test_resumable_wakeup_without_runtime_owner_fails_before_background_di
     assert outcome.status is OperationStatus.FAILED
     assert outcome.summary is not None
     assert "resumable_runtime_unavailable" in outcome.summary
+
+
+@pytest.mark.anyio
+async def test_answer_then_resume_with_no_owner_fails_safely_not_background_run_cancelled() -> None:
+    """Integration smoke for ADR 0224: answer + separate resume does not produce
+    background_run_cancelled when no runtime owner is available.
+
+    Simulates the failing scenario from the ADR:
+    1. An operation is blocked on an attention request (permission answered).
+    2. A separate operator resume/tick call dispatches RESUMABLE_WAKEUP.
+    3. The brain wants to START_AGENT after seeing the answer.
+    4. Without ADR 0224's guard this would spawn an asyncio.create_task() that
+       gets cancelled when the CLI process exits, recording background_run_cancelled.
+    5. With the guard: fails immediately with resumable_runtime_unavailable and
+       never reaches the background dispatcher.
+    """
+    store = MemoryStore()
+    event_sink = MemoryEventSink()
+    inbox = MemoryCommandInbox()
+
+    # Phase 1: run one resumable cycle until blocked on attention.
+    # Use RESUMABLE mode so the drive loop returns immediately when the brain requests
+    # clarification rather than blocking inline waiting for an in-process answer.
+    phase1_service = make_service(
+        brain=ClarificationBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=inbox,
+        wakeup_inbox=MemoryWakeupInbox(),
+    )
+    phase1_outcome = await phase1_service.run(
+        OperationGoal(objective="task needing permission"),
+        **run_settings(max_iterations=3, allowed_agents=["claude_acp"]),
+        options=RunOptions(run_mode=RunMode.RESUMABLE, max_cycles=1),
+    )
+    assert phase1_outcome.status is OperationStatus.NEEDS_HUMAN
+
+    operation_id = phase1_outcome.operation_id
+
+    # Phase 2: simulate operator answer (enqueue ANSWER_ATTENTION_REQUEST command).
+    op_state = await store.load_operation(operation_id)
+    assert op_state is not None
+    attention = next(a for a in op_state.attention_requests if a.blocking)
+    answer_command = OperationCommand(
+        operation_id=operation_id,
+        command_type=OperationCommandType.ANSWER_ATTENTION_REQUEST,
+        target_scope=CommandTargetScope.ATTENTION_REQUEST,
+        target_id=attention.attention_id,
+        payload={"text": "Approved — proceed."},
+    )
+    await inbox.enqueue(answer_command)
+
+    # Phase 3: simulate operator resume/tick as a separate CLI process.
+    # Brain returns START_AGENT (the post-answer next step), but no runtime owner is present.
+    # Without the ADR 0224 guard this would have spawned a doomed asyncio.create_task().
+
+    class StartAgentAfterAnswerBrain:
+        async def decide_next_action(self, state) -> BrainDecision:
+            return BrainDecision(
+                action_type=BrainActionType.START_AGENT,
+                target_agent="claude_acp",
+                instruction="Continue after permission was answered.",
+                rationale="Human approved — start the agent now.",
+            )
+
+        async def evaluate_result(self, state) -> Evaluation:
+            return Evaluation(goal_satisfied=False, should_continue=True, summary="continue")
+
+        async def summarize_progress(self, state) -> ProgressSummary:
+            return ProgressSummary(summary="summary")
+
+        async def normalize_artifact(self, goal, result) -> AgentResult:
+            return result
+
+    resume_event_sink = MemoryEventSink()
+    resume_service = make_service(
+        brain=StartAgentAfterAnswerBrain(),
+        store=store,
+        trace_store=MemoryTraceStore(),
+        event_sink=resume_event_sink,
+        agent_runtime_bindings=build_test_runtime_bindings({"claude_acp": FakeAgent()}),
+        command_inbox=inbox,
+        wakeup_inbox=MemoryWakeupInbox(),
+        supervisor=None,  # no runtime owner — the critical ADR 0224 condition
+    )
+
+    resume_outcome = await resume_service.resume(
+        operation_id,
+        options=RunOptions(
+            run_mode=RunMode.RESUMABLE,
+            background_runtime_mode=BackgroundRuntimeMode.RESUMABLE_WAKEUP,
+        ),
+    )
+
+    # Must fail with the explicit owner-unavailable error, NOT background_run_cancelled.
+    assert resume_outcome.status is OperationStatus.FAILED
+    assert resume_outcome.summary is not None
+    assert "resumable_runtime_unavailable" in resume_outcome.summary
+
+    # background_run_cancelled must not appear anywhere in the recorded events.
+    all_event_kinds = [e.kind.value if hasattr(e.kind, "value") else str(e.kind)
+                       for e in resume_event_sink.events]
+    all_summaries = [str(getattr(e, "payload", {})) for e in resume_event_sink.events]
+    assert not any("background_run_cancelled" in s for s in all_summaries), (
+        "background_run_cancelled must not appear after resume with no runtime owner; "
+        f"events: {all_event_kinds}"
+    )
 
 
 @pytest.mark.anyio
