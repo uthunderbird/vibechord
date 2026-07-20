@@ -93,6 +93,7 @@ prompt = sys.stdin.read()
 target = pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1])
 target.write_text('FINAL:' + prompt, encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'thread-1'}))
+print(json.dumps({'type': 'turn.started'}))
 print(json.dumps({'type': 'turn.completed'}))
 """,
         encoding="utf-8",
@@ -124,7 +125,13 @@ print(json.dumps({'type': 'turn.completed'}))
     events = [
         json.loads(line) for line in config.raw_stream_path.read_text().splitlines()
     ]
-    assert [event["type"] for event in events] == ["thread.started", "turn.completed"]
+    assert [event["type"] for event in events] == [
+        "thread.started",
+        "turn.started",
+        "turn.completed",
+    ]
+    assert adapter.receipt.execution_contract_sha256
+    assert adapter.receipt.terminal_event == "turn.completed"
 
 
 def test_codex_exec_adapter_rejects_malformed_jsonl(tmp_path: Path) -> None:
@@ -164,6 +171,58 @@ print('not-json')
     assert adapter.receipt.returncode == 0
 
 
+@pytest.mark.parametrize(
+    "event_types",
+    [
+        ["thread.started", "turn.completed"],
+        ["thread.started", "turn.started", "turn.failed"],
+        ["thread.started", "turn.started", "turn.aborted", "turn.completed"],
+        ["thread.started", "turn.started", "turn.completed", "turn.completed"],
+        [
+            "thread.started",
+            "turn.started",
+            "turn.started",
+            "turn.completed",
+        ],
+    ],
+)
+def test_codex_exec_adapter_requires_one_successful_terminal_turn(
+    tmp_path: Path, event_types: list[str]
+) -> None:
+    executable = tmp_path / "fake-codex"
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json,pathlib,sys\n"
+        "target=pathlib.Path(sys.argv[sys.argv.index('--output-last-message')+1])\n"
+        "target.write_text('invalid terminal stream')\n"
+        f"events={event_types!r}\n"
+        "for event_type in events: print(json.dumps({'type':event_type}))\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    adapter = CodexExecAdapter(
+        CodexExecConfig(
+            executable=executable,
+            working_directory=tmp_path,
+            codex_home=codex_home,
+            model="gpt-5.6-sol",
+            network_access=False,
+            environment={"PATH": str(Path(sys.executable).parent)},
+            raw_stream_path=tmp_path / "run.jsonl",
+            final_message_path=tmp_path / "final.txt",
+        )
+    )
+
+    result = adapter.invoke("codex-exec", "bounded task")
+
+    assert not result.success
+    assert adapter.receipt is not None
+    assert adapter.receipt.status == "protocol_error"
+    assert adapter.receipt.terminal_event is None
+
+
 def test_single_agent_brain_runs_codex_adapter_once(tmp_path: Path) -> None:
     executable = tmp_path / "fake-codex"
     executable.write_text(
@@ -176,6 +235,7 @@ prompt = sys.stdin.read()
 target = pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1])
 target.write_text('RESULT:' + prompt, encoding='utf-8')
 print(json.dumps({'type': 'thread.started', 'thread_id': 'thread-1'}))
+print(json.dumps({'type': 'turn.started'}))
 print(json.dumps({'type': 'turn.completed'}))
 """,
         encoding="utf-8",

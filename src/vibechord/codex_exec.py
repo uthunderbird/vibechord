@@ -85,6 +85,8 @@ class CodexExecReceipt:
     returncode: int | None
     error: str
     stderr_tail: str
+    execution_contract_sha256: str
+    terminal_event: str | None
     stream_sha256: str | None
     stream_bytes: int
     final_message_sha256: str | None
@@ -112,15 +114,19 @@ class CodexExecAdapter:
         config = self.config
         environment = dict(config.environment)
         environment["CODEX_HOME"] = str(config.codex_home)
+        command = self._command()
+        execution_contract_sha256 = _execution_contract_sha256(
+            command, environment, config.working_directory
+        )
         stderr_tail: deque[bytes] = deque()
         stderr_size = 0
         stream_size = 0
-        stream_events = 0
+        event_types: list[str] = []
         stream_error: str | None = None
 
         try:
             process = subprocess.Popen(
-                self._command(),
+                command,
                 cwd=config.working_directory,
                 env=environment,
                 stdin=subprocess.PIPE,
@@ -138,7 +144,7 @@ class CodexExecAdapter:
         process_stderr = process.stderr
 
         def drain_stdout() -> None:
-            nonlocal stream_error, stream_events, stream_size
+            nonlocal stream_error, stream_size
             try:
                 with config.raw_stream_path.open("xb") as stream:
                     for line in iter(process_stdout.readline, b""):
@@ -159,7 +165,11 @@ class CodexExecAdapter:
                         if not isinstance(payload, dict):
                             stream_error = "Codex JSONL events must be objects"
                             continue
-                        stream_events += 1
+                        event_type = payload.get("type")
+                        if not isinstance(event_type, str) or not event_type:
+                            stream_error = "Codex JSONL event has no valid type"
+                            continue
+                        event_types.append(event_type)
                     stream.flush()
                     os.fsync(stream.fileno())
             except OSError as exc:
@@ -194,11 +204,12 @@ class CodexExecAdapter:
             return self._failure(
                 "protocol_error", returncode, stream_error, stderr_text
             )
-        if stream_events == 0:
+        terminal_error = _terminal_sequence_error(event_types)
+        if terminal_error is not None:
             return self._failure(
                 "protocol_error",
                 returncode,
-                "Codex emitted no JSONL events",
+                terminal_error,
                 stderr_text,
             )
         try:
@@ -248,6 +259,8 @@ class CodexExecAdapter:
             returncode=returncode,
             error="",
             stderr_tail=stderr_text,
+            execution_contract_sha256=execution_contract_sha256,
+            terminal_event="turn.completed",
             stream_sha256=stream_sha256,
             stream_bytes=actual_stream_bytes,
             final_message_sha256=final_sha256,
@@ -269,6 +282,15 @@ class CodexExecAdapter:
             returncode=returncode,
             error=error,
             stderr_tail=stderr_tail,
+            execution_contract_sha256=_execution_contract_sha256(
+                self._command(),
+                {
+                    **self.config.environment,
+                    "CODEX_HOME": str(self.config.codex_home),
+                },
+                self.config.working_directory,
+            ),
+            terminal_event=None,
             stream_sha256=stream_sha256,
             stream_bytes=stream_bytes,
             final_message_sha256=final_sha256,
@@ -314,7 +336,6 @@ class CodexExecAdapter:
             "--output-last-message",
             str(config.final_message_path),
             "--strict-config",
-            "--ignore-user-config",
             "--ephemeral",
             "--color",
             "never",
@@ -345,3 +366,40 @@ def _file_evidence(path: Path) -> tuple[str | None, int]:
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
         return None, 0
     return hashlib.sha256(data).hexdigest(), len(data)
+
+
+def _terminal_sequence_error(event_types: list[str]) -> str | None:
+    required = ("thread.started", "turn.started", "turn.completed")
+    if any(event_types.count(event_type) != 1 for event_type in required):
+        return "Codex emitted an invalid terminal event sequence"
+    positions = tuple(event_types.index(event_type) for event_type in required)
+    if positions != tuple(sorted(positions)):
+        return "Codex emitted an invalid terminal event order"
+    if event_types[0] != "thread.started" or event_types[-1] != "turn.completed":
+        return "Codex terminal events do not bound exactly one turn"
+    if any(
+        event_type == "error"
+        or event_type.endswith(".failed")
+        or event_type.endswith(".aborted")
+        or event_type.endswith(".cancelled")
+        for event_type in event_types
+    ):
+        return "Codex emitted a failure or abort event"
+    return None
+
+
+def _execution_contract_sha256(
+    command: tuple[str, ...],
+    environment: Mapping[str, str],
+    working_directory: Path,
+) -> str:
+    encoded = json.dumps(
+        {
+            "argv": list(command),
+            "environment": dict(sorted(environment.items())),
+            "working_directory": str(working_directory),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
