@@ -171,6 +171,42 @@ class LocalRuleBrain:
         return BrainDecision(BrainAction.COMPLETE, message="completed")
 
 
+class SingleAgentBrain:
+    """Invoke one named agent once, then terminate deterministically.
+
+    Example:
+        >>> brain = SingleAgentBrain(agent_name="codex-exec")
+        >>> brain.decide(_snapshot()).action
+        <BrainAction.INVOKE_AGENT: 'invoke_agent'>
+    """
+
+    def __init__(self, agent_name: str) -> None:
+        """Create a deterministic one-agent brain."""
+
+        if not agent_name.strip():
+            raise ValueError("agent_name must not be empty")
+        self.agent_name = agent_name
+
+    def decide(self, snapshot: OperationSnapshot) -> BrainDecision:
+        """Invoke the configured agent once and complete after its success."""
+
+        if snapshot.last_agent_output is not None:
+            return BrainDecision(
+                BrainAction.COMPLETE,
+                message="agent execution completed",
+            )
+        if snapshot.agent_calls == 0:
+            return BrainDecision(
+                BrainAction.INVOKE_AGENT,
+                agent_name=self.agent_name,
+                agent_input=snapshot.goal,
+            )
+        return BrainDecision(
+            BrainAction.FAIL,
+            message="single-agent execution ended without a successful result",
+        )
+
+
 class AdapterGateway:
     """Single gateway for operator brain and external agent protocols."""
 

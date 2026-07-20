@@ -7,8 +7,8 @@ Current status: `verified local release gate`. The repository has a working
 stdlib-based operation-loop core, file-backed event store, CLI, REST surface,
 line-oriented terminal TUI runtime, pure TUI view/reducer layer, full-screen
 curses TUI runtime, public local Python SDK, MCP stdio/HTTP surface, fake
-adapters, process-agent adapter, process-brain adapter, OpenAI Responses brain
-adapter, and local verification gates.
+adapters, process-agent adapter, direct Codex exec adapter, process-brain
+adapter, OpenAI Responses brain adapter, and local verification gates.
 
 ## Product Direction
 
@@ -66,9 +66,9 @@ is a product target, not a claim about current implementation.
   slice, REST first slice with scoped bearer-token auth and local binding guard,
   pure TUI view/reducer slice, line-oriented terminal TUI runtime, full-screen
   curses TUI runtime, public local Python SDK, MCP stdio and HTTP POST
-  tools/resources/prompts/progress surface, local process-agent adapter, local
-  process-brain adapter, OpenAI Responses brain adapter, fake harness, release
-  docs, and local verification gates.
+  tools/resources/prompts/progress surface, local process-agent adapter, direct
+  Codex exec adapter, local process-brain adapter, OpenAI Responses brain
+  adapter, fake harness, release docs, and local verification gates.
 - `verified`: `uv run vibechord verify full` passes locally.
 - `planned`: none currently documented for the verified local release gate.
 - `blocked`: none currently.

@@ -72,14 +72,6 @@ class OperationDriver:
                     {"reason": "iteration_limit"},
                 )
                 continue
-            if snapshot.agent_calls >= effective_budget.max_agent_calls:
-                self.event_store.append(
-                    operation_id,
-                    "operation.failed",
-                    {"reason": "agent_call_limit"},
-                )
-                continue
-
             self.event_store.append(
                 operation_id,
                 "operation.iteration",

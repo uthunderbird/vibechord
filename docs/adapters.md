@@ -16,6 +16,24 @@ The adapter sends the agent input on stdin and maps stdout/stderr into an
 VIBECHORD_AGENT_COMMAND='python ./agent.py' uv run vibechord run "agent task"
 ```
 
+## Direct Codex Exec Adapter
+
+`CodexExecAdapter` runs one pinned Codex CLI execution through the existing
+`AgentAdapter` protocol. Its configuration requires an absolute executable,
+working directory, Codex home, complete environment, exact model, sandbox
+network policy, and unique JSONL/final-message artifact paths.
+
+The adapter always uses `codex exec --ephemeral --json`, disables ambient user
+configuration and optional features explicitly, validates every nonblank JSONL
+line, bounds retained artifacts, and requires a nonempty regular final-message
+file. It does not create a process group or implement retries, resume, or ACP;
+an enclosing supervisor remains responsible for whole-operation cancellation
+and descendant cleanup.
+
+`SingleAgentBrain` provides the matching deterministic operation policy: invoke
+one configured adapter once, complete after one successful result, and never
+wait, retry, request attention, or fan out.
+
 ## Brain Process Adapter
 
 Set `VIBECHORD_BRAIN_COMMAND` to run operator-brain decisions through a local
@@ -79,10 +97,11 @@ and missing decision content become explicit `fail` decisions.
 
 ## Verification
 
-Process adapter behavior, including native multi-worker decisions and parallel
-fan-out, is covered by `tests/test_core.py`. OpenAI adapter DTO mapping and
-failure behavior are covered by `tests/test_openai_adapter.py` without real
-network calls. Run the full local gate:
+Process adapter behavior, direct Codex JSONL/final-message validation,
+single-agent execution, native multi-worker decisions, and parallel fan-out are
+covered by `tests/test_core.py`. OpenAI adapter DTO mapping and failure behavior
+are covered by `tests/test_openai_adapter.py` without real network calls. Run
+the full local gate:
 
 ```sh
 uv run vibechord verify full

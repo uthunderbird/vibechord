@@ -24,6 +24,7 @@ Current evidence:
 | Operation loop handles completion, attention, limits, adapter failure | `tests/test_core.py` |
 | Operation loop records native multi-worker invocations, starts them before terminal events, invokes them concurrently, and projects outputs | `tests/test_core.py` |
 | Process-backed agent and brain adapters fail explicitly | `tests/test_core.py` |
+| Direct Codex exec validates bounded JSONL and final-message evidence and runs exactly once under the deterministic brain | `tests/test_core.py` |
 | OpenAI Responses brain adapter maps structured decisions and failures | `tests/test_openai_adapter.py` |
 | CLI JSON status/fleet/report are shared DTO surfaces | `tests/test_delivery.py` |
 | REST uses shared command/query paths and idempotency keys | `tests/test_delivery.py` |

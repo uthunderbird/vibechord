@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import threading
 from pathlib import Path
@@ -13,7 +14,9 @@ from vibechord.adapters import (
     ProcessBrain,
     ScriptedAgentAdapter,
     ScriptedBrain,
+    SingleAgentBrain,
 )
+from vibechord.codex_exec import CodexExecAdapter, CodexExecConfig
 from vibechord.command import CommandApplication
 from vibechord.domain import (
     AgentRequest,
@@ -49,6 +52,176 @@ def test_execution_budget_rejects_invalid_values() -> None:
         ExecutionBudget(max_iterations=0)
     with pytest.raises(ValueError, match="max_agent_calls"):
         ExecutionBudget(max_agent_calls=-1)
+
+
+def test_single_agent_brain_invokes_once_then_completes() -> None:
+    brain = SingleAgentBrain("codex-exec")
+    initial = OperationSnapshot(
+        operation_id="op-1",
+        goal="bounded task",
+        status=OperationStatus.RUNNING,
+        source_sequence=1,
+    )
+    invoked = brain.decide(initial)
+    assert invoked.action is BrainAction.INVOKE_AGENT
+    assert invoked.agent_name == "codex-exec"
+    assert invoked.agent_input == "bounded task"
+
+    completed = brain.decide(
+        OperationSnapshot(
+            operation_id="op-1",
+            goal="bounded task",
+            status=OperationStatus.RUNNING,
+            source_sequence=2,
+            agent_calls=1,
+            last_agent_output="done",
+        )
+    )
+    assert completed.action is BrainAction.COMPLETE
+    assert completed.message == "agent execution completed"
+
+
+def test_codex_exec_adapter_requires_jsonl_and_final_message(tmp_path: Path) -> None:
+    executable = tmp_path / "fake-codex"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+prompt = sys.stdin.read()
+target = pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1])
+target.write_text('FINAL:' + prompt, encoding='utf-8')
+print(json.dumps({'type': 'thread.started', 'thread_id': 'thread-1'}))
+print(json.dumps({'type': 'turn.completed'}))
+""",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    config = CodexExecConfig(
+        executable=executable,
+        working_directory=tmp_path,
+        codex_home=codex_home,
+        model="gpt-5.6-sol",
+        network_access=False,
+        environment={"PATH": str(Path(sys.executable).parent)},
+        raw_stream_path=tmp_path / "run.jsonl",
+        final_message_path=tmp_path / "final.txt",
+    )
+
+    adapter = CodexExecAdapter(config)
+    result = adapter.invoke("codex-exec", "bounded task")
+
+    assert result.success
+    assert result.output == "FINAL:bounded task"
+    assert adapter.receipt is not None
+    assert adapter.receipt.status == "completed"
+    assert adapter.receipt.returncode == 0
+    assert adapter.receipt.stream_sha256 is not None
+    assert adapter.receipt.final_message_sha256 is not None
+    events = [
+        json.loads(line) for line in config.raw_stream_path.read_text().splitlines()
+    ]
+    assert [event["type"] for event in events] == ["thread.started", "turn.completed"]
+
+
+def test_codex_exec_adapter_rejects_malformed_jsonl(tmp_path: Path) -> None:
+    executable = tmp_path / "fake-codex"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import pathlib
+import sys
+
+target = pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1])
+target.write_text('not enough', encoding='utf-8')
+print('not-json')
+""",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    config = CodexExecConfig(
+        executable=executable,
+        working_directory=tmp_path,
+        codex_home=codex_home,
+        model="gpt-5.6-sol",
+        network_access=False,
+        environment={"PATH": str(Path(sys.executable).parent)},
+        raw_stream_path=tmp_path / "run.jsonl",
+        final_message_path=tmp_path / "final.txt",
+    )
+
+    adapter = CodexExecAdapter(config)
+    result = adapter.invoke("codex-exec", "bounded task")
+
+    assert not result.success
+    assert result.error == "Codex emitted malformed JSONL"
+    assert adapter.receipt is not None
+    assert adapter.receipt.status == "protocol_error"
+    assert adapter.receipt.returncode == 0
+
+
+def test_single_agent_brain_runs_codex_adapter_once(tmp_path: Path) -> None:
+    executable = tmp_path / "fake-codex"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+prompt = sys.stdin.read()
+target = pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1])
+target.write_text('RESULT:' + prompt, encoding='utf-8')
+print(json.dumps({'type': 'thread.started', 'thread_id': 'thread-1'}))
+print(json.dumps({'type': 'turn.completed'}))
+""",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    store, command_app, projection = _app(tmp_path)
+    command_app.apply(
+        OperationCommand(
+            name=CommandName.START,
+            command_id="start",
+            operation_id="op-1",
+            payload={"goal": "one bounded tranche"},
+        )
+    )
+    adapter = CodexExecAdapter(
+        CodexExecConfig(
+            executable=executable,
+            working_directory=tmp_path,
+            codex_home=codex_home,
+            model="gpt-5.6-sol",
+            network_access=False,
+            environment={"PATH": str(Path(sys.executable).parent)},
+            raw_stream_path=tmp_path / "run.jsonl",
+            final_message_path=tmp_path / "final.txt",
+        )
+    )
+    driver = OperationDriver(
+        store,
+        projection,
+        AdapterGateway(SingleAgentBrain("codex-exec"), adapter),
+    )
+
+    result = driver.run_until_blocked_or_terminal(
+        "op-1", ExecutionBudget(max_iterations=2, max_agent_calls=1)
+    )
+
+    assert result.status == "completed"
+    assert result.iterations == 2
+    assert projection.status("op-1").last_agent_output == "RESULT:one bounded tranche"
+    event_kinds = [event.kind for event in store.replay("op-1")]
+    assert event_kinds.count("agent.invocation.started") == 1
+    assert event_kinds.count("agent.invocation.finished") == 1
+    assert adapter.receipt is not None
+    assert adapter.receipt.status == "completed"
 
 
 def test_start_command_appends_metadata_and_replay_builds_status(
